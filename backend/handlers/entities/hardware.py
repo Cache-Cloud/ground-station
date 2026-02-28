@@ -412,6 +412,8 @@ async def _fetch_sdr_parameters(dbsession, sdr_id, timeout=30.0):
             sdr_params = sdr_params_reply["data"]
 
             logger.debug("Got SDR parameters from UHD/USRP: %s", sdr_params)
+            for log_line in sdr_params_reply["log"]:
+                logger.info(log_line)
 
             window_function_names = list(window_functions.keys())
             fft_size_values = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]

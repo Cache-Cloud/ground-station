@@ -529,11 +529,15 @@ def probe_local_uhd_usrp(sdr_details):
                     try:
                         # Some USRPs have a ref_locked sensor
                         sensors = usrp.get_mboard_sensor_names(0)
+                        reply["log"].append(f"INFO: Mboard sensors: {list(sensors)}")
                         if "ref_locked" in sensors:
                             ref_locked = usrp.get_mboard_sensor("ref_locked", 0)
                             clock_info["ref_locked"] = ref_locked.to_bool()
                             capabilities["sensors"].append("ref_locked")
                             capabilities["sensor_values"]["ref_locked"] = ref_locked.to_bool()
+                            reply["log"].append(
+                                f"INFO: ref_locked sensor value: {capabilities['sensor_values']['ref_locked']}"
+                            )
                             reply["log"].append(
                                 f"INFO: Reference locked: {clock_info['ref_locked']}"
                             )
