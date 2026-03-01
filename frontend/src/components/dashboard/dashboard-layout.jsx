@@ -75,6 +75,7 @@ import ConnectionOverlay from "./reconnecting-overlay.jsx";
 import SatelliteInfoPopover from "./target-popover.jsx";
 import VersionInfo from "./version-info.jsx";
 import VersionUpdateOverlay from "./version-update-overlay.jsx";
+import UpdateIndicator from "./update-indicator.jsx";
 import PerformanceMetricsDialog from "../performance/performance-metrics-dialog.jsx";
 import BackgroundTasksPopover from "../tasks/tasks-popover.jsx";
 import MenuIcon from '@mui/icons-material/Menu';
@@ -227,7 +228,10 @@ function CustomAppTitle() {
                                     display: 'block',
                                 },
                             }}>
-                                <VersionInfo minimal={true}/>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                    <VersionInfo minimal={true}/>
+                                    <UpdateIndicator />
+                                </Stack>
                             </Box>
                         </Box>
                     </Box>

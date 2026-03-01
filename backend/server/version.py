@@ -1,10 +1,14 @@
 import json
 import os
 import platform
+import re
 import subprocess
+import time
 from datetime import datetime, timezone
+from typing import Any, Optional, TypedDict, cast
 
 import psutil
+import requests
 
 from common.logger import logger
 
@@ -14,8 +18,121 @@ VERSION_JSON_PATH = os.path.join(os.path.dirname(__file__), "version.json")
 # Path to store version info during build
 VERSION_FILE_PATH = os.path.join(os.path.dirname(__file__), "version-info.json")
 
+
 # Singleton instance of version info
+class UpdateCheckData(TypedDict):
+    currentVersion: str
+    latestVersion: str
+    latestTag: Optional[str]
+    latestUrl: Optional[str]
+    publishedAt: Optional[str]
+    isUpdateAvailable: bool
+
+
+class UpdateCheckCache(TypedDict):
+    timestamp: float
+    data: Optional[UpdateCheckData]
+
+
 _version_info = None
+_update_check_cache: UpdateCheckCache = {"timestamp": 0.0, "data": None}
+
+# GitHub releases endpoint (public)
+GITHUB_RELEASES_URL = "https://api.github.com/repos/sgoudelis/ground-station/releases/latest"
+
+
+def _normalize_version(raw: str) -> str:
+    """Normalize a version string to 'major.minor.patch' if possible."""
+    if not raw:
+        return "0.0.0"
+    value = raw.strip()
+    if value.startswith(("v", "V")):
+        value = value[1:]
+    # Drop build metadata and pre-release suffixes
+    value = value.split("+", 1)[0].split("-", 1)[0]
+    # Keep only digits and dots
+    value = re.sub(r"[^0-9.]", "", value)
+    # Ensure at least 3 segments
+    parts = [p for p in value.split(".") if p != ""]
+    while len(parts) < 3:
+        parts.append("0")
+    return ".".join(parts[:3]) if parts else "0.0.0"
+
+
+def _compare_versions(a: str, b: str) -> int:
+    """Compare two normalized semantic versions. Returns 1 if a>b, -1 if a<b, 0 if equal."""
+
+    def to_tuple(v: str) -> tuple[int, int, int]:
+        parts = v.split(".")
+        nums = []
+        for part in parts[:3]:
+            try:
+                nums.append(int(part))
+            except ValueError:
+                nums.append(0)
+        while len(nums) < 3:
+            nums.append(0)
+        return (nums[0], nums[1], nums[2])
+
+    ta = to_tuple(_normalize_version(a))
+    tb = to_tuple(_normalize_version(b))
+    if ta > tb:
+        return 1
+    if ta < tb:
+        return -1
+    return 0
+
+
+def _fetch_latest_release() -> dict[str, Any]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ground-station",
+    }
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    response = requests.get(GITHUB_RELEASES_URL, headers=headers, timeout=5)
+    response.raise_for_status()
+    return cast(dict[str, Any], response.json())
+
+
+def get_update_check(cache_ttl_seconds: int = 21600) -> UpdateCheckData:
+    """Return update availability based on GitHub releases with in-memory caching."""
+    now = time.time()
+    cached = _update_check_cache.get("data")
+    if cached and now - _update_check_cache["timestamp"] < cache_ttl_seconds:
+        return cached
+
+    current_base = _normalize_version(get_version_base())
+    data: UpdateCheckData = {
+        "currentVersion": current_base,
+        "latestVersion": current_base,
+        "latestTag": None,
+        "latestUrl": None,
+        "publishedAt": None,
+        "isUpdateAvailable": False,
+    }
+
+    try:
+        release = _fetch_latest_release()
+        tag = release.get("tag_name") or release.get("name") or ""
+        latest_version = _normalize_version(tag)
+        data.update(
+            {
+                "latestVersion": latest_version,
+                "latestTag": tag or None,
+                "latestUrl": release.get("html_url"),
+                "publishedAt": release.get("published_at"),
+                "isUpdateAvailable": _compare_versions(latest_version, current_base) > 0,
+            }
+        )
+    except Exception as exc:
+        logger.warning(f"Update check failed: {exc}")
+
+    _update_check_cache["timestamp"] = now
+    _update_check_cache["data"] = data
+    return data
 
 
 def get_version_base():

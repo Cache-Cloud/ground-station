@@ -33,7 +33,7 @@ from server.firsttime import first_time_initialization, run_initial_sync
 from server.scheduler import run_initial_observation_generation, start_scheduler, stop_scheduler
 from server.sessionsnapshot import start_session_runtime_emitter
 from server.systeminfo import start_system_info_emitter
-from server.version import get_full_version_info
+from server.version import get_full_version_info, get_update_check
 from tasks.manager import BackgroundTaskManager
 from tracker.messages import handle_tracker_messages
 from tracker.runner import get_tracker_manager, start_tracker_process
@@ -255,6 +255,18 @@ async def get_version():
         logger.error(f"Error retrieving version information: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to retrieve version information: {str(e)}"
+        )
+
+
+@app.get("/api/update-check")
+async def update_check():
+    """Return update availability based on GitHub releases."""
+    try:
+        return get_update_check()
+    except Exception as e:
+        logger.error(f"Error retrieving update information: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve update information: {str(e)}"
         )
 
 

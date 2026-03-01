@@ -38,6 +38,7 @@ import waterfallReducer from '../waterfall/waterfall-slice.jsx';
 import vfoReducer from '../waterfall/vfo-marker/vfo-slice.jsx';
 import sdrsReducer from '../hardware/sdr-slice.jsx';
 import versionReducer from "../dashboard/version-slice.jsx";
+import updateCheckReducer from "../dashboard/update-slice.jsx";
 import fileBrowserReducer from '../filebrowser/filebrowser-slice.jsx';
 import decodersReducer from '../decoders/decoders-slice.jsx';
 import libraryVersionsReducer from '../settings/library-versions-slice.jsx';
@@ -191,6 +192,13 @@ const versionInfoConfig = {
     whitelist: []
 };
 
+// Persist configuration for update check slice (runtime only)
+const updateCheckConfig = {
+    key: 'updateCheck',
+    storage,
+    whitelist: []
+};
+
 // Persist configuration for file browser slice
 const fileBrowserPersistConfig = {
     key: 'filebrowser',
@@ -265,6 +273,7 @@ const persistedDashboardReducer = persistReducer(dashboardPersistConfig, dashboa
 const persistedCameraReducer = persistReducer(cameraPersistConfig, cameraReducer);
 const persistedSdrReducer = persistReducer(sdrPersistConfig, sdrsReducer);
 const persistedVersionInfoReducer = persistReducer(versionInfoConfig, versionReducer);
+const persistedUpdateCheckReducer = persistReducer(updateCheckConfig, updateCheckReducer);
 const persistedFileBrowserReducer = persistReducer(fileBrowserPersistConfig, fileBrowserReducer);
 const persistedDecodersReducer = persistReducer(decodersPersistConfig, decodersReducer);
 const persistedLibraryVersionsReducer = persistReducer(libraryVersionsPersistConfig, libraryVersionsReducer);
@@ -293,6 +302,7 @@ export const store = configureStore({
         cameras: persistedCameraReducer,
         sdrs: persistedSdrReducer,
         version: persistedVersionInfoReducer,
+        updateCheck: persistedUpdateCheckReducer,
         filebrowser: persistedFileBrowserReducer,
         decoders: persistedDecodersReducer,
         libraryVersions: persistedLibraryVersionsReducer,
