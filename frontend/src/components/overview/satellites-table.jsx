@@ -23,7 +23,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { DataGrid, gridClasses } from "@mui/x-data-grid";
 import { useGridApiRef } from '@mui/x-data-grid';
 import { alpha, styled } from '@mui/material/styles';
-import {Typography, Chip, Tooltip, Box, Button, useMediaQuery, useTheme} from "@mui/material";
+import {Typography, Tooltip, Box, Button, useMediaQuery, useTheme} from "@mui/material";
 import {
     getClassNamesBasedOnGridEditing,
     humanizeDate,
@@ -117,6 +117,7 @@ const StyledDataGrid = styled(DataGrid)(({ theme }) => ({
 const MemoizedStyledDataGrid = React.memo(({
                                                apiRef,
                                                satellites,
+                                               quickFilterPreset,
                                                onRowClick,
                                                onRowDoubleClick,
                                                selectedSatelliteId,
@@ -136,6 +137,7 @@ const MemoizedStyledDataGrid = React.memo(({
     const isCompactView = useMediaQuery(theme.breakpoints.down('md'));
     const [page, setPage] = useState(0);
     const { timezone, locale } = useUserTimeSettings();
+    const [positionTick, setPositionTick] = useState(0);
 
     const formatDate = useCallback((dateString) => {
         if (!dateString) return t('satellites_table.na');
@@ -150,6 +152,40 @@ const MemoizedStyledDataGrid = React.memo(({
         }
     }, [locale, t, timezone]);
 
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            setPositionTick((v) => v + 1);
+        }, 2000);
+        return () => clearInterval(intervalId);
+    }, []);
+
+    const dynamicRows = React.useMemo(() => {
+        const positions = selectedSatellitePositionsRef.current();
+        return (satellites || []).map((satellite) => ({
+            ...satellite,
+            elevation: positions?.[satellite.norad_id]?.el ?? null,
+            trend: positions?.[satellite.norad_id]?.trend ?? null,
+            visibility: getVisibilityState(positions?.[satellite.norad_id]?.el ?? null),
+            active_tx_count: (satellite.transmitters || []).filter((tx) => tx.alive).length,
+        }));
+    }, [satellites, selectedSatellitePositionsRef, positionTick]);
+
+    const filteredSatellites = React.useMemo(() => {
+        if (quickFilterPreset === 'visible') {
+            return dynamicRows.filter((row) => row.visibility === 'visible');
+        }
+        if (quickFilterPreset === 'rising') {
+            return dynamicRows.filter((row) => row.visibility === 'visible' && row.trend === 'rising');
+        }
+        if (quickFilterPreset === 'activeTx') {
+            return dynamicRows.filter((row) => (row.active_tx_count || 0) > 0);
+        }
+        if (quickFilterPreset === 'decayed') {
+            return dynamicRows.filter((row) => !!row.decayed || row.status === 'dead' || row.status === 're-entered');
+        }
+        return dynamicRows;
+    }, [dynamicRows, quickFilterPreset]);
+
     const columns = React.useMemo(() => [
         {
             field: 'name',
@@ -159,31 +195,25 @@ const MemoizedStyledDataGrid = React.memo(({
             renderCell: (params) => {
                 if (!params || !params.row) return <Typography>-</Typography>;
                 const isTracked = selectedSatelliteId === params.row.norad_id;
-                const tooltipText = [
-                    params.row.alternative_name,
-                    params.row.name_other
-                ].filter(Boolean).join(' / ') || t('satellites_table.no_alternative_names');
                 return (
-                    <Tooltip title={tooltipText}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', width: '100%', minWidth: 0 }}>
-                            {isTracked && (
-                                <GpsFixedIcon sx={{ mr: 0.5, fontSize: '1.3rem', color: 'info.main', verticalAlign: 'middle' }} />
-                            )}
-                            <Typography
-                                component="span"
-                                variant="body2"
-                                sx={{
-                                    fontWeight: 700,
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    lineHeight: 1.2,
-                                }}
-                            >
-                                {params.value || '-'}
-                            </Typography>
-                        </Box>
-                    </Tooltip>
+                    <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', width: '100%', minWidth: 0 }}>
+                        {isTracked && (
+                            <GpsFixedIcon sx={{ mr: 0.5, fontSize: '1.3rem', color: 'info.main', verticalAlign: 'middle' }} />
+                        )}
+                        <Typography
+                            component="span"
+                            variant="body2"
+                            sx={{
+                                fontWeight: 700,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                lineHeight: 1.2,
+                            }}
+                        >
+                            {params.value || '-'}
+                        </Typography>
+                    </Box>
                 );
             }
         },
@@ -194,11 +224,7 @@ const MemoizedStyledDataGrid = React.memo(({
             flex: 2,
             renderCell: (params) => {
                 if (!params || !params.row) return <Typography>-</Typography>;
-                return (
-                    <Tooltip title={params.row.name_other || ''}>
-                        <span>{params.value || '-'}</span>
-                    </Tooltip>
-                );
+                return <span>{params.value || '-'}</span>;
             }
         },
         {
@@ -245,12 +271,12 @@ const MemoizedStyledDataGrid = React.memo(({
             renderCell: (params) => {
                 const visibility = params.value || 'unknown';
                 if (visibility === 'visible') {
-                    return <Chip label={t('satellites_table.visible', { defaultValue: 'Visible' })} color="success" size="small" sx={{ fontWeight: 700 }} />;
+                    return <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 700 }}>{t('satellites_table.visible', { defaultValue: 'Visible' })}</Typography>;
                 }
                 if (visibility === 'below') {
-                    return <Chip label={t('satellites_table.below_horizon', { defaultValue: 'Below Horizon' })} color="info" size="small" variant="outlined" sx={{ fontWeight: 700 }} />;
+                    return <Typography variant="caption" sx={{ color: 'info.main', fontWeight: 700 }}>{t('satellites_table.below_horizon', { defaultValue: 'Below Horizon' })}</Typography>;
                 }
-                return <Chip label={t('satellites_table.status_unknown')} size="small" variant="outlined" sx={{ fontWeight: 700 }} />;
+                return <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>{t('satellites_table.status_unknown')}</Typography>;
             }
         },
         {
@@ -262,19 +288,7 @@ const MemoizedStyledDataGrid = React.memo(({
             flex: 1,
             renderCell: (params) => {
                 if (!params || !params.value) {
-                    return <Chip
-                        label={t('satellites_table.status_unknown')}
-                        color="default"
-                        size="small"
-                        sx={{
-                            fontWeight: 'bold',
-                            height: '20px',
-                            fontSize: '0.7rem',
-                            '& .MuiChip-label': {
-                                padding: '0 8px 0px 8px'
-                            }
-                        }}
-                    />;
+                    return <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>{t('satellites_table.status_unknown')}</Typography>;
                 }
 
                 const status = params.value;
@@ -299,22 +313,14 @@ const MemoizedStyledDataGrid = React.memo(({
                         label = t('satellites_table.status_unknown');
                 }
 
-                return (
-                    <Chip
-                        label={label}
-                        color={color}
-                        size="small"
-                        sx={{
-                            fontWeight: 'bold',
-                            height: '20px',
-                            fontSize: '0.7rem',
-                            '& .MuiChip-label': {
-                                padding: '0px 8px 0px 8px'
-                            }
-                        }}
-                    />
-
-                );
+                const textColor = color === 'success'
+                    ? 'success.main'
+                    : color === 'error'
+                        ? 'error.main'
+                        : color === 'warning'
+                            ? 'warning.main'
+                            : 'text.secondary';
+                return <Typography variant="caption" sx={{ color: textColor, fontWeight: 700 }}>{label}</Typography>;
             }
         },
         {
@@ -329,20 +335,12 @@ const MemoizedStyledDataGrid = React.memo(({
 
                 const transmitters = params.row.transmitters;
                 const aliveCount = transmitters.filter(t => t.alive).length;
-                const deadCount = transmitters.length - aliveCount;
                 const total = transmitters.length;
                 const hasNoActive = aliveCount === 0;
-
                 return (
-                    <Tooltip title={`${aliveCount}/${total} · ${deadCount} off`}>
-                        <Chip
-                            size="small"
-                            color={hasNoActive ? 'error' : 'success'}
-                            variant={hasNoActive ? 'outlined' : 'filled'}
-                            label={`${aliveCount}/${total}`}
-                            sx={{ fontWeight: 700, height: 20 }}
-                        />
-                    </Tooltip>
+                    <Typography variant="caption" sx={{ color: hasNoActive ? 'error.main' : 'success.main', fontWeight: 700 }}>
+                        {aliveCount}/{total}
+                    </Typography>
                 );
             }
         },
@@ -408,7 +406,7 @@ const MemoizedStyledDataGrid = React.memo(({
                 return <span>{formatDate(params.value)}</span>;
             }
         }
-    ], [formatDate, selectedSatelliteId, selectedSatellitePositionsRef, t]);
+    ], [formatDate, selectedSatelliteId, t]);
 
     const effectiveColumnVisibility = React.useMemo(() => {
         const base = {
@@ -438,13 +436,13 @@ const MemoizedStyledDataGrid = React.memo(({
         const status = params.row.status;
         if (status === 'dead' || status === 're-entered') return "satellite-row-dead pointer-cursor";
 
-        const visibility = params.row.visibility || getVisibilityState(params.row.elevation);
+        const visibility = getVisibilityState(params.row.elevation);
         if (visibility === 'visible') return "satellite-row-visible pointer-cursor";
         if (visibility === 'below') return "satellite-row-below pointer-cursor";
         if (visibility === 'unknown') return "satellite-row-unknown pointer-cursor";
 
         return "pointer-cursor";
-    }, [selectedSatelliteId]);
+    }, [selectedSatelliteId, positionTick]);
 
     const getRowId = useCallback((params) => params.norad_id, []);
 
@@ -479,7 +477,7 @@ const MemoizedStyledDataGrid = React.memo(({
                 },
             }}
             density={"compact"}
-            rows={satellites || []}
+            rows={filteredSatellites}
             paginationModel={{
                 pageSize: pageSize,
                 page: page,
@@ -488,7 +486,7 @@ const MemoizedStyledDataGrid = React.memo(({
             sortModel={sortModel}
             onSortModelChange={onSortModelChange}
             columns={columns}
-            pinnedColumns={isCompactView ? { left: ['name'], right: ['elevation'] } : { left: ['name', 'norad_id'], right: ['elevation', 'status'] }}
+            pinnedColumns={isCompactView ? { left: ['name'], right: [] } : { left: ['name'], right: ['elevation'] }}
         />
     );
 });
@@ -561,69 +559,27 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
         }
     }, [columnVisibility]);
 
-    // Add elevation to rows for sorting, but use useMemo to prevent unnecessary recalculations
-    const satelliteRows = React.useMemo(() => {
+    const filteredCountLabel = React.useMemo(() => {
         const positions = selectedSatellitePositionsRef.current();
-        return (selectedSatellites || []).map(satellite => ({
-            ...satellite,
-            elevation: positions?.[satellite.norad_id]?.el ?? null,
-            trend: positions?.[satellite.norad_id]?.trend ?? null,
-            visibility: getVisibilityState(positions?.[satellite.norad_id]?.el ?? null),
-            active_tx_count: (satellite.transmitters || []).filter((tx) => tx.alive).length,
-        }));
-    }, [selectedSatellites, selectedSatellitePositionsRef]);
-
-    const filteredSatelliteRows = React.useMemo(() => {
+        const rows = selectedSatellites || [];
         if (quickFilterPreset === 'visible') {
-            return satelliteRows.filter((row) => row.visibility === 'visible');
+            return rows.filter((row) => getVisibilityState(positions?.[row.norad_id]?.el ?? null) === 'visible').length;
         }
         if (quickFilterPreset === 'rising') {
-            return satelliteRows.filter((row) => row.visibility === 'visible' && row.trend === 'rising');
+            return rows.filter((row) => {
+                const visibility = getVisibilityState(positions?.[row.norad_id]?.el ?? null);
+                const trend = positions?.[row.norad_id]?.trend ?? null;
+                return visibility === 'visible' && trend === 'rising';
+            }).length;
         }
         if (quickFilterPreset === 'activeTx') {
-            return satelliteRows.filter((row) => (row.active_tx_count || 0) > 0);
+            return rows.filter((row) => (row.transmitters || []).some((tx) => tx.alive)).length;
         }
         if (quickFilterPreset === 'decayed') {
-            return satelliteRows.filter((row) => !!row.decayed || row.status === 'dead' || row.status === 're-entered');
+            return rows.filter((row) => !!row.decayed || row.status === 'dead' || row.status === 're-entered').length;
         }
-        return satelliteRows;
-    }, [satelliteRows, quickFilterPreset]);
-
-    // Update rows with latest elevation data using apiRef to avoid full re-renders
-    useEffect(() => {
-        if (!apiRef.current?.updateRows || !satelliteRows.length) return;
-
-        const updateElevations = () => {
-            const positions = selectedSatellitePositionsRef.current();
-            const sortedIds = apiRef.current.getSortedRowIds?.() ?? satelliteRows.map((row) => row.norad_id);
-            const model = apiRef.current.state?.pagination?.paginationModel;
-            const currentPage = model?.page ?? 0;
-            const currentPageSize = model?.pageSize ?? satellitesTablePageSize;
-            const start = currentPage * currentPageSize;
-            const visibleIds = sortedIds.slice(start, start + currentPageSize);
-
-            visibleIds.forEach((noradId) => {
-                const elevation = positions?.[noradId]?.el;
-                const trend = positions?.[noradId]?.trend;
-                if (elevation !== undefined) {
-                    apiRef.current.updateRows([{
-                        norad_id: noradId,
-                        elevation,
-                        trend,
-                        visibility: getVisibilityState(elevation),
-                    }]);
-                }
-            });
-        };
-
-        // Initial update
-        updateElevations();
-
-        // Set up periodic updates every 2 seconds
-        const interval = setInterval(updateElevations, 2000);
-
-        return () => clearInterval(interval);
-    }, [selectedSatellites, apiRef, satelliteRows, satellitesTablePageSize, selectedSatellitePositionsRef]);
+        return rows.length;
+    }, [selectedSatellites, quickFilterPreset, selectedSatellitePositionsRef]);
 
     useEffect(() => {
         dispatch(fetchSatelliteGroups({socket}))
@@ -751,45 +707,25 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
                 <Box sx={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', height: '100%'}}>
                     <Box sx={{display: 'flex', alignItems: 'center'}}>
                         <Typography variant="subtitle2" sx={{fontWeight: 'bold'}}>
-                            {t('satellites_table.title')} ({filteredSatelliteRows.length}/{selectedSatellites?.length || 0})
+                            {t('satellites_table.title')} ({filteredCountLabel}/{selectedSatellites?.length || 0})
                         </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                        <Tooltip title="Alt+1">
-                            <span>
-                                <Button size="small" variant={quickFilterPreset === 'all' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('all')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
-                                    All
-                                </Button>
-                            </span>
-                        </Tooltip>
-                        <Tooltip title="Alt+2">
-                            <span>
-                                <Button size="small" variant={quickFilterPreset === 'visible' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('visible')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
-                                    Visible
-                                </Button>
-                            </span>
-                        </Tooltip>
-                        <Tooltip title="Alt+3">
-                            <span>
-                                <Button size="small" variant={quickFilterPreset === 'rising' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('rising')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
-                                    Rising
-                                </Button>
-                            </span>
-                        </Tooltip>
-                        <Tooltip title="Alt+4">
-                            <span>
-                                <Button size="small" variant={quickFilterPreset === 'activeTx' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('activeTx')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
-                                    Active TX
-                                </Button>
-                            </span>
-                        </Tooltip>
-                        <Tooltip title="Alt+5">
-                            <span>
-                                <Button size="small" variant={quickFilterPreset === 'decayed' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('decayed')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
-                                    Decayed
-                                </Button>
-                            </span>
-                        </Tooltip>
+                        <Button size="small" variant={quickFilterPreset === 'all' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('all')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                            All
+                        </Button>
+                        <Button size="small" variant={quickFilterPreset === 'visible' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('visible')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                            Visible
+                        </Button>
+                        <Button size="small" variant={quickFilterPreset === 'rising' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('rising')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                            Rising
+                        </Button>
+                        <Button size="small" variant={quickFilterPreset === 'activeTx' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('activeTx')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                            Active TX
+                        </Button>
+                        <Button size="small" variant={quickFilterPreset === 'decayed' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('decayed')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                            Decayed
+                        </Button>
                         <Tooltip title={t('satellites_table_settings.title')}>
                             <span>
                                 <IconButton
@@ -828,7 +764,8 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
                     ) : (
                         <MemoizedStyledDataGrid
                             apiRef={apiRef}
-                            satellites={filteredSatelliteRows}
+                            satellites={selectedSatellites}
+                            quickFilterPreset={quickFilterPreset}
                             onRowClick={handleOnRowClick}
                             onRowDoubleClick={handleOnRowDoubleClick}
                             selectedSatelliteId={selectedSatelliteId}

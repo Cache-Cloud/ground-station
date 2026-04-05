@@ -1,30 +1,21 @@
-import React, {useEffect, useRef, useState} from "react";
+import React, {useState} from "react";
 
 
-const ProgressFormatter = React.memo(function ProgressFormatter({params}) {
-    const [, setForceUpdate] = useState(0);
+const ProgressFormatter = React.memo(function ProgressFormatter({params, row: rowProp, nowMs}) {
     const [progressBarHeight, setProgressBarHeight] = useState(14);
+    const row = rowProp ?? params?.row;
+    const now = nowMs != null ? new Date(nowMs) : new Date();
+    const startDate = new Date(row.event_start);
+    const endDate = new Date(row.event_end);
 
-    // Force component to update regularly
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setForceUpdate(prev => prev + 1);
-        }, 1000);
-        return () => clearInterval(interval);
-    }, []);
-
-    const now = new Date();
-    const startDate = new Date(params.row.event_start);
-    const endDate = new Date(params.row.event_end);
-
-    if (params.row.is_geostationary || params.row.is_geosynchronous) {
+    if (row.is_geostationary || row.is_geosynchronous) {
         return "∞";
     }
 
     // Calculate peak time based on available data
     // Assuming peak_time is available in the data, or we can calculate it from event_start and event_end
     // If peak_time isn't available, we can estimate it as the midpoint
-    const peakTime = params.row.peak_time ? new Date(params.row.peak_time) :
+    const peakTime = row.peak_time ? new Date(row.peak_time) :
         new Date(startDate.getTime() + (endDate.getTime() - startDate.getTime()) / 2);
 
     // Calculate positions as percentages of the total timeline

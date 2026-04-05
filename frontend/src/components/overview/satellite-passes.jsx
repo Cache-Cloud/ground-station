@@ -384,9 +384,128 @@ const DurationFormatter = React.memo(function DurationFormatter({params, event_s
     }
 });
 
+const PassStatusCell = React.memo(function PassStatusCell({status}) {
+    const statusConfig = {
+        live: {
+            label: 'Live',
+            color: 'success',
+            icon: <RadioButtonCheckedIcon sx={{ fontSize: '0.85rem' }} />,
+        },
+        upcoming: {
+            label: 'Upcoming',
+            color: 'warning',
+            icon: <AccessTimeFilledIcon sx={{ fontSize: '0.85rem' }} />,
+        },
+        passed: {
+            label: 'Passed',
+            color: 'info',
+            icon: <DoneAllIcon sx={{ fontSize: '0.85rem' }} />,
+        },
+        dead: {
+            label: 'Dead',
+            color: 'error',
+            icon: <BlockIcon sx={{ fontSize: '0.85rem' }} />,
+        },
+    };
+    const config = statusConfig[status] || statusConfig.upcoming;
+    return (
+        <Chip
+            icon={config.icon}
+            size="small"
+            label={config.label}
+            color={config.color}
+            variant={status === 'upcoming' ? 'outlined' : 'filled'}
+            sx={{ fontWeight: 700, minWidth: 85 }}
+        />
+    );
+});
+
+const PassBandsCell = React.memo(function PassBandsCell({transmitters, noDataText}) {
+    if (!transmitters) {
+        return noDataText;
+    }
+
+    const bandDetails = transmitters.reduce((acc, transmitter) => {
+        const upBand = transmitter['uplink_low'] != null
+            ? getFrequencyBand(transmitter['uplink_low'])
+            : null;
+        const downBand = transmitter['downlink_low'] != null
+            ? getFrequencyBand(transmitter['downlink_low'])
+            : null;
+
+        const uniqueBands = new Set([upBand, downBand].filter(Boolean));
+        uniqueBands.forEach((band) => {
+            if (!acc[band]) {
+                acc[band] = { count: 0, uplink: false, downlink: false };
+            }
+            acc[band].count += 1;
+        });
+
+        if (upBand) {
+            if (!acc[upBand]) acc[upBand] = { count: 0, uplink: false, downlink: false };
+            acc[upBand].uplink = true;
+        }
+
+        if (downBand) {
+            if (!acc[downBand]) acc[downBand] = { count: 0, uplink: false, downlink: false };
+            acc[downBand].downlink = true;
+        }
+
+        return acc;
+    }, {});
+
+    const bands = Object.keys(bandDetails);
+
+    return (
+        <div style={{display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center'}}>
+            {bands.map((band, index) => (
+                <React.Fragment key={index}>
+                    {bandDetails[band].count} ✕ <Chip
+                    label={
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
+                            <Box component="span">{band}</Box>
+                            {bandDetails[band].uplink && <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
+                            {bandDetails[band].downlink && <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
+                        </Box>
+                    }
+                    size="small"
+                    sx={{
+                        mt: '8px',
+                        height: '18px',
+                        fontSize: '0.65rem',
+                        fontWeight: 'bold',
+                        backgroundColor: getBandColor(band),
+                        color: 'common.white',
+                        '& .MuiChip-label': {
+                            px: 0.75
+                        },
+                        '&:hover': {
+                            filter: 'brightness(90%)',
+                        }
+                    }}
+                />
+                </React.Fragment>
+            ))}
+        </div>
+    );
+});
+
+const PassProgressCell = React.memo(function PassProgressCell({row, nowMs}) {
+    return <ProgressFormatter row={row} nowMs={nowMs} />;
+}, (prevProps, nextProps) => (
+    prevProps.nowMs === nextProps.nowMs &&
+    prevProps.row?.id === nextProps.row?.id &&
+    prevProps.row?.event_start === nextProps.row?.event_start &&
+    prevProps.row?.event_end === nextProps.row?.event_end &&
+    prevProps.row?.peak_time === nextProps.row?.peak_time &&
+    prevProps.row?.is_geostationary === nextProps.row?.is_geostationary &&
+    prevProps.row?.is_geosynchronous === nextProps.row?.is_geosynchronous
+));
+
 const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
     passes,
     passesLoading,
+    quickFilterPreset,
     onRowClick,
     onRowDoubleClick,
     passesAreCached = false,
@@ -407,6 +526,11 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
     const dataGridLocale = currentLanguage === 'el' ? elGR : enUS;
     const [page, setPage] = useState(0);
     const [nowMs, setNowMs] = useState(() => Date.now());
+    const [relativeNowMs, setRelativeNowMs] = useState(() => Date.now());
+    const nowMsRef = useRef(nowMs);
+    nowMsRef.current = nowMs;
+    const relativeNowMsRef = useRef(relativeNowMs);
+    relativeNowMsRef.current = relativeNowMs;
 
     // Convert minutes to hours for display
     const projectionHours = Math.round(orbitProjectionDuration / 60);
@@ -429,12 +553,34 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
         return () => clearInterval(intervalId);
     }, []);
 
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            setRelativeNowMs(Date.now());
+        }, 5000);
+        return () => clearInterval(intervalId);
+    }, []);
+
     const localeText = useMemo(() => ({
         ...dataGridLocale.components.MuiDataGrid.defaultProps.localeText,
         noRowsLabel: t('passes_table.no_passes', { hours: projectionHours })
     }), [dataGridLocale.components.MuiDataGrid.defaultProps.localeText, projectionHours, t]);
 
-    const now = useMemo(() => new Date(nowMs), [nowMs]);
+    const filteredPasses = useMemo(() => {
+        const now = new Date(nowMs);
+        if (quickFilterPreset === 'live') {
+            return passes.filter((pass) => getPassStatus(pass, now) === 'live');
+        }
+        if (quickFilterPreset === 'next30') {
+            return passes.filter((pass) => {
+                const status = getPassStatus(pass, now);
+                if (status === 'live') return true;
+                if (status !== 'upcoming') return false;
+                const start = new Date(pass.event_start);
+                return (start - now) <= 30 * 60 * 1000;
+            });
+        }
+        return passes;
+    }, [passes, quickFilterPreset, nowMs]);
 
     const columns = useMemo(() => [
         {
@@ -444,44 +590,9 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             flex: 1,
             align: 'center',
             headerAlign: 'center',
-            valueGetter: (_value, row) => getPassStatus(row, now),
+            valueGetter: (_value, row) => getPassStatus(row, new Date(nowMsRef.current)),
             sortComparator: (v1, v2) => getPassStatusPriority(v1) - getPassStatusPriority(v2),
-            renderCell: (params) => {
-                const status = params.value;
-                const statusConfig = {
-                    live: {
-                        label: 'Live',
-                        color: 'success',
-                        icon: <RadioButtonCheckedIcon sx={{ fontSize: '0.85rem' }} />,
-                    },
-                    upcoming: {
-                        label: 'Upcoming',
-                        color: 'warning',
-                        icon: <AccessTimeFilledIcon sx={{ fontSize: '0.85rem' }} />,
-                    },
-                    passed: {
-                        label: 'Passed',
-                        color: 'info',
-                        icon: <DoneAllIcon sx={{ fontSize: '0.85rem' }} />,
-                    },
-                    dead: {
-                        label: 'Dead',
-                        color: 'error',
-                        icon: <BlockIcon sx={{ fontSize: '0.85rem' }} />,
-                    },
-                };
-                const config = statusConfig[status] || statusConfig.upcoming;
-                return (
-                    <Chip
-                        icon={config.icon}
-                        size="small"
-                        label={config.label}
-                        color={config.color}
-                        variant={status === 'upcoming' ? 'outlined' : 'filled'}
-                        sx={{ fontWeight: 700, minWidth: 85 }}
-                    />
-                );
-            }
+            renderCell: (params) => <PassStatusCell status={params.value} />
         },
         {
             field: 'name',
@@ -547,6 +658,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             flex: 1,
             sortable: false,
             renderCell: (params) => {
+                const now = new Date(nowMsRef.current);
                 const isActive = new Date(params.row.event_start) < now && new Date(params.row.event_end) > now;
 
                 if (!isActive) {
@@ -574,7 +686,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             align: 'center',
             headerAlign: 'center',
             flex: 1,
-            renderCell: (params) => <ProgressFormatter params={params} />
+            renderCell: (params) => <PassProgressCell row={params.row} nowMs={nowMsRef.current} />
         },
         {
             field: 'duration',
@@ -587,7 +699,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             renderCell: (params) => (
                 <div>
                     <DurationFormatter params={params} event_start={params.row.event_start}
-                                       event_end={params.row.event_end} nowMs={nowMs}/>
+                                       event_end={params.row.event_end} nowMs={nowMsRef.current}/>
                 </div>
             )
         },
@@ -598,78 +710,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             headerAlign: 'center',
             headerName: t('passes_table.bands'),
             flex: 2,
-            renderCell: (params) => {
-                const transmitters = params.value;
-                if (!transmitters) {
-                    return t('passes_table.no_data');
-                }
-
-                // Aggregate count and direction markers per band.
-                const bandDetails = transmitters.reduce((acc, transmitter) => {
-                    const upBand = transmitter['uplink_low'] != null
-                        ? getFrequencyBand(transmitter['uplink_low'])
-                        : null;
-                    const downBand = transmitter['downlink_low'] != null
-                        ? getFrequencyBand(transmitter['downlink_low'])
-                        : null;
-
-                    // Count each transmitter once per band (avoid double count if up/down same band).
-                    const uniqueBands = new Set([upBand, downBand].filter(Boolean));
-                    uniqueBands.forEach((band) => {
-                        if (!acc[band]) {
-                            acc[band] = { count: 0, uplink: false, downlink: false };
-                        }
-                        acc[band].count += 1;
-                    });
-
-                    if (upBand) {
-                        if (!acc[upBand]) acc[upBand] = { count: 0, uplink: false, downlink: false };
-                        acc[upBand].uplink = true;
-                    }
-
-                    if (downBand) {
-                        if (!acc[downBand]) acc[downBand] = { count: 0, uplink: false, downlink: false };
-                        acc[downBand].downlink = true;
-                    }
-
-                    return acc;
-                }, {});
-
-                const bands = Object.keys(bandDetails);
-
-                return (
-                    <div style={{display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center'}}>
-                        {bands.map((band, index) => (
-                            <React.Fragment key={index}>
-                                {bandDetails[band].count} ✕ <Chip
-                                label={
-                                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
-                                        <Box component="span">{band}</Box>
-                                        {bandDetails[band].uplink && <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
-                                        {bandDetails[band].downlink && <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
-                                    </Box>
-                                }
-                                size="small"
-                                sx={{
-                                    mt: '8px',
-                                    height: '18px',
-                                    fontSize: '0.65rem',
-                                    fontWeight: 'bold',
-                                    backgroundColor: getBandColor(band),
-                                    color: 'common.white',
-                                    '& .MuiChip-label': {
-                                        px: 0.75
-                                    },
-                                    '&:hover': {
-                                        filter: 'brightness(90%)',
-                                    }
-                                }}
-                            />
-                            </React.Fragment>
-                        ))}
-                    </div>
-                );
-            }
+            renderCell: (params) => <PassBandsCell transmitters={params.value} noDataText={t('passes_table.no_data')} />
 
         },
         {
@@ -677,14 +718,22 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             minWidth: 170,
             headerName: t('passes_table.start'),
             flex: 2,
-            renderCell: (params) => <TimeFormatter params={params} value={params.value} nowMs={nowMs}/>
+            renderCell: (params) => {
+                const status = getPassStatus(params.row, new Date(nowMsRef.current));
+                const timeTickMs = status === 'live' ? nowMsRef.current : relativeNowMsRef.current;
+                return <TimeFormatter params={params} value={params.value} nowMs={timeTickMs}/>;
+            }
         },
         {
             field: 'event_end',
             minWidth: 170,
             headerName: t('passes_table.end'),
             flex: 2,
-            renderCell: (params) => <TimeFormatter params={params} value={params.value} nowMs={nowMs}/>
+            renderCell: (params) => {
+                const status = getPassStatus(params.row, new Date(nowMsRef.current));
+                const timeTickMs = status === 'live' ? nowMsRef.current : relativeNowMsRef.current;
+                return <TimeFormatter params={params} value={params.value} nowMs={timeTickMs}/>;
+            }
         },
         {
             field: 'distance_at_start',
@@ -743,7 +792,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             },
             hide: true,
         },
-    ], [t, targetSatTrackRef, selectedSatellitePositionsRef, now, nowMs]);
+    ], [t, targetSatTrackRef, selectedSatellitePositionsRef]);
 
     const effectiveColumnVisibility = useMemo(() => {
         const base = {
@@ -771,6 +820,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
 
     const getPassesRowStyles = useCallback((param) => {
         if (param.row) {
+            const now = new Date(nowMsRef.current);
             const eventStart = new Date(param.row.event_start);
             const status = getPassStatus(param.row, now);
             if (status === 'dead') return 'passes-row-dead pointer-cursor';
@@ -782,7 +832,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             return "pointer-cursor";
         }
         return "pointer-cursor";
-    }, [now]);
+    }, []);
 
     const getRowId = useCallback((params) => params.id, []);
 
@@ -825,7 +875,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
                 },
             }}
             density={"compact"}
-            rows={passes}
+            rows={filteredPasses}
             paginationModel={{
                 pageSize: pageSize,
                 page: page,
@@ -846,6 +896,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
     // Custom comparison function - return true if props haven't changed in ways that matter
     return (
         prevProps.passes === nextProps.passes &&
+        prevProps.quickFilterPreset === nextProps.quickFilterPreset &&
         prevProps.passesLoading === nextProps.passesLoading &&
         prevProps.orbitProjectionDuration === nextProps.orbitProjectionDuration &&
         prevProps.pageSize === nextProps.pageSize &&
@@ -888,7 +939,6 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
     const hasLoadedFromStorageRef = useRef(false);
     const isLoadingRef = useRef(false);
     const [quickFilterPreset, setQuickFilterPreset] = useState('all');
-    const [filterNowMs, setFilterNowMs] = useState(() => Date.now());
 
     // Load column visibility from localStorage on mount
     useEffect(() => {
@@ -926,13 +976,6 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
             }
         }
     }, [passesTableColumnVisibility]);
-
-    useEffect(() => {
-        const intervalId = setInterval(() => {
-            setFilterNowMs(Date.now());
-        }, 1000);
-        return () => clearInterval(intervalId);
-    }, []);
 
     const handleRefreshPasses = () => {
         if (selectedSatGroupId) {
@@ -1130,23 +1173,6 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
         dispatch(setOpenPassesTableSettingsDialog(false));
     };
 
-    const filteredPasses = useMemo(() => {
-        const now = new Date(filterNowMs);
-        if (quickFilterPreset === 'live') {
-            return passes.filter((pass) => getPassStatus(pass, now) === 'live');
-        }
-        if (quickFilterPreset === 'next30') {
-            return passes.filter((pass) => {
-                const status = getPassStatus(pass, now);
-                if (status === 'live') return true;
-                if (status !== 'upcoming') return false;
-                const start = new Date(pass.event_start);
-                return (start - now) <= 30 * 60 * 1000;
-            });
-        }
-        return passes;
-    }, [passes, quickFilterPreset, filterNowMs]);
-
     const applyDefaultSort = useCallback(() => {
         dispatch(setPassesTableSortModel([
             { field: 'status', sort: 'asc' },
@@ -1225,34 +1251,18 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
                         </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                        <Tooltip title="Alt+1">
-                            <span>
-                                <Button size="small" variant={quickFilterPreset === 'all' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('all')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
-                                    All
-                                </Button>
-                            </span>
-                        </Tooltip>
-                        <Tooltip title="Alt+2">
-                            <span>
-                                <Button size="small" variant={quickFilterPreset === 'live' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('live')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
-                                    Live
-                                </Button>
-                            </span>
-                        </Tooltip>
-                        <Tooltip title="Alt+3">
-                            <span>
-                                <Button size="small" variant={quickFilterPreset === 'next30' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('next30')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
-                                    Next 30m
-                                </Button>
-                            </span>
-                        </Tooltip>
-                        <Tooltip title="Alt+4">
-                            <span>
-                                <Button size="small" variant={quickFilterPreset === 'highEl' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('highEl')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
-                                    High El
-                                </Button>
-                            </span>
-                        </Tooltip>
+                        <Button size="small" variant={quickFilterPreset === 'all' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('all')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                            All
+                        </Button>
+                        <Button size="small" variant={quickFilterPreset === 'live' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('live')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                            Live
+                        </Button>
+                        <Button size="small" variant={quickFilterPreset === 'next30' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('next30')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                            Next 30m
+                        </Button>
+                        <Button size="small" variant={quickFilterPreset === 'highEl' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('highEl')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                            High El
+                        </Button>
                         <Tooltip title={t('passes_table_settings.title')}>
                             <span>
                                 <IconButton
@@ -1288,8 +1298,9 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
                     minHeight,
                 }}>
                     <MemoizedStyledDataGrid
-                        passes={filteredPasses}
+                        passes={passes}
                         passesLoading={passesLoading}
+                        quickFilterPreset={quickFilterPreset}
                         onRowClick={handleOnRowClick}
                         onRowDoubleClick={handleOnRowDoubleClick}
                         orbitProjectionDuration={orbitProjectionDuration}
