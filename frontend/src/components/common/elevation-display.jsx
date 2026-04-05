@@ -19,8 +19,8 @@
 
 import React from "react";
 import { Box, Tooltip } from "@mui/material";
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import TrendingDownIcon from '@mui/icons-material/TrendingDown';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule';
 
 /**
@@ -66,10 +66,10 @@ const ElevationDisplay = React.memo(function ElevationDisplay({
     let trendColor = 'text.secondary';
 
     if (trend === 'rising') {
-        TrendIcon = TrendingUpIcon;
+        TrendIcon = ArrowUpwardIcon;
         trendColor = 'info.main';
     } else if (trend === 'falling') {
-        TrendIcon = TrendingDownIcon;
+        TrendIcon = ArrowDownwardIcon;
         trendColor = 'error.main';
     } else if (trend === 'peak') {
         TrendIcon = HorizontalRuleIcon;
