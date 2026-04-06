@@ -2,6 +2,7 @@
   "title": "Πανοραμική Οψη",
   "satellites_table": {
     "title": "Λεπτομέρειες Ομάδας Δορυφόρων",
+    "group_title": "Ομάδα Δορυφόρων",
     "satellites_count": "{{count}} δορυφόροι",
     "satellite_name": "Ονομα Δορυφόρου",
     "alternative_name": "Εναλλακτικό Ονομα",

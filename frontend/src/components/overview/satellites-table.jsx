@@ -683,25 +683,33 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
                 }}
             >
                 <Box sx={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', height: '100%'}}>
-                    <Box sx={{display: 'flex', alignItems: 'center'}}>
-                        <Typography variant="subtitle2" sx={{fontWeight: 'bold'}}>
-                            {t('satellites_table.title')}
+                    <Box sx={{display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, pr: 1}}>
+                        <Typography
+                            variant="subtitle2"
+                            sx={{
+                                fontWeight: 'bold',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                            }}
+                        >
+                            {t('satellites_table.group_title')}
                         </Typography>
                     </Box>
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                        <Button size="small" variant={quickFilterPreset === 'all' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('all')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexShrink: 0 }}>
+                        <Button size="small" variant={quickFilterPreset === 'all' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('all')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
                             All
                         </Button>
-                        <Button size="small" variant={quickFilterPreset === 'visible' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('visible')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                        <Button size="small" variant={quickFilterPreset === 'visible' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('visible')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
                             Visible
                         </Button>
-                        <Button size="small" variant={quickFilterPreset === 'rising' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('rising')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                        <Button size="small" variant={quickFilterPreset === 'rising' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('rising')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
                             Rising
                         </Button>
-                        <Button size="small" variant={quickFilterPreset === 'activeTx' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('activeTx')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                        <Button size="small" variant={quickFilterPreset === 'activeTx' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('activeTx')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
                             Active TX
                         </Button>
-                        <Button size="small" variant={quickFilterPreset === 'decayed' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('decayed')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem' }}>
+                        <Button size="small" variant={quickFilterPreset === 'decayed' ? 'contained' : 'outlined'} onClick={() => handleQuickPreset('decayed')} sx={{ minHeight: 24, height: 24, py: 0, px: 1, lineHeight: 1.1, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
                             Decayed
                         </Button>
                         <Tooltip title={t('satellites_table_settings.title')}>

@@ -2,6 +2,7 @@
   "title": "Vista General",
   "satellites_table": {
     "title": "Detalles del Grupo de Satélites",
+    "group_title": "Grupo de Satélites",
     "satellites_count": "{{count}} satélites",
     "satellite_name": "Nombre del Satélite",
     "alternative_name": "Nombre Alternativo",

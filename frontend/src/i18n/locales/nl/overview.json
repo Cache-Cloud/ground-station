@@ -2,6 +2,7 @@
   "title": "Vogelvlucht",
   "satellites_table": {
     "title": "Satellieten Groep Details",
+    "group_title": "Satellietgroep",
     "satellites_count": "{{count}} satellieten",
     "satellite_name": "Satelliet Naam",
     "alternative_name": "Alternatieve Naam",

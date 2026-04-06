@@ -2,6 +2,7 @@
   "title": "Bird's Eye View",
   "satellites_table": {
     "title": "Satellite Group Details",
+    "group_title": "Satellite Group",
     "satellites_count": "{{count}} satellites",
     "satellite_name": "Satellite Name",
     "alternative_name": "Alternative Name",

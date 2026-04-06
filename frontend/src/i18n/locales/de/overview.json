@@ -2,6 +2,7 @@
   "title": "Vogelperspektive",
   "satellites_table": {
     "title": "Satellitengruppen-Details",
+    "group_title": "Satellitengruppe",
     "satellites_count": "{{count}} Satelliten",
     "satellite_name": "Satellitenname",
     "alternative_name": "Alternativer Name",

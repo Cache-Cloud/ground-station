@@ -2,6 +2,7 @@
   "title": "Vista a Volo d'Uccello",
   "satellites_table": {
     "title": "Dettagli Gruppo Satelliti",
+    "group_title": "Gruppo Satelliti",
     "satellites_count": "{{count}} satelliti",
     "satellite_name": "Nome Satellite",
     "alternative_name": "Nome Alternativo",
