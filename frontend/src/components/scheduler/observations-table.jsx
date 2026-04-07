@@ -88,12 +88,16 @@ const getStatusColor = (status) => {
     }
 };
 
-const toSelectedIds = (selectionModel) => {
+const toSelectedIds = (selectionModel, allRowIds = []) => {
     if (Array.isArray(selectionModel)) {
         return selectionModel;
     }
 
-    if (selectionModel?.ids instanceof Set) {
+    if (selectionModel?.type === 'exclude' && selectionModel?.ids instanceof Set) {
+        return allRowIds.filter((id) => !selectionModel.ids.has(id));
+    }
+
+    if (selectionModel?.type === 'include' && selectionModel?.ids instanceof Set) {
         return Array.from(selectionModel.ids);
     }
 
@@ -605,7 +609,11 @@ const ObservationsTable = () => {
                     disableRowSelectionOnClick
                     rowSelectionModel={rowSelectionModel}
                     onRowSelectionModelChange={(newSelection) => {
-                        dispatch(setSelectedObservationIds(toSelectedIds(newSelection)));
+                        dispatch(
+                            setSelectedObservationIds(
+                                toSelectedIds(newSelection, observations.map((observation) => observation.id))
+                            )
+                        );
                     }}
                     getRowClassName={(params) => {
                         // If cancelled, always show as cancelled regardless of time
