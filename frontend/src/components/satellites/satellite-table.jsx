@@ -44,6 +44,7 @@ import {
     Tooltip,
     Typography,
 } from "@mui/material";
+import { alpha } from '@mui/material/styles';
 import {useEffect, useState, useCallback} from "react";
 import {useDispatch, useSelector} from "react-redux";
 import { toast } from '../../utils/toast-with-timestamp.jsx';
@@ -679,6 +680,21 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                         },
                         [`& .${gridClasses.columnHeader}:focus, & .${gridClasses.columnHeader}:focus-within`]: {
                             outline: 'none',
+                        },
+                        '& .MuiDataGrid-columnHeaders': {
+                            backgroundColor: (theme) => alpha(
+                                theme.palette.primary.main,
+                                theme.palette.mode === 'dark' ? 0.18 : 0.10
+                            ),
+                            borderBottom: (theme) => `2px solid ${alpha(theme.palette.primary.main, 0.45)}`,
+                        },
+                        '& .MuiDataGrid-columnHeader': {
+                            backgroundColor: 'transparent',
+                        },
+                        '& .MuiDataGrid-columnHeaderTitle': {
+                            fontSize: '0.8125rem',
+                            fontWeight: 700,
+                            letterSpacing: '0.02em',
                         },
                         [`& .MuiDataGrid-row`]: {
                             cursor: 'pointer',

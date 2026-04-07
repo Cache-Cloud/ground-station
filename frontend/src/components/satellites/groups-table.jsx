@@ -34,6 +34,7 @@ import {
     Chip,
     Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { DataGrid, gridClasses } from '@mui/x-data-grid';
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import { useSocket } from '../common/socket.jsx';
@@ -241,6 +242,24 @@ const GroupsTable = () => {
                     marginTop: 2,
                     [`& .${gridClasses.cell}:focus, & .${gridClasses.cell}:focus-within`]: {
                         outline: 'none',
+                    },
+                    [`& .${gridClasses.columnHeader}:focus, & .${gridClasses.columnHeader}:focus-within`]: {
+                        outline: 'none',
+                    },
+                    '& .MuiDataGrid-columnHeaders': {
+                        backgroundColor: (theme) => alpha(
+                            theme.palette.primary.main,
+                            theme.palette.mode === 'dark' ? 0.18 : 0.10
+                        ),
+                        borderBottom: (theme) => `2px solid ${alpha(theme.palette.primary.main, 0.45)}`,
+                    },
+                    '& .MuiDataGrid-columnHeader': {
+                        backgroundColor: 'transparent',
+                    },
+                    '& .MuiDataGrid-columnHeaderTitle': {
+                        fontSize: '0.8125rem',
+                        fontWeight: 700,
+                        letterSpacing: '0.02em',
                     },
                     '& .MuiDataGrid-overlay': {
                         fontSize: '0.875rem',
