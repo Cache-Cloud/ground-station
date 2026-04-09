@@ -131,6 +131,7 @@ const VFOSubtitle = ({
     fontSizeMultiplier,
     textAlignment,
     maxLines,
+    historyLimit,
     maxWordsPerLine,
     onClear,
     onIncreaseFontSize,
@@ -170,6 +171,7 @@ const VFOSubtitle = ({
     // Track maximum width reached - never shrink once expanded
     const maxWidthRef = useRef(0);
     const contentRef = useRef(null);
+    const scrollContainerRef = useRef(null);
 
     useEffect(() => {
         if (!transcription || !transcription.segments || transcription.segments.length === 0) {
@@ -228,10 +230,10 @@ const VFOSubtitle = ({
             });
         }
 
-        // Keep only the last maxLines lines
-        const displayLines = newLines.slice(-maxLines);
+        // Keep a larger subtitle history; viewport controls how many lines are visible at once.
+        const displayLines = newLines.slice(-historyLimit);
         setLines(displayLines);
-    }, [transcription, maxLines, maxWordsPerLine, vfoNumber]);
+    }, [transcription, historyLimit, maxWordsPerLine, vfoNumber]);
 
     // Track maximum width reached - never shrink
     useEffect(() => {
@@ -252,6 +254,18 @@ const VFOSubtitle = ({
         }, 1000);
         return () => clearInterval(interval);
     }, [lines.length]);
+
+    const latestLineId = lines.length > 0 ? lines[lines.length - 1].id : null;
+
+    // Keep the newest subtitle lines in view while preserving manual scroll position when reading history.
+    useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceFromBottom <= 48) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }, [latestLineId]);
 
     // Constrain position to viewport boundaries
     const constrainPosition = (newX, newY) => {
@@ -592,70 +606,95 @@ const VFOSubtitle = ({
                             minWidth: maxWidthRef.current > 0 ? `${maxWidthRef.current}px` : 'auto',
                         }}
                     >
-                        {lines.map((line, lineIdx) => (
-                            <Box
-                                key={line.id}
-                                sx={{
-                                    fontSize: {
-                                        xs: `${0.75 * fontSizeMultiplier}rem`,
-                                        sm: `${0.85 * fontSizeMultiplier}rem`,
-                                        md: `${0.9 * fontSizeMultiplier}rem`
-                                    },
-                                    fontWeight: 600,
-                                    lineHeight: 1.6,
-                                    textShadow: '2px 2px 4px rgba(0, 0, 0, 0.8)',
-                                    letterSpacing: '0.3px',
-                                    fontFamily: '"Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-                                    whiteSpace: { xs: 'normal', sm: 'nowrap' },
-                                    wordWrap: { xs: 'break-word', sm: 'normal' },
-                                    overflowWrap: { xs: 'break-word', sm: 'normal' },
-                                    mb: lineIdx < lines.length - 1 ? 0.5 : 0,
-                                }}
-                            >
-                            {/* Timestamp at the beginning of the line */}
-                            {line.segments.length > 0 && (() => {
-                                const firstTimestamp = line.segments[0].timestamp;
-                                const timeString = formatTime(firstTimestamp, {
-                                    timezone,
-                                    locale,
-                                    options: { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false },
-                                });
+                        <Box
+                            ref={scrollContainerRef}
+                            sx={{
+                                maxHeight: `calc(${maxLines} * 1.5em)`,
+                                overflowY: 'auto',
+                                overflowX: 'hidden',
+                                pr: 0.5,
+                                scrollbarWidth: 'thin',
+                                scrollbarColor: 'rgba(255, 255, 255, 0.2) transparent',
+                                '&::-webkit-scrollbar': {
+                                    width: '6px',
+                                },
+                                '&::-webkit-scrollbar-track': {
+                                    background: 'transparent',
+                                },
+                                '&::-webkit-scrollbar-thumb': {
+                                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                                    borderRadius: '4px',
+                                },
+                                '&:hover::-webkit-scrollbar-thumb': {
+                                    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+                                },
+                            }}
+                        >
+                            {lines.map((line, lineIdx) => (
+                                <Box
+                                    key={line.id}
+                                    sx={{
+                                        fontSize: {
+                                            xs: `${0.75 * fontSizeMultiplier}rem`,
+                                            sm: `${0.85 * fontSizeMultiplier}rem`,
+                                            md: `${0.9 * fontSizeMultiplier}rem`
+                                        },
+                                        fontWeight: 600,
+                                        lineHeight: 1.6,
+                                        textShadow: '2px 2px 4px rgba(0, 0, 0, 0.8)',
+                                        letterSpacing: '0.3px',
+                                        fontFamily: '"Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+                                        whiteSpace: { xs: 'normal', sm: 'nowrap' },
+                                        wordWrap: { xs: 'break-word', sm: 'normal' },
+                                        overflowWrap: { xs: 'break-word', sm: 'normal' },
+                                        mb: lineIdx < lines.length - 1 ? 0.5 : 0,
+                                    }}
+                                >
+                                    {/* Timestamp at the beginning of the line */}
+                                    {line.segments.length > 0 && (() => {
+                                        const firstTimestamp = line.segments[0].timestamp;
+                                        const timeString = formatTime(firstTimestamp, {
+                                            timezone,
+                                            locale,
+                                            options: { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false },
+                                        });
 
-                                return (
-                                    <Box
-                                        component="span"
-                                        sx={{
-                                            color: 'rgba(200, 200, 200, 0.8)',
-                                            marginRight: '0.5em',
-                                            fontWeight: 500,
-                                        }}
-                                    >
-                                        [{timeString}]
-                                    </Box>
-                                );
-                            })()}
+                                        return (
+                                            <Box
+                                                component="span"
+                                                sx={{
+                                                    color: 'rgba(200, 200, 200, 0.8)',
+                                                    marginRight: '0.5em',
+                                                    fontWeight: 500,
+                                                }}
+                                            >
+                                                [{timeString}]
+                                            </Box>
+                                        );
+                                    })()}
 
-                            {line.segments.map((segment, segIdx) => {
-                                const ageMs = Date.now() - segment.timestamp;
-                                const isRecent = ageMs < 10000;
-                                const color = isRecent ? 'white' : 'rgba(169, 169, 169, 1)';
+                                    {line.segments.map((segment, segIdx) => {
+                                        const ageMs = Date.now() - segment.timestamp;
+                                        const isRecent = ageMs < 10000;
+                                        const color = isRecent ? 'white' : 'rgba(169, 169, 169, 1)';
 
-                                return (
-                                    <Box
-                                        key={`${line.id}-seg-${segIdx}`}
-                                        component="span"
-                                        sx={{
-                                            color: color,
-                                            transition: 'color 0.5s ease-out',
-                                        }}
-                                    >
-                                        {segment.word}
-                                        {segIdx < line.segments.length - 1 ? ' ' : ''}
-                                    </Box>
-                                );
-                            })}
-                            </Box>
-                        ))}
+                                        return (
+                                            <Box
+                                                key={`${line.id}-seg-${segIdx}`}
+                                                component="span"
+                                                sx={{
+                                                    color: color,
+                                                    transition: 'color 0.5s ease-out',
+                                                }}
+                                            >
+                                                {segment.word}
+                                                {segIdx < line.segments.length - 1 ? ' ' : ''}
+                                            </Box>
+                                        );
+                                    })}
+                                </Box>
+                            ))}
+                        </Box>
                     </Box>
                 </Box>
             </Box>
@@ -668,7 +707,7 @@ const VFOSubtitle = ({
  *
  * Displays separate subtitle overlays for each active VFO with responsive grid layout
  */
-const TranscriptionSubtitles = ({ maxLines = 4, maxWordsPerLine = 20 }) => {
+const TranscriptionSubtitles = ({ maxLines = 4, maxWordsPerLine = 20, historyLimit = 100 }) => {
     const dispatch = useDispatch();
     const { timezone, locale } = useUserTimeSettings();
 
@@ -740,6 +779,7 @@ const TranscriptionSubtitles = ({ maxLines = 4, maxWordsPerLine = 20 }) => {
                                     fontSizeMultiplier={vfoFontSizes[vfoNumber]}
                                     textAlignment={vfoTextAlignments[vfoNumber]}
                                     maxLines={maxLines}
+                                    historyLimit={historyLimit}
                                     maxWordsPerLine={maxWordsPerLine}
                                     onClear={() => handleClear(vfoNumber)}
                                     onIncreaseFontSize={() => handleIncreaseFontSize(vfoNumber)}
