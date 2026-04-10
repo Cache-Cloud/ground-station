@@ -244,6 +244,7 @@ const overviewSlice = createSlice({
             progress: true,
             duration: true,
             transmitters: true,
+            transmitter_links: true,
             event_start: true,
             event_end: true,
             distance_at_start: false,

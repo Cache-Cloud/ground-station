@@ -36,7 +36,6 @@ import {
     renderCountryFlagsCSV,
     TitleBar,
     getFrequencyBand,
-    getBandColor,
 } from "../common/common.jsx";
 import Grid from "@mui/material/Grid";
 import {useSocket} from "../common/socket.jsx";
@@ -104,8 +103,8 @@ const OverviewSatelliteInfoCard = () => {
             });
     };
 
-    const bandDetails = satelliteData && satelliteData['transmitters']
-        ? Object.values(
+    const upDownDetails = satelliteData && satelliteData['transmitters']
+        ? Object.entries(
             satelliteData['transmitters'].reduce((acc, transmitter) => {
                 const upBand = transmitter['uplink_low'] != null
                     ? getFrequencyBand(transmitter['uplink_low'])
@@ -114,19 +113,41 @@ const OverviewSatelliteInfoCard = () => {
                     ? getFrequencyBand(transmitter['downlink_low'])
                     : null;
 
-                if (upBand) {
-                    if (!acc[upBand]) acc[upBand] = { band: upBand, uplink: false, downlink: false };
-                    acc[upBand].uplink = true;
+                let signature = t('passes_table.no_data');
+                if (upBand && downBand) {
+                    signature = upBand === downBand ? `${upBand}↕` : `${upBand}↑/${downBand}↓`;
+                } else if (upBand) {
+                    signature = `${upBand}↑`;
+                } else if (downBand) {
+                    signature = `${downBand}↓`;
                 }
 
-                if (downBand) {
-                    if (!acc[downBand]) acc[downBand] = { band: downBand, uplink: false, downlink: false };
-                    acc[downBand].downlink = true;
+                if (!acc[signature]) {
+                    acc[signature] = {
+                        count: 0,
+                        isSplitBand: Boolean(upBand && downBand && upBand !== downBand),
+                        upBand,
+                        downBand,
+                    };
                 }
 
+                acc[signature].count += 1;
                 return acc;
             }, {})
         )
+            .map(([signature, details]) => ({
+                signature,
+                count: details.count,
+                isSplitBand: details.isSplitBand,
+                upBand: details.upBand,
+                downBand: details.downBand,
+            }))
+            .sort((a, b) => {
+                if (a.isSplitBand !== b.isSplitBand) {
+                    return a.isSplitBand ? -1 : 1;
+                }
+                return a.signature.localeCompare(b.signature);
+            })
         : [];
 
     const modulations = satelliteData && satelliteData['transmitters']
@@ -163,6 +184,16 @@ const OverviewSatelliteInfoCard = () => {
 
         // Fallback for unknown/rare modes.
         return '#455A64';
+    };
+
+    const txLinkPalette = ['#0B7285', '#2B8A3E', '#1C7ED6', '#5F3DC4', '#087F5B', '#364FC7'];
+    const getTxLinkColor = (signature) => {
+        let hash = 0;
+        for (let i = 0; i < signature.length; i += 1) {
+            hash = ((hash << 5) - hash) + signature.charCodeAt(i);
+            hash |= 0;
+        }
+        return txLinkPalette[Math.abs(hash) % txLinkPalette.length];
     };
 
     const DataPoint = ({ icon: Icon, label, value, color = 'text.primary', unit = '' }) => (
@@ -414,29 +445,49 @@ const OverviewSatelliteInfoCard = () => {
                                     {t('satellite_info.frequency_bands')}
                                 </Typography>
                                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                    {bandDetails.map(({ band, uplink, downlink }) => (
+                                    {upDownDetails.map((item) => {
+                                        const paletteColor = getTxLinkColor(item.signature);
+                                        return (
                                         <Chip
-                                            key={`${band}-${uplink ? 'u' : ''}${downlink ? 'd' : ''}`}
+                                            key={item.signature}
                                             label={
-                                                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
-                                                    <Box component="span">{band}</Box>
-                                                    {uplink && <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
-                                                    {downlink && <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
+                                                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
+                                                    {item.count > 1 && <Box component="span">{item.count} ×</Box>}
+                                                    {item.upBand && (
+                                                        <>
+                                                            <Box component="span">{item.upBand}</Box>
+                                                            <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />
+                                                        </>
+                                                    )}
+                                                    {item.upBand && item.downBand && item.upBand !== item.downBand && (
+                                                        <Box component="span">/</Box>
+                                                    )}
+                                                    {item.downBand && (
+                                                        <>
+                                                            <Box component="span">{item.downBand}</Box>
+                                                            <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />
+                                                        </>
+                                                    )}
+                                                    {!item.upBand && !item.downBand && (
+                                                        <Box component="span">{item.signature}</Box>
+                                                    )}
                                                 </Box>
                                             }
                                             size="small"
                                             sx={{
-                                                backgroundColor: getBandColor(band),
+                                                backgroundColor: item.isSplitBand ? '#E67700' : `${paletteColor}CC`,
                                                 color: 'common.white',
                                                 fontSize: '0.7rem',
                                                 fontWeight: 700,
                                                 height: 24,
+                                                border: '1px solid',
+                                                borderColor: item.isSplitBand ? '#D9480F' : `${paletteColor}B3`,
                                                 '& .MuiChip-label': {
                                                     px: 1
                                                 }
                                             }}
                                         />
-                                    ))}
+                                    )})}
                                 </Box>
                             </Box>
                             <Box sx={{ mb: 0 }}>

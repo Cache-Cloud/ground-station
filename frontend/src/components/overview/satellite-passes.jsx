@@ -459,7 +459,7 @@ const PassStatusCell = React.memo(function PassStatusCell({status, isTracked = f
 });
 
 const PassBandsCell = React.memo(function PassBandsCell({transmitters, noDataText}) {
-    if (!transmitters) {
+    if (!Array.isArray(transmitters) || transmitters.length === 0) {
         return noDataText;
     }
 
@@ -492,39 +492,195 @@ const PassBandsCell = React.memo(function PassBandsCell({transmitters, noDataTex
         return acc;
     }, {});
 
-    const bands = Object.keys(bandDetails);
+    const bands = Object.keys(bandDetails).sort((a, b) => a.localeCompare(b));
 
     return (
-        <div style={{display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center'}}>
-            {bands.map((band, index) => (
-                <React.Fragment key={index}>
-                    {bandDetails[band].count} ✕ <Chip
-                    label={
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
-                            <Box component="span">{band}</Box>
-                            {bandDetails[band].uplink && <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
-                            {bandDetails[band].downlink && <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
-                        </Box>
-                    }
-                    size="small"
+        <Box sx={{display: 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center'}}>
+            <Box
+                sx={{
+                    display: 'flex',
+                    width: '100%',
+                    minWidth: 0,
+                    gap: 0.5,
+                    flexWrap: 'nowrap',
+                    justifyContent: 'flex-start',
+                    overflow: 'hidden',
+                    WebkitMaskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
+                    maskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
+                }}
+            >
+                {bands.map((band) => (
+                    <Chip
+                        key={`band-${band}`}
+                        label={
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
+                                <Box component="span">{bandDetails[band].count} × {band}</Box>
+                                {bandDetails[band].uplink && <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
+                                {bandDetails[band].downlink && <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />}
+                            </Box>
+                        }
+                        size="small"
                     sx={{
-                        mt: '8px',
                         height: '18px',
+                        maxWidth: '100%',
+                        flexShrink: 0,
                         fontSize: '0.65rem',
                         fontWeight: 'bold',
                         backgroundColor: getBandColor(band),
-                        color: 'common.white',
-                        '& .MuiChip-label': {
-                            px: 0.75
-                        },
-                        '&:hover': {
-                            filter: 'brightness(90%)',
+                            color: 'common.white',
+                            '& .MuiChip-label': {
+                                px: 0.75
+                            },
+                            '&:hover': {
+                                filter: 'brightness(90%)',
+                            }
+                        }}
+                    />
+                ))}
+            </Box>
+        </Box>
+    );
+});
+
+const PassTransmitterLinksCell = React.memo(function PassTransmitterLinksCell({transmitters, noDataText}) {
+    if (!Array.isArray(transmitters) || transmitters.length === 0) {
+        return noDataText;
+    }
+
+    const transmitterLinks = Object.entries(
+        transmitters.reduce((acc, transmitter) => {
+            const upBand = transmitter['uplink_low'] != null
+                ? getFrequencyBand(transmitter['uplink_low'])
+                : null;
+            const downBand = transmitter['downlink_low'] != null
+                ? getFrequencyBand(transmitter['downlink_low'])
+                : null;
+
+            let signature = noDataText;
+            if (upBand && downBand) {
+                signature = upBand === downBand ? `${upBand}↕` : `${upBand}↑/${downBand}↓`;
+            } else if (upBand) {
+                signature = `${upBand}↑`;
+            } else if (downBand) {
+                signature = `${downBand}↓`;
+            }
+
+            if (!acc[signature]) {
+                acc[signature] = {
+                    count: 0,
+                    isSplitBand: Boolean(upBand && downBand && upBand !== downBand),
+                    descriptions: new Set(),
+                    upBand,
+                    downBand,
+                };
+            }
+
+            acc[signature].count += 1;
+            if (transmitter?.description) {
+                acc[signature].descriptions.add(transmitter.description.trim());
+            }
+            return acc;
+        }, {})
+    )
+        .map(([signature, details]) => ({
+            signature,
+            count: details.count,
+            isSplitBand: details.isSplitBand,
+            tooltip: Array.from(details.descriptions).join(', '),
+            upBand: details.upBand,
+            downBand: details.downBand,
+        }))
+        .sort((a, b) => {
+            if (a.isSplitBand !== b.isSplitBand) {
+                return a.isSplitBand ? -1 : 1;
+            }
+            return a.signature.localeCompare(b.signature);
+        });
+
+    const txLinkPalette = ['#0B7285', '#2B8A3E', '#1C7ED6', '#5F3DC4', '#087F5B', '#364FC7'];
+    const getPaletteColor = (signature) => {
+        let hash = 0;
+        for (let i = 0; i < signature.length; i += 1) {
+            hash = ((hash << 5) - hash) + signature.charCodeAt(i);
+            hash |= 0;
+        }
+        return txLinkPalette[Math.abs(hash) % txLinkPalette.length];
+    };
+
+    return (
+        <Box sx={{display: 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center'}}>
+            <Box
+                sx={{
+                    display: 'flex',
+                    width: '100%',
+                    minWidth: 0,
+                    gap: 0.5,
+                    flexWrap: 'nowrap',
+                    justifyContent: 'flex-start',
+                    overflow: 'hidden',
+                    WebkitMaskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
+                    maskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
+                }}
+            >
+            {transmitterLinks.map((link) => {
+                const paletteColor = getPaletteColor(link.signature);
+                const chip = (
+                    <Chip
+                        key={`tx-link-${link.signature}`}
+                        label={
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
+                                {link.count > 1 && <Box component="span">{link.count} ×</Box>}
+                                {link.upBand && (
+                                    <>
+                                        <Box component="span">{link.upBand}</Box>
+                                        <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />
+                                    </>
+                                )}
+                                {link.upBand && link.downBand && link.upBand !== link.downBand && (
+                                    <Box component="span">/</Box>
+                                )}
+                                {link.downBand && (
+                                    <>
+                                        <Box component="span">{link.downBand}</Box>
+                                        <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />
+                                    </>
+                                )}
+                                {!link.upBand && !link.downBand && (
+                                    <Box component="span">{link.signature}</Box>
+                                )}
+                            </Box>
                         }
-                    }}
-                />
-                </React.Fragment>
-            ))}
-        </div>
+                        size="small"
+                        variant="filled"
+                        sx={{
+                            height: '18px',
+                            maxWidth: '100%',
+                            flexShrink: 0,
+                            fontSize: '0.65rem',
+                            fontWeight: 700,
+                            backgroundColor: link.isSplitBand ? '#E67700' : `${paletteColor}CC`,
+                            color: 'common.white',
+                            border: '1px solid',
+                            borderColor: link.isSplitBand ? '#D9480F' : `${paletteColor}B3`,
+                            '& .MuiChip-label': {
+                                px: 0.75
+                            }
+                        }}
+                    />
+                );
+
+                if (!link.tooltip) {
+                    return chip;
+                }
+
+                return (
+                    <Tooltip key={`tx-link-tooltip-${link.signature}`} title={link.tooltip}>
+                        <span>{chip}</span>
+                    </Tooltip>
+                );
+            })}
+            </Box>
+        </Box>
     );
 });
 
@@ -737,6 +893,17 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             )
         },
         {
+            field: 'transmitter_links',
+            minWidth: 170,
+            align: 'center',
+            headerAlign: 'center',
+            headerName: t('passes_table.transmitter_links', { defaultValue: 'Up/Down' }),
+            flex: 2,
+            sortable: false,
+            valueGetter: (_value, row) => row.transmitters,
+            renderCell: (params) => <PassTransmitterLinksCell transmitters={params.value} noDataText={t('passes_table.no_data')} />
+        },
+        {
             field: 'transmitters',
             minWidth: 120,
             align: 'center',
@@ -842,6 +1009,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             elevation: false,
             duration: false,
             transmitters: false,
+            transmitter_links: false,
             event_end: false,
             distance_at_start: false,
             distance_at_end: false,
