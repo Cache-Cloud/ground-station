@@ -77,6 +77,7 @@ class JsonField(TypeDecorator):
     """
 
     impl = JSON
+    cache_ok = True
 
     def process_result_value(self, value, dialect):
         """
@@ -356,6 +357,31 @@ class MonitoredCelestial(Base):
     enabled = Column(Boolean, nullable=False, default=True, index=True)
     last_refresh_at = Column(AwareDateTime, nullable=True)
     last_error = Column(String, nullable=True)
+    created_at = Column(AwareDateTime, nullable=False, default=datetime.now(timezone.utc))
+    updated_at = Column(
+        AwareDateTime,
+        nullable=False,
+        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(timezone.utc),
+    )
+
+
+class CelestialVectorsCache(Base):
+    """Persisted Horizons vectors snapshots keyed by target + projection window."""
+
+    __tablename__ = "celestial_vectors_cache"
+
+    id = Column(String, primary_key=True, nullable=False)
+    command = Column(String, nullable=False, index=True)
+    epoch_bucket_utc = Column(AwareDateTime, nullable=False, index=True)
+    past_hours = Column(Integer, nullable=False)
+    future_hours = Column(Integer, nullable=False)
+    step_minutes = Column(Integer, nullable=False)
+    payload = Column(JsonField, nullable=False)
+    source = Column(String, nullable=False, default="horizons", server_default="horizons")
+    error = Column(String, nullable=True)
+    fetched_at = Column(AwareDateTime, nullable=False, default=datetime.now(timezone.utc))
+    expires_at = Column(AwareDateTime, nullable=False)
     created_at = Column(AwareDateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(
         AwareDateTime,

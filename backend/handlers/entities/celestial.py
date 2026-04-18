@@ -13,6 +13,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
+import crud.locations as crud_locations
 import crud.monitoredcelestial as crud_monitored
 from celestial.horizons import fetch_celestial_vectors
 from celestial.scene import build_celestial_scene, build_celestial_tracks, build_solar_system_scene
@@ -206,7 +207,49 @@ async def refresh_monitored_celestial_now(
         logger.info(
             f"Force refreshing monitored celestial targets, count={len(payload['celestial'])}, selected={bool(selected_ids)}"
         )
-        tracks = await build_celestial_tracks(data=payload, logger=logger, force_refresh=True)
+        epoch_for_stream = payload.get("epoch")
+        if not epoch_for_stream:
+            epoch_for_stream = datetime.now(timezone.utc).isoformat()
+        async with AsyncSessionLocal() as dbsession:
+            observer_result = await crud_locations.fetch_all_locations(dbsession)
+        observer_rows_obj = observer_result.get("data") if isinstance(observer_result, dict) else []
+        observer_rows = observer_rows_obj if isinstance(observer_rows_obj, list) else []
+        observer_location = observer_rows[0] if observer_rows else None
+
+        async def emit_partial_row(row: Dict[str, Any], index: int, total: int) -> None:
+            await sio.emit(
+                "celestial-track-row-update",
+                {
+                    "row": row,
+                    "progress": {
+                        "current": index,
+                        "total": total,
+                        "percent": (float(index) / float(total) * 100.0) if total > 0 else 100.0,
+                    },
+                    "timestamp_utc": epoch_for_stream,
+                    "frame": "heliocentric-ecliptic",
+                    "center": "sun",
+                    "units": {
+                        "position": "au",
+                        "velocity": "au/day",
+                    },
+                    "meta": {
+                        "observer_location": observer_location,
+                        "projection": {
+                            "past_hours": payload.get("past_hours"),
+                            "future_hours": payload.get("future_hours"),
+                            "step_minutes": payload.get("step_minutes"),
+                        },
+                    },
+                },
+            )
+
+        tracks = await build_celestial_tracks(
+            data=payload,
+            logger=logger,
+            force_refresh=True,
+            per_row_callback=emit_partial_row,
+        )
         if not tracks.get("success"):
             return cast(Dict[str, Any], tracks)
 

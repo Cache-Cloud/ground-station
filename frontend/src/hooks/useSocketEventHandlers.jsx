@@ -102,6 +102,7 @@ import {
     setCelestialSceneLive,
     setCelestialTracksLive,
     setSolarSceneLive,
+    upsertCelestialTrackRowLive,
 } from '../components/celestial/celestial-slice.jsx';
 
 /**
@@ -820,6 +821,9 @@ export const useSocketEventHandlers = (socket) => {
         socket.on('celestial-tracks-update', (data) => {
             dispatch(setCelestialTracksLive(data));
         });
+        socket.on('celestial-track-row-update', (data) => {
+            dispatch(upsertCelestialTrackRowLive(data));
+        });
 
         // SoapySDR discovery events
         socket.on('soapysdr:discovery_started', (data) => {
@@ -914,6 +918,7 @@ export const useSocketEventHandlers = (socket) => {
             socket.off("celestial-scene-update");
             socket.off("solar-system-scene-update");
             socket.off("celestial-tracks-update");
+            socket.off("celestial-track-row-update");
             socket.off("observation-status-update");
             socket.off("scheduled-observations-changed");
             socket.off("soapysdr:discovery_started");
