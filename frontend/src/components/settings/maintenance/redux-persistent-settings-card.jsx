@@ -38,6 +38,7 @@ import {useTranslation} from 'react-i18next';
 const ReduxPersistentSettingsCard = () => {
     const {t} = useTranslation('settings');
     const [confirmClearReduxOpen, setConfirmClearReduxOpen] = useState(false);
+    const [confirmIndividualAction, setConfirmIndividualAction] = useState(null);
     const [isReloading, setIsReloading] = useState(false);
 
     const clearReduxPersistentState = () => {
@@ -58,10 +59,12 @@ const ReduxPersistentSettingsCard = () => {
             'persist:overviewSatTrack',
             'persist:dashboard',
             'persist:weather',
-            'persist:camera',
             'persist:sdr',
             'persist:version',
             'persist:filebrowser',
+            'persist:celestial',
+            'persist:celestialMonitored',
+            'persist:celestialDisplay',
             'persist:root'
         ];
 
@@ -96,8 +99,26 @@ const ReduxPersistentSettingsCard = () => {
         localStorage.removeItem('persist:overviewSatTrack');
     };
 
-    const clearCameraPersist = () => {
-        localStorage.removeItem('persist:camera');
+    const clearCelestialPersist = () => {
+        localStorage.removeItem('persist:celestial');
+        localStorage.removeItem('persist:celestialMonitored');
+        localStorage.removeItem('persist:celestialDisplay');
+    };
+
+    const openIndividualConfirmDialog = (title, description, confirmLabel, onConfirm) => {
+        setConfirmIndividualAction({
+            title,
+            description,
+            confirmLabel,
+            onConfirm,
+        });
+    };
+
+    const handleConfirmIndividualAction = () => {
+        if (!confirmIndividualAction?.onConfirm) return;
+        const action = confirmIndividualAction.onConfirm;
+        setConfirmIndividualAction(null);
+        action();
     };
 
     return (
@@ -151,7 +172,12 @@ const ReduxPersistentSettingsCard = () => {
                     <Button
                         variant="outlined"
                         color="warning"
-                        onClick={clearFileBrowserPersist}
+                        onClick={() => openIndividualConfirmDialog(
+                            'Clear File Browser Settings?',
+                            'This will reset page size, sorting, filters, and view mode for the File Browser.',
+                            'Clear File Browser',
+                            clearFileBrowserPersist,
+                        )}
                         fullWidth
                         size="small"
                     >
@@ -169,7 +195,12 @@ const ReduxPersistentSettingsCard = () => {
                     <Button
                         variant="outlined"
                         color="warning"
-                        onClick={clearWaterfallPersist}
+                        onClick={() => openIndividualConfirmDialog(
+                            'Clear Waterfall Settings?',
+                            'This will reset frequency, gain, sample rate, colormap, and FFT settings.',
+                            'Clear Waterfall',
+                            clearWaterfallPersist,
+                        )}
                         fullWidth
                         size="small"
                     >
@@ -187,7 +218,12 @@ const ReduxPersistentSettingsCard = () => {
                     <Button
                         variant="outlined"
                         color="warning"
-                        onClick={clearVfoPersist}
+                        onClick={() => openIndividualConfirmDialog(
+                            'Clear VFO Settings?',
+                            'This will reset all VFO markers, frequencies, modes, and active states.',
+                            'Clear VFO',
+                            clearVfoPersist,
+                        )}
                         fullWidth
                         size="small"
                     >
@@ -205,7 +241,12 @@ const ReduxPersistentSettingsCard = () => {
                     <Button
                         variant="outlined"
                         color="warning"
-                        onClick={clearPreferencesPersist}
+                        onClick={() => openIndividualConfirmDialog(
+                            'Clear Preferences?',
+                            'This will reset user preferences such as timezone and theme.',
+                            'Clear Preferences',
+                            clearPreferencesPersist,
+                        )}
                         fullWidth
                         size="small"
                     >
@@ -223,7 +264,12 @@ const ReduxPersistentSettingsCard = () => {
                     <Button
                         variant="outlined"
                         color="warning"
-                        onClick={clearOverviewSatTrackPersist}
+                        onClick={() => openIndividualConfirmDialog(
+                            'Clear Overview Satellite Selection?',
+                            'This will reset selected satellite group and satellite on the Overview page.',
+                            'Clear Selection',
+                            clearOverviewSatTrackPersist,
+                        )}
                         fullWidth
                         size="small"
                     >
@@ -232,16 +278,21 @@ const ReduxPersistentSettingsCard = () => {
                 </Grid>
 
                 <Grid size={10}>
-                    Clear Camera Selection
+                    Clear Celestial Settings
                     <Typography variant="body2" color="text.secondary">
-                        Resets selected camera and camera ID
+                        Resets map settings, monitored table state, and solar system display options
                     </Typography>
                 </Grid>
                 <Grid size={6}>
                     <Button
                         variant="outlined"
                         color="warning"
-                        onClick={clearCameraPersist}
+                        onClick={() => openIndividualConfirmDialog(
+                            'Clear Celestial Settings?',
+                            'This will reset map settings, monitored table state, and solar system display options.',
+                            'Clear Celestial',
+                            clearCelestialPersist,
+                        )}
                         fullWidth
                         size="small"
                     >
@@ -326,9 +377,9 @@ const ReduxPersistentSettingsCard = () => {
                                 <li>User preferences (timezone, theme)</li>
                                 <li>Dashboard settings</li>
                                 <li>Weather settings</li>
-                                <li>Camera settings</li>
                                 <li>SDR settings</li>
                                 <li>File browser settings</li>
+                                <li>Celestial settings (map, monitored table, display options)</li>
                             </ul>
                         </Typography>
                     </Box>
@@ -369,6 +420,99 @@ const ReduxPersistentSettingsCard = () => {
                         }}
                     >
                         Clear All Settings
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Individual Clear Action Confirmation Dialog */}
+            <Dialog
+                open={Boolean(confirmIndividualAction)}
+                onClose={() => setConfirmIndividualAction(null)}
+                maxWidth="sm"
+                fullWidth
+                PaperProps={{
+                    sx: {
+                        bgcolor: 'background.paper',
+                        borderRadius: 2,
+                    }
+                }}
+            >
+                <DialogTitle
+                    sx={{
+                        bgcolor: 'error.main',
+                        color: 'error.contrastText',
+                        fontSize: '1.125rem',
+                        fontWeight: 600,
+                        py: 2,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.5,
+                    }}
+                >
+                    <Box
+                        component="span"
+                        sx={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            bgcolor: 'error.contrastText',
+                            color: 'error.main',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 'bold',
+                            fontSize: '1rem',
+                        }}
+                    >
+                        !
+                    </Box>
+                    {confirmIndividualAction?.title || 'Confirm Clear Action'}
+                </DialogTitle>
+                <DialogContent sx={{ px: 3, pt: 3, pb: 3 }}>
+                    <Alert severity="info" sx={{ mt: 2, mb: 2 }}>
+                        <AlertTitle>Local Browser Cache Only</AlertTitle>
+                        This only clears settings stored in your browser's local storage.
+                    </Alert>
+                    <Typography variant="body1" sx={{ mb: 2, color: 'text.primary' }}>
+                        {confirmIndividualAction?.description}
+                    </Typography>
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                        <AlertTitle>Reload May Be Required</AlertTitle>
+                        Refresh the page if you do not immediately see the updated defaults.
+                    </Alert>
+                </DialogContent>
+                <DialogActions
+                    sx={{
+                        bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                        borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+                        px: 3,
+                        py: 2,
+                        gap: 1.5,
+                    }}
+                >
+                    <Button
+                        onClick={() => setConfirmIndividualAction(null)}
+                        variant="outlined"
+                        color="inherit"
+                        sx={{
+                            minWidth: 100,
+                            textTransform: 'none',
+                            fontWeight: 500,
+                        }}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={handleConfirmIndividualAction}
+                        color="error"
+                        variant="contained"
+                        sx={{
+                            minWidth: 100,
+                            textTransform: 'none',
+                            fontWeight: 600,
+                        }}
+                    >
+                        {confirmIndividualAction?.confirmLabel || 'Clear'}
                     </Button>
                 </DialogActions>
             </Dialog>
