@@ -114,6 +114,15 @@ const isValidLatLonObjectPoint = (point) =>
     && isValidLatLon(point.lat, point.lon);
 const isValidCoveragePoint = (point) =>
     isValidLatLonPoint(point) || isValidLatLonObjectPoint(point);
+const normalizeCoveragePoint = (point) => {
+    if (isValidLatLonPoint(point)) {
+        return [Number(point[0]), Number(point[1])];
+    }
+    if (isValidLatLonObjectPoint(point)) {
+        return [Number(point.lat), Number(point.lon)];
+    }
+    return null;
+};
 
 const MapSlider = function ({handleSliderChange}) {
     const marks = [
@@ -489,7 +498,8 @@ const TargetSatelliteMapContainer = ({}) => {
         MapObject = map.target;
     };
 
-    // Keep target map locked to the selected satellite on every position update.
+    // Keep target map focused on the selected satellite.
+    // If coverage is shown, auto-fit to coverage bounds (legacy behavior).
     useEffect(() => {
         if (!MapObject) return;
 
@@ -500,8 +510,31 @@ const TargetSatelliteMapContainer = ({}) => {
         if (!isValidLatLon(lat, lon)) return;
         if (loadedNoradId !== selectedNoradId) return;
 
+        const coveragePoints = Array.isArray(satelliteCoverage)
+            ? satelliteCoverage
+                .map(normalizeCoveragePoint)
+                .filter((point) => Array.isArray(point) && point.length === 2)
+            : [];
+        if (showSatelliteCoverage && coveragePoints.length > 1) {
+            const coverageBounds = L.latLngBounds(coveragePoints);
+            if (coverageBounds.isValid()) {
+                MapObject.fitBounds(coverageBounds, {
+                    padding: [1, 1],
+                    animate: false,
+                });
+                return;
+            }
+        }
+
         MapObject.setView([lat, lon], MapObject.getZoom(), { animate: false });
-    }, [noradId, satelliteDetails?.norad_id, satellitePosition?.lat, satellitePosition?.lon]);
+    }, [
+        noradId,
+        satelliteDetails?.norad_id,
+        satellitePosition?.lat,
+        satellitePosition?.lon,
+        satelliteCoverage,
+        showSatelliteCoverage,
+    ]);
 
     useEffect(() => {
         const intervalId = setInterval(() => {

@@ -33,7 +33,6 @@ import {
 } from '@mui/material';
 import {SatelliteIcon} from "hugeicons-react";
 import OverlayIcon from "./icons-overlay.jsx";
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useNavigate } from "react-router-dom";
 
 // Import overlay icons
@@ -67,6 +66,7 @@ const HardwareSettingsPopover = () => {
     const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
     const trackerViews = useSelector((state) => state.targetSatTrack?.trackerViews || {});
     const trackerCommandsById = useSelector((state) => state.targetSatTrack?.trackerCommandsById || {});
+    const rotators = useSelector((state) => state.rotators?.rotators || []);
 
     // Keep selector output primitive/lightweight to reduce unnecessary re-renders.
     const hardwareState = useSelector((state) => {
@@ -243,6 +243,15 @@ const HardwareSettingsPopover = () => {
 
     const rotatorOverlay = getRotatorOverlay();
     const rigOverlay = getRigOverlay();
+    const rotatorNameById = React.useMemo(() => {
+        const entries = Array.isArray(rotators) ? rotators : [];
+        return entries.reduce((acc, rotator) => {
+            const id = rotator?.id;
+            if (id == null) return acc;
+            acc[String(id)] = rotator?.name || String(id);
+            return acc;
+        }, {});
+    }, [rotators]);
 
     const fleetRows = React.useMemo(() => {
         return trackerInstances.map((instance, index) => {
@@ -260,8 +269,10 @@ const HardwareSettingsPopover = () => {
             return {
                 trackerId: instanceTrackerId,
                 targetNumber,
+                satName: view?.satelliteData?.details?.name || 'No satellite',
                 satNorad: trackingState?.norad_id || 'none',
                 rotatorId: trackingState?.rotator_id || instance?.rotator_id || 'none',
+                rotatorName: rotatorNameById[String(trackingState?.rotator_id || instance?.rotator_id || '')] || 'No rotator',
                 rigId: trackingState?.rig_id || 'none',
                 trackingState,
                 rotatorData,
@@ -270,7 +281,7 @@ const HardwareSettingsPopover = () => {
                 isActive: instanceTrackerId === trackerId,
             };
         });
-    }, [trackerInstances, trackerViews, trackerCommandsById, trackerId]);
+    }, [trackerInstances, trackerViews, trackerCommandsById, trackerId, rotatorNameById]);
 
     const submitQuickAction = useCallback(async (row, nextState) => {
         if (!row?.trackerId) return;
@@ -302,12 +313,21 @@ const HardwareSettingsPopover = () => {
     const renderCompactFleetPanel = () => {
         const isRotatorPanel = activeIcon === 'rotator';
         const panelTitle = isRotatorPanel ? 'Rotator Quick Actions' : 'Rig Quick Actions';
+        const actionButtonSx = {
+            minWidth: 30,
+            px: 0.6,
+            borderColor: 'divider',
+            '&.Mui-disabled': {
+                borderColor: 'action.disabledBackground',
+                color: 'action.disabled',
+            },
+        };
         return (
-            <Box sx={{ p: 1 }}>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+            <Box sx={{ p: 0.9 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', fontSize: '12px' }}>
                     {panelTitle}
                 </Typography>
-                <Stack spacing={0.8} sx={{ mt: 0.8 }}>
+                <Stack spacing={0.65} sx={{ mt: 0.7 }}>
                     {fleetRows.map((row) => {
                         const statusLabel = isRotatorPanel
                             ? (row.rotatorData?.tracking ? 'Tracking' : (row.rotatorData?.connected ? 'Connected' : 'Disconnected'))
@@ -342,13 +362,16 @@ const HardwareSettingsPopover = () => {
                                 disconnect: { enabled: canDisconnect, reason: canDisconnect ? 'Disconnect' : (trackingNow ? 'Stop tracking first' : (!connectedNow ? 'Already disconnected' : (row.commandBusy ? 'Command in progress' : 'Unavailable'))) },
                             };
                         })();
+                        const az = Number.isFinite(Number(row.rotatorData?.az)) ? Number(row.rotatorData.az).toFixed(1) : 'N/A';
+                        const el = Number.isFinite(Number(row.rotatorData?.el)) ? Number(row.rotatorData.el).toFixed(1) : 'N/A';
                         return (
                             <Box key={row.trackerId}>
                                 <FleetTargetRow
                                     targetNumber={row.targetNumber}
-                                    satName={`Sat ${row.satNorad}`}
+                                    satName={row.satName}
                                     satNorad={row.satNorad}
-                                    isActive={row.isActive}
+                                    elevation={null}
+                                    isActive={false}
                                     onFocus={() => dispatch(setTrackerId(row.trackerId))}
                                     onOpenConsole={() => {
                                         dispatch(setTrackerId(row.trackerId));
@@ -356,9 +379,37 @@ const HardwareSettingsPopover = () => {
                                         handleClose();
                                     }}
                                     extraMeta={(
-                                        <Typography variant="caption" color="text.secondary">
-                                            {isRotatorPanel ? `Rot ${row.rotatorId}` : `Rig ${row.rigId}`}
-                                        </Typography>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
+                                            <Typography
+                                                variant="caption"
+                                                color="text.secondary"
+                                                sx={{
+                                                    minWidth: 0,
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap',
+                                                    fontSize: '11px',
+                                                    lineHeight: 1.25,
+                                                }}
+                                            >
+                                                {row.rotatorName}
+                                            </Typography>
+                                            <Typography
+                                                variant="caption"
+                                                sx={{
+                                                    marginLeft: 'auto',
+                                                    color: 'text.secondary',
+                                                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                                                    fontFeatureSettings: '"tnum" 1',
+                                                    whiteSpace: 'nowrap',
+                                                    textAlign: 'right',
+                                                    fontSize: '12px',
+                                                    lineHeight: 1.25,
+                                                }}
+                                            >
+                                                Az {az}° El {el}°
+                                            </Typography>
+                                        </Box>
                                     )}
                                     statusChip={(
                                         <Chip
@@ -366,6 +417,7 @@ const HardwareSettingsPopover = () => {
                                             label={statusLabel}
                                             color={statusLabel === 'Tracking' ? 'success' : (statusLabel === 'Connected' ? 'info' : 'default')}
                                             variant={statusLabel === 'Disconnected' ? 'outlined' : 'filled'}
+                                            sx={{ '& .MuiChip-label': { fontSize: '11px' } }}
                                         />
                                     )}
                                     actions={(
@@ -375,9 +427,10 @@ const HardwareSettingsPopover = () => {
                                                 <Button
                                                     size="small"
                                                     variant="outlined"
+                                                    color="success"
                                                     disabled={!actionState.connect.enabled}
                                                     onClick={() => submitQuickAction(row, isRotatorPanel ? { rotator_state: 'connected' } : { rig_state: 'connected' })}
-                                                    sx={{ minWidth: 30, px: 0.6 }}
+                                                    sx={actionButtonSx}
                                                 >
                                                     <LinkIcon fontSize="small" />
                                                 </Button>
@@ -388,9 +441,10 @@ const HardwareSettingsPopover = () => {
                                                 <Button
                                                     size="small"
                                                     variant="outlined"
+                                                    color="info"
                                                     disabled={!actionState.track.enabled}
                                                     onClick={() => submitQuickAction(row, isRotatorPanel ? { rotator_state: 'tracking' } : { rig_state: 'tracking' })}
-                                                    sx={{ minWidth: 30, px: 0.6 }}
+                                                    sx={actionButtonSx}
                                                 >
                                                     <TrackChangesIcon fontSize="small" />
                                                 </Button>
@@ -401,9 +455,10 @@ const HardwareSettingsPopover = () => {
                                                 <Button
                                                     size="small"
                                                     variant="outlined"
+                                                    color="warning"
                                                     disabled={!actionState.stop.enabled}
                                                     onClick={() => submitQuickAction(row, isRotatorPanel ? { rotator_state: 'stopped' } : { rig_state: 'stopped' })}
-                                                    sx={{ minWidth: 30, px: 0.6 }}
+                                                    sx={actionButtonSx}
                                                 >
                                                     <StopCircleOutlinedIcon fontSize="small" />
                                                 </Button>
@@ -414,9 +469,10 @@ const HardwareSettingsPopover = () => {
                                                 <Button
                                                     size="small"
                                                     variant="outlined"
+                                                    color="error"
                                                     disabled={!actionState.disconnect.enabled}
                                                     onClick={() => submitQuickAction(row, isRotatorPanel ? { rotator_state: 'disconnected' } : { rig_state: 'disconnected' })}
-                                                    sx={{ minWidth: 30, px: 0.6 }}
+                                                    sx={actionButtonSx}
                                                 >
                                                     <LinkOffIcon fontSize="small" />
                                                 </Button>
@@ -426,7 +482,7 @@ const HardwareSettingsPopover = () => {
                                     )}
                                 />
                                 {rowErrors?.[row.trackerId] && (
-                                    <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                                    <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.35 }}>
                                         {rowErrors[row.trackerId]}
                                     </Typography>
                                 )}
@@ -434,19 +490,6 @@ const HardwareSettingsPopover = () => {
                         );
                     })}
                 </Stack>
-                <Button
-                    fullWidth
-                    size="small"
-                    sx={{ mt: 1 }}
-                    variant="contained"
-                    endIcon={<OpenInNewIcon />}
-                    onClick={() => {
-                        navigate('/track');
-                        handleClose();
-                    }}
-                >
-                    Open Tracking Console
-                </Button>
             </Box>
         );
     };
@@ -529,34 +572,6 @@ const HardwareSettingsPopover = () => {
                 width: 340,
                 backgroundColor: 'background.paper',
             }}>
-                {trackerInstances.length > 1 && (
-                    <Stack
-                        direction="row"
-                        spacing={0.6}
-                        useFlexGap
-                        flexWrap="wrap"
-                        sx={{ p: 0.8, borderBottom: '1px solid', borderColor: 'divider' }}
-                    >
-                        {trackerInstances.map((instance, index) => {
-                            const instanceTrackerId = instance?.tracker_id || '';
-                            const targetNumber = Number(instance?.target_number || (index + 1));
-                            const view = trackerViews?.[instanceTrackerId] || {};
-                            const isActive = instanceTrackerId === trackerId;
-                            const satNorad = view?.trackingState?.norad_id || 'none';
-                            return (
-                                <Chip
-                                    key={instanceTrackerId}
-                                    size="small"
-                                    clickable
-                                    color={isActive ? 'primary' : 'default'}
-                                    variant={isActive ? 'filled' : 'outlined'}
-                                    label={`T${targetNumber} • ${satNorad}`}
-                                    onClick={() => dispatch(setTrackerId(instanceTrackerId))}
-                                />
-                            );
-                        })}
-                    </Stack>
-                )}
                 {renderCompactFleetPanel()}
             </Box>
         </Popover>

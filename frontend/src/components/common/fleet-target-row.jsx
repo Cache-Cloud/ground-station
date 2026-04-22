@@ -14,7 +14,7 @@ const FleetTargetRow = React.memo(function FleetTargetRow({
     statusChip = null,
     actions = null,
 }) {
-    const hasElevation = Number.isFinite(Number(elevation));
+    const hasElevation = elevation !== null && elevation !== undefined && Number.isFinite(Number(elevation));
 
     return (
         <Box
@@ -34,12 +34,22 @@ const FleetTargetRow = React.memo(function FleetTargetRow({
                     variant={isActive ? 'filled' : 'outlined'}
                     label={`Target ${targetNumber}`}
                     onClick={onFocus}
+                    sx={{ '& .MuiChip-label': { fontWeight: 'bold', fontSize: '12px' } }}
                 />
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 120 }}>
+                <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    noWrap
+                    sx={{ maxWidth: 120, fontWeight: 'bold', fontSize: '12px', lineHeight: 1.25 }}
+                >
                     {satName}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
-                    {`NORAD ${satNorad}`}
+                <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontWeight: 'bold', fontSize: '12px', lineHeight: 1.25 }}
+                >
+                    {`(${satNorad})`}
                 </Typography>
                 {hasElevation && (
                     <Chip
@@ -47,18 +57,27 @@ const FleetTargetRow = React.memo(function FleetTargetRow({
                         label={`El ${Number(elevation).toFixed(1)}°`}
                         color={Number(elevation) > 0 ? 'success' : 'default'}
                         variant={Number(elevation) > 0 ? 'filled' : 'outlined'}
+                        sx={{ '& .MuiChip-label': { fontSize: '11px' } }}
                     />
                 )}
-                {extraMeta}
-                {statusChip}
-                <Box sx={{ flexGrow: 1 }} />
-                <Tooltip title="Open Tracking Console">
-                    <IconButton size="small" onClick={onOpenConsole}>
-                        <OpenInNewIcon fontSize="small" />
-                    </IconButton>
-                </Tooltip>
-                {actions}
             </Stack>
+            {extraMeta && (
+                <Box sx={{ mt: 0.6 }}>
+                    {extraMeta}
+                </Box>
+            )}
+            {(statusChip || actions || onOpenConsole) && (
+                <Stack direction="row" spacing={0.6} alignItems="center" sx={{ mt: 0.6 }}>
+                    {statusChip}
+                    <Box sx={{ flexGrow: 1 }} />
+                    <Tooltip title="Open Tracking Console">
+                        <IconButton size="small" onClick={onOpenConsole}>
+                            <OpenInNewIcon fontSize="small" />
+                        </IconButton>
+                    </Tooltip>
+                    {actions}
+                </Stack>
+            )}
         </Box>
     );
 });

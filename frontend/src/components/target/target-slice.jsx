@@ -29,6 +29,7 @@ import {
     TRACKER_COMMAND_SCOPES,
     TRACKER_COMMAND_STATUS,
 } from './tracking-constants.js';
+import { fetchTrackerInstances } from './tracker-instances-slice.jsx';
 
 const normalizeSource = (source) => {
     if (typeof source !== 'string') {
@@ -1220,19 +1221,73 @@ const targetSatTrackSlice = createSlice({
             })
             .addCase(getTrackingStateFromBackend.fulfilled, (state, action) => {
                 state.loading = false;
-                // Handle null/undefined payload for first-time users
-                if (action.payload && action.payload['value']) {
-                    state.trackingState = action.payload['value'];
-                    state.selectedRadioRig = action.payload['value']['rig_id'];
-                    state.selectedRotator = action.payload['value']['rotator_id'];
+                const incomingTrackerId = resolveTrackerId(action.payload?.tracker_id, DEFAULT_TRACKER_ID);
+                if (!incomingTrackerId) {
+                    state.error = null;
+                    return;
                 }
-                state.trackerId = resolveTrackerId(action.payload?.tracker_id, state.trackerId);
-                // Don't sync selectedRigVFO from backend - it's session-specific
+
+                const incomingTrackingState = action.payload?.value || null;
+                const trackerView = state.trackerViews[incomingTrackerId] || createDefaultTrackerView();
+                if (incomingTrackingState) {
+                    trackerView.trackingState = incomingTrackingState;
+                    if (incomingTrackingState.norad_id != null) trackerView.satelliteId = incomingTrackingState.norad_id;
+                    if (incomingTrackingState.group_id != null) trackerView.groupId = incomingTrackingState.group_id;
+                    if (incomingTrackingState.rig_id != null) trackerView.selectedRadioRig = incomingTrackingState.rig_id;
+                    if (incomingTrackingState.rotator_id != null) trackerView.selectedRotator = incomingTrackingState.rotator_id;
+                    if (incomingTrackingState.transmitter_id != null) {
+                        trackerView.selectedTransmitter = incomingTrackingState.transmitter_id;
+                    }
+                    if (incomingTrackingState.rig_vfo != null) trackerView.selectedRigVFO = incomingTrackingState.rig_vfo;
+                    if (incomingTrackingState.vfo1 != null) trackerView.selectedVFO1 = incomingTrackingState.vfo1;
+                    if (incomingTrackingState.vfo2 != null) trackerView.selectedVFO2 = incomingTrackingState.vfo2;
+                }
+                state.trackerViews[incomingTrackerId] = trackerView;
+
+                const activeTrackerId = resolveTrackerId(state.trackerId, DEFAULT_TRACKER_ID);
+                const shouldSelectIncoming = !activeTrackerId;
+                if (shouldSelectIncoming) {
+                    state.trackerId = incomingTrackerId;
+                }
+                const selectedTrackerId = shouldSelectIncoming ? incomingTrackerId : activeTrackerId;
+                if (incomingTrackerId !== selectedTrackerId) {
+                    state.error = null;
+                    return;
+                }
+
+                if (incomingTrackingState) {
+                    state.trackingState = incomingTrackingState;
+                    state.selectedRadioRig = incomingTrackingState.rig_id;
+                    state.selectedRotator = incomingTrackingState.rotator_id;
+                    state.selectedTransmitter = incomingTrackingState.transmitter_id;
+                    state.selectedRigVFO = incomingTrackingState.rig_vfo ?? state.selectedRigVFO;
+                    state.selectedVFO1 = incomingTrackingState.vfo1 ?? state.selectedVFO1;
+                    state.selectedVFO2 = incomingTrackingState.vfo2 ?? state.selectedVFO2;
+                    state.groupId = incomingTrackingState.group_id ?? state.groupId;
+                    state.satelliteId = incomingTrackingState.norad_id ?? state.satelliteId;
+                }
+
                 state.error = null;
             })
             .addCase(getTrackingStateFromBackend.rejected, (state, action) => {
                 state.loading = false;
                 state.error = action.payload;
+            })
+            .addCase(fetchTrackerInstances.fulfilled, (state, action) => {
+                const instances = Array.isArray(action.payload?.instances) ? action.payload.instances : [];
+                const trackerIds = instances
+                    .map((instance) => resolveTrackerId(instance?.tracker_id, DEFAULT_TRACKER_ID))
+                    .filter((trackerId) => Boolean(trackerId));
+
+                if (trackerIds.length === 0) {
+                    state.trackerId = DEFAULT_TRACKER_ID;
+                    return;
+                }
+
+                const currentTrackerId = resolveTrackerId(state.trackerId, DEFAULT_TRACKER_ID);
+                if (!currentTrackerId || !trackerIds.includes(currentTrackerId)) {
+                    state.trackerId = trackerIds[0];
+                }
             })
             .addCase(setTargetMapSetting.pending, (state) => {
                 state.loading = true;

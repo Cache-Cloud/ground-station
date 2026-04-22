@@ -159,7 +159,7 @@ const preferencesPersistConfig = {
 const targetSatTrackPersistConfig = {
     key: 'targetSatTrack',
     storage,
-    whitelist: ['passesTableSortModel']
+    whitelist: ['passesTableSortModel', 'trackerId']
 };
 
 // Persist configuration for overview satellite tracking slice

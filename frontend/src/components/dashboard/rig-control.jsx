@@ -841,7 +841,7 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                 </Grid>
 
 
-                <Grid size={{xs: 12, sm: 12, md: 12}} sx={{height: '135px', overflow: 'auto', pt: 0.5}}>
+                <Grid size={{xs: 12, sm: 12, md: 12}} sx={{pt: 0.5}}>
                     <Grid size={{xs: 12, sm: 12, md: 12}} style={{padding: '0rem 0.5rem 0rem 0.5rem'}}>
                         <Grid container direction="column" spacing={1}>
                             {/* VFO 1 Frequency */}
@@ -908,7 +908,7 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                                         fullWidth={true}
                                         variant="contained"
                                         color="success"
-                                        style={{height: '50px'}}
+                                        style={{height: '44px'}}
                                         loading={isConnectRigActionPending}
                                         onClick={() => {
                                             connectRig()
@@ -927,7 +927,7 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                                         fullWidth={true}
                                         variant="contained"
                                         color="error"
-                                        style={{height: '50px'}}
+                                        style={{height: '44px'}}
                                         loading={isDisconnectRigActionPending}
                                         onClick={() => {
                                             disconnectRig()
@@ -954,7 +954,7 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                                         disabled={trackRigDisabled}
                                         variant="contained"
                                         color="success"
-                                        style={{height: '60px'}}
+                                        style={{height: '54px'}}
                                         loading={isTrackRigActionPending}
                                         onClick={()=>{handleTrackingStart()}}
                                     >
@@ -971,7 +971,7 @@ const RigControl = React.memo(function RigControl({ trackerId: trackerIdOverride
                                         disabled={stopRigDisabled}
                                         variant="contained"
                                         color="error"
-                                        style={{height: '60px'}}
+                                        style={{height: '54px'}}
                                         loading={isStopRigActionPending}
                                         onClick={() => {handleTrackingStop()}}
                                     >

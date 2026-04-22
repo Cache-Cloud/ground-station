@@ -657,7 +657,7 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
                                         fullWidth={true}
                                         variant="contained"
                                         color="success"
-                                        style={{height: '40px'}}
+                                        style={{height: '48px'}}
                                         onClick={() => {
                                             connectRotator()
                                         }}
@@ -676,7 +676,7 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
                                         fullWidth={true}
                                         variant="contained"
                                         color="error"
-                                        style={{height: '40px'}}
+                                        style={{height: '48px'}}
                                         onClick={() => {
                                              disconnectRotator()
                                         }}
@@ -695,7 +695,7 @@ const RotatorControl = React.memo(function RotatorControl({ trackerId: trackerId
                                         fullWidth={true}
                                         variant="contained"
                                         color="warning"
-                                        style={{height: '40px'}}
+                                        style={{height: '48px'}}
                                         onClick={() => {
                                             parkRotator()
                                         }}

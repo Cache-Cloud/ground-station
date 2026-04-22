@@ -28,6 +28,8 @@ import {
     humanizeLatitude,
     humanizeLongitude,
     humanizeVelocity,
+    getFrequencyBand,
+    getBandColor,
     renderCountryFlagsCSV,
     TitleBar
 } from "../common/common.jsx";
@@ -60,6 +62,7 @@ const TargetSatelliteInfoIsland = () => {
     const { satelliteData, gridEditable, satelliteId } = useSelector((state) => state.targetSatTrack);
     const selectedSatellitePositions = useSelector(state => state.overviewSatTrack.selectedSatellitePositions);
     const navigate = useNavigate();
+    const transmitters = satelliteData?.transmitters || [];
 
     // Mini circular gauge for angular measurements
     const CircularGauge = ({ value, max, size = 36 }) => {
@@ -149,6 +152,13 @@ const TargetSatelliteInfoIsland = () => {
             {children}
         </Box>
     );
+
+    const formatFrequencyRange = (lowHz, highHz) => {
+        if (!lowHz && !highHz) return t('satellite_info.values.na');
+        if (lowHz && highHz) return `${(lowHz / 1e6).toFixed(3)}-${(highHz / 1e6).toFixed(3)} MHz`;
+        const hz = lowHz || highHz;
+        return `${(hz / 1e6).toFixed(3)} MHz`;
+    };
 
     return (
         <Box sx={{
@@ -447,36 +457,113 @@ const TargetSatelliteInfoIsland = () => {
 
                 <Divider sx={{ my: 1, borderColor: 'border.main' }} />
 
-                {/* Communication */}
-                <Section title="Communication" icon={RadioIcon}>
-                    <Box sx={{
-                        p: 1,
-                        bgcolor: 'overlay.light',
-                        borderRadius: 1
-                    }}>
-                        <Grid container spacing={1}>
+                {/* Compact Transmitters */}
+                <Section title={t('satellite_transmitters.title')} icon={RadioIcon}>
+                    <Box sx={{ p: 1, bgcolor: 'overlay.light', borderRadius: 1 }}>
+                        <Grid container spacing={1} sx={{ mb: 1 }}>
                             <Grid size={6}>
                                 <Box sx={{ textAlign: 'center' }}>
-                                    <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace' }}>
-                                        {satelliteData && satelliteData['transmitters'] ? satelliteData['transmitters'].length : '0'}
+                                    <Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace', lineHeight: 1 }}>
+                                        {transmitters.length}
                                     </Typography>
                                     <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.6rem', textTransform: 'uppercase' }}>
-                                        Total TX
+                                        {t('satellite_transmitters.labels.total')}
                                     </Typography>
                                 </Box>
                             </Grid>
                             <Grid size={6}>
                                 <Box sx={{ textAlign: 'center' }}>
-                                    <Typography variant="h5" sx={{ fontWeight: 700, color: 'success.main', fontFamily: 'monospace' }}>
-                                        {satelliteData && satelliteData['transmitters'] ?
-                                            satelliteData['transmitters'].filter(t => t.alive && t.status === 'active').length : '0'}
+                                    <Typography variant="h6" sx={{ fontWeight: 700, color: 'success.main', fontFamily: 'monospace', lineHeight: 1 }}>
+                                        {transmitters.filter(tx => tx?.alive && tx?.status === 'active').length}
                                     </Typography>
                                     <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.6rem', textTransform: 'uppercase' }}>
-                                        Active TX
+                                        {t('satellite_transmitters.labels.active')}
                                     </Typography>
                                 </Box>
                             </Grid>
                         </Grid>
+
+                        {transmitters.length > 0 ? (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.65 }}>
+                                {[...transmitters]
+                                    .sort((a, b) => {
+                                        const aActive = Number(Boolean(a?.alive && a?.status === 'active'));
+                                        const bActive = Number(Boolean(b?.alive && b?.status === 'active'));
+                                        return bActive - aActive;
+                                    })
+                                    .slice(0, 4)
+                                    .map((tx, idx) => {
+                                        const band = tx?.downlink_low ? getFrequencyBand(tx.downlink_low) : null;
+                                        const isActive = tx?.alive && tx?.status === 'active';
+                                        return (
+                                            <Box
+                                                key={tx?.id || idx}
+                                                sx={{
+                                                    px: 0.75,
+                                                    py: 0.55,
+                                                    borderRadius: 0.8,
+                                                    bgcolor: 'background.paper',
+                                                    border: '1px solid',
+                                                    borderColor: isActive ? 'success.dark' : 'border.main',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    gap: 0.6
+                                                }}
+                                            >
+                                                <Box sx={{ minWidth: 0, flex: 1 }}>
+                                                    <Typography
+                                                        variant="caption"
+                                                        noWrap
+                                                        sx={{ fontSize: '0.66rem', fontWeight: 700, color: 'text.primary', display: 'block' }}
+                                                    >
+                                                        {tx?.description || t('satellite_info.values.na')}
+                                                    </Typography>
+                                                    <Typography
+                                                        variant="caption"
+                                                        noWrap
+                                                        sx={{ fontSize: '0.62rem', color: 'text.secondary', fontFamily: 'monospace', display: 'block' }}
+                                                    >
+                                                        {formatFrequencyRange(tx?.downlink_low, tx?.downlink_high)}
+                                                        {tx?.mode ? ` • ${tx.mode}` : ''}
+                                                    </Typography>
+                                                </Box>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                                                    {band && (
+                                                        <Box
+                                                            sx={{
+                                                                px: 0.7,
+                                                                py: 0.2,
+                                                                borderRadius: 99,
+                                                                bgcolor: getBandColor(band) || 'primary.main'
+                                                            }}
+                                                        >
+                                                            <Typography variant="caption" sx={{ color: '#fff', fontSize: '0.58rem', fontWeight: 700 }}>
+                                                                {band}
+                                                            </Typography>
+                                                        </Box>
+                                                    )}
+                                                    <Chip
+                                                        label={isActive ? 'ACTIVE' : 'INACTIVE'}
+                                                        size="small"
+                                                        color={isActive ? 'success' : 'default'}
+                                                        sx={{ height: 18, fontSize: '0.56rem', fontWeight: 700 }}
+                                                    />
+                                                </Box>
+                                            </Box>
+                                        );
+                                    })}
+                                {transmitters.length > 4 && (
+                                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.62rem', textAlign: 'center', pt: 0.25 }}>
+                                        +{transmitters.length - 4} more
+                                    </Typography>
+                                )}
+                            </Box>
+                        ) : (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', textAlign: 'center', py: 0.5 }}>
+                                {t('satellite_transmitters.messages.no_transmitters')}
+                            </Typography>
+                        )}
                     </Box>
                 </Section>
 

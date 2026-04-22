@@ -55,7 +55,6 @@ import {
     satelliteTransmittersSelector
 } from './state-selectors.jsx';
 import TargetSatelliteMapContainer from './satellite-map.jsx';
-import TargetSatelliteTransmittersIsland from "./satellite-transmitters.jsx";
 import SatellitePassTimeline from "./timeline-main.jsx";
 import TargetSatelliteSelectorBar from "./target-satellite-selector-bar.jsx";
 import RotatorControl from "../dashboard/rotator-control.jsx";
@@ -74,6 +73,13 @@ export const handleSetGridEditableTarget = function (value) {
 
 export const gridLayoutStoreName = 'target-sat-track-layouts';
 const SHARED_RESIZE_HANDLES = ['s', 'sw', 'w', 'se', 'nw', 'ne', 'e'];
+const FIXED_ISLAND_HEIGHTS = {
+    lg: { 'rotator-control': 13, 'rig-control': 13 },
+    md: { 'rotator-control': 13, 'rig-control': 13 },
+    sm: { 'rotator-control': 13, 'rig-control': 13 },
+    xs: { 'rotator-control': 13, 'rig-control': 13 },
+    xxs: { 'rotator-control': 13, 'rig-control': 13 },
+};
 
 // -------------------------------------------------
 // Leaflet icon path fix for React
@@ -129,6 +135,48 @@ function ensureLayoutsContainRequiredItems(layouts, defaultLayouts) {
             const currentKeys = new Set(currentItems.map((item) => item?.i).filter(Boolean));
             const missingDefaults = defaultItems.filter((item) => item?.i && !currentKeys.has(item.i));
             return [breakpoint, [...currentItems, ...missingDefaults]];
+        }),
+    );
+}
+
+function removeDeprecatedLayoutItems(layouts) {
+    if (!layouts || typeof layouts !== 'object') {
+        return layouts;
+    }
+
+    return Object.fromEntries(
+        Object.entries(layouts).map(([breakpoint, items]) => [
+            breakpoint,
+            Array.isArray(items)
+                ? items.filter((item) => item?.i !== 'transmitters')
+                : items,
+        ]),
+    );
+}
+
+function enforceFixedIslandHeights(layouts) {
+    if (!layouts || typeof layouts !== 'object') {
+        return layouts;
+    }
+
+    return Object.fromEntries(
+        Object.entries(layouts).map(([breakpoint, items]) => {
+            const fixedHeights = FIXED_ISLAND_HEIGHTS[breakpoint] || {};
+            return [
+                breakpoint,
+                Array.isArray(items)
+                    ? items.map((item) => {
+                        const fixedHeight = fixedHeights[item?.i];
+                        if (!fixedHeight) return item;
+                        return {
+                            ...item,
+                            h: fixedHeight,
+                            minH: fixedHeight,
+                            maxH: fixedHeight,
+                        };
+                    })
+                    : items,
+            ];
         }),
     );
 }
@@ -278,7 +326,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
         }, {
-            "w": 3,
+            "w": 6,
             "h": 13,
             "x": 0,
             "y": 0,
@@ -296,7 +344,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "moved": false,
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
-        }, {"w": 3, "h": 13, "x": 3, "y": 0, "i": "transmitters", "moved": false, "static": false}, {
+        }, {
             "w": 12,
             "h": 6,
             "x": 0,
@@ -331,7 +379,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
         }, {
-            "w": 3,
+            "w": 6,
             "h": 15,
             "x": 0,
             "y": 0,
@@ -349,7 +397,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "moved": false,
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
-        }, {"w": 3, "h": 15, "x": 3, "y": 0, "i": "transmitters", "moved": false, "static": false}, {
+        }, {
             "w": 10,
             "h": 6,
             "x": 0,
@@ -384,7 +432,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
         }, {
-            "w": 3,
+            "w": 6,
             "h": 15,
             "x": 0,
             "y": 30,
@@ -402,7 +450,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "moved": false,
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
-        }, {"w": 3, "h": 15, "x": 3, "y": 30, "i": "transmitters", "moved": false, "static": false}, {
+        }, {
             "w": 6,
             "h": 6,
             "x": 0,
@@ -438,7 +486,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
         }, {
             "w": 2,
-            "h": 12,
+            "h": 18,
             "x": 0,
             "y": 36,
             "i": "info",
@@ -464,7 +512,7 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
             "moved": false,
             "static": false,
             "resizeHandles": ["se", "ne", "nw", "sw", "s", "e", "w"]
-        }, {"w": 2, "h": 16, "x": 0, "y": 48, "i": "transmitters", "moved": false, "static": false}, {
+        }, {
             "w": 2,
             "h": 6,
             "x": 0,
@@ -510,12 +558,16 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
     const [layouts, setLayouts] = useState(() => {
         const loaded = loadLayoutsFromLocalStorage();
         const mergedLayouts = ensureLayoutsContainRequiredItems((loaded ?? defaultLayouts), defaultLayouts);
-        return normalizeLayoutsResizeHandles(mergedLayouts);
+        const withoutDeprecatedItems = removeDeprecatedLayoutItems(mergedLayouts);
+        const constrainedLayouts = enforceFixedIslandHeights(withoutDeprecatedItems);
+        return normalizeLayoutsResizeHandles(constrainedLayouts);
     });
 
     function handleLayoutsChange(currentLayout, allLayouts) {
         const mergedLayouts = ensureLayoutsContainRequiredItems(allLayouts, defaultLayouts);
-        const normalizedLayouts = normalizeLayoutsResizeHandles(mergedLayouts);
+        const withoutDeprecatedItems = removeDeprecatedLayoutItems(mergedLayouts);
+        const constrainedLayouts = enforceFixedIslandHeights(withoutDeprecatedItems);
+        const normalizedLayouts = normalizeLayoutsResizeHandles(constrainedLayouts);
         setLayouts(normalizedLayouts);
         saveLayoutsToLocalStorage(normalizedLayouts);
     }
@@ -556,9 +608,6 @@ const TargetSatelliteLayout = React.memo(function TargetSatelliteLayout() {
         // <StyledIslandParentScrollbar key="satselector">
         //     <SatSelectorIsland initialNoradId={noradId} initialGroupId={groupId}/>
         // </StyledIslandParentScrollbar>,
-        <StyledIslandParentScrollbar key="transmitters">
-            <TargetSatelliteTransmittersIsland/>
-        </StyledIslandParentScrollbar>,
         <StyledIslandParentNoScrollbar key="timeline">
             <SatellitePassTimeline
                 timeWindowHours={nextPassesHours}
