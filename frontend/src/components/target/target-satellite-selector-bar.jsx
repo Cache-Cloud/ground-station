@@ -359,6 +359,9 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
         const satName = view?.satelliteData?.details?.name || 'No satellite';
         const satNorad = view?.trackingState?.norad_id || 'none';
         const rotatorId = view?.selectedRotator || instance?.rotator_id || 'none';
+        const rotatorName = String(rotatorId) === 'none'
+            ? 'No rotator'
+            : (rotatorRows.find((row) => String(row.id) === String(rotatorId))?.name || String(rotatorId));
         const isTracking = Boolean(view?.rigData?.tracking || view?.rotatorData?.tracking);
         const satAz = Number.isFinite(view?.satelliteData?.position?.az) ? view.satelliteData.position.az : null;
         const satEl = Number.isFinite(view?.satelliteData?.position?.el) ? view.satelliteData.position.el : null;
@@ -383,6 +386,7 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
             satName,
             satNorad,
             rotatorId,
+            rotatorName,
             isTracking,
             satAz,
             satEl,
@@ -392,7 +396,7 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
             hasScheduledObservation: upcomingObs.length > 0,
             linkedObservations,
         };
-    }), [trackerInstances, trackerViews, schedulerObservations]);
+    }), [trackerInstances, trackerViews, schedulerObservations, rotatorRows]);
 
     const tabValue = targetOptions.some((option) => option.trackerId === trackerId)
         ? trackerId
@@ -1040,7 +1044,7 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
                                     `Target ${option.targetNumber}`,
                                     `${option.satName}`,
                                     `NORAD ${option.satNorad}`,
-                                    `Rotator ${option.rotatorId}`,
+                                    `Rotator ${option.rotatorName}`,
                                 ];
                                 if (option.runningObsCount > 0) {
                                     tooltipLines.push(`Obs running: ${option.runningObsCount}`);
