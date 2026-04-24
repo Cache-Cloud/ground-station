@@ -17,7 +17,7 @@
 
 import traceback
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,7 +40,6 @@ from observations.conflicts import find_any_time_conflict, find_overlapping_obse
 from observations.constants import (
     CONFLICT_STRATEGY_FORCE,
     CONFLICT_STRATEGY_PRIORITY,
-    CONFLICT_STRATEGY_SKIP,
     DEFAULT_CONFLICT_STRATEGY,
     STATUS_CANCELLED,
     STATUS_COMPLETED,
@@ -57,6 +56,79 @@ from tracking.passes import calculate_next_events
 # - skip: Skip all conflicting passes and log
 # - force: Schedule anyway, allow overlaps
 CONFLICT_RESOLUTION_STRATEGY = DEFAULT_CONFLICT_STRATEGY
+
+
+def _normalize_resource_id(resource_id: Any) -> Optional[str]:
+    if resource_id is None:
+        return None
+    value = str(resource_id).strip()
+    if not value or value.lower() == "none":
+        return None
+    return value
+
+
+def _extract_sdr_ids_from_sessions(sessions: Any) -> set[str]:
+    sdr_ids: set[str] = set()
+    if not isinstance(sessions, list):
+        return sdr_ids
+    for session in sessions:
+        if not isinstance(session, dict):
+            continue
+        sdr_id = _normalize_resource_id((session.get("sdr") or {}).get("id"))
+        if sdr_id:
+            sdr_ids.add(sdr_id)
+    return sdr_ids
+
+
+def _extract_candidate_resources(monitored_sat: dict) -> dict:
+    sessions = monitored_sat.get("sessions") or []
+    sdr_ids = _extract_sdr_ids_from_sessions(sessions)
+    rotator_id = _normalize_resource_id((monitored_sat.get("rotator") or {}).get("id"))
+    rig_id = _normalize_resource_id((monitored_sat.get("rig") or {}).get("id"))
+    return {
+        "sdr_ids": sdr_ids,
+        "rotator_id": rotator_id,
+        "rig_id": rig_id,
+    }
+
+
+def _extract_observation_resources(observation: ScheduledObservations) -> dict:
+    sdr_ids = _extract_sdr_ids_from_sessions(observation.sessions or [])
+    fallback_sdr_id = _normalize_resource_id(observation.sdr_id)
+    if fallback_sdr_id:
+        sdr_ids.add(fallback_sdr_id)
+    return {
+        "sdr_ids": sdr_ids,
+        "rotator_id": _normalize_resource_id(observation.rotator_id),
+        "rig_id": _normalize_resource_id(observation.rig_id),
+    }
+
+
+def _get_conflict_reasons(candidate_resources: dict, existing_resources: dict) -> list[str]:
+    reasons: list[str] = []
+    if candidate_resources["sdr_ids"] and existing_resources["sdr_ids"]:
+        if candidate_resources["sdr_ids"].intersection(existing_resources["sdr_ids"]):
+            reasons.append("sdr")
+    if (
+        candidate_resources["rig_id"]
+        and existing_resources["rig_id"]
+        and candidate_resources["rig_id"] == existing_resources["rig_id"]
+    ):
+        reasons.append("rig")
+    if (
+        candidate_resources["rotator_id"]
+        and existing_resources["rotator_id"]
+        and candidate_resources["rotator_id"] == existing_resources["rotator_id"]
+    ):
+        reasons.append("rotator")
+    return reasons
+
+
+def _build_pass_id(monitored_satellite_id: str, norad_id: int, pass_data: dict) -> str:
+    return (
+        f"{monitored_satellite_id}:{norad_id}:"
+        f"{pass_data.get('event_start', '')}:{pass_data.get('event_end', '')}"
+    )
 
 
 async def cleanup_old_observations(session: AsyncSession) -> int:
@@ -181,8 +253,8 @@ async def generate_observations_for_monitored_satellites(
         home_location = {"lat": float(locations[0]["lat"]), "lon": float(locations[0]["lon"])}
 
         stats = {"generated": 0, "updated": 0, "skipped": 0, "satellites_processed": 0}
-        conflicts = []
-        no_conflicts = []
+        conflicting_passes = []
+        no_conflict_passes = []
 
         # Process each monitored satellite
         for mon_sat in monitored_sats:
@@ -196,8 +268,8 @@ async def generate_observations_for_monitored_satellites(
                 stats["skipped"] += result.get("skipped", 0)
 
                 if dry_run:
-                    conflicts.extend(result.get("conflicts", []))
-                    no_conflicts.extend(result.get("no_conflicts", []))
+                    conflicting_passes.extend(result.get("conflicting_passes", []))
+                    no_conflict_passes.extend(result.get("no_conflict_passes", []))
                 else:
                     # Flush changes so subsequent satellites can see these observations in conflict detection
                     await session.flush()
@@ -221,8 +293,11 @@ async def generate_observations_for_monitored_satellites(
         }
 
         if dry_run:
-            result_data["conflicts"] = conflicts
-            result_data["no_conflicts"] = no_conflicts
+            result_data["conflicting_passes"] = conflicting_passes
+            result_data["no_conflict_passes"] = no_conflict_passes
+            # Backward-compatible aliases for older clients.
+            result_data["conflicts"] = conflicting_passes
+            result_data["no_conflicts"] = no_conflict_passes
 
         return result_data
 
@@ -254,11 +329,13 @@ async def _generate_observations_for_satellite(
         Dict with statistics for this satellite
     """
     stats = {"generated": 0, "updated": 0, "skipped": 0}
-    conflicts = []
-    no_conflicts = []
+    conflicting_passes = []
+    no_conflict_passes = []
 
     if user_conflict_overrides is None:
         user_conflict_overrides = {}
+
+    candidate_resources = _extract_candidate_resources(monitored_sat)
 
     # Fetch satellite TLE data
     norad_id = monitored_sat["satellite"]["norad_id"]
@@ -367,199 +444,124 @@ async def _generate_observations_for_satellite(
                 if not task_end_time:
                     task_end_time = event_end
 
-                # Check for time conflicts with ANY other observation
+                # Force strategy bypasses conflict resolution and always schedules.
                 if CONFLICT_RESOLUTION_STRATEGY == CONFLICT_STRATEGY_FORCE:
-                    # Force: Create observation regardless of conflicts
                     if dry_run:
-                        no_conflicts.append(
+                        no_conflict_passes.append(
                             _build_pass_preview(satellite_data, pass_data, monitored_sat)
                         )
                     else:
                         await _create_observation(session, monitored_sat, pass_data)
                     stats["generated"] += 1
-                else:
-                    # Check for any time conflict using task times for accurate conflict detection
-                    conflicting_obs_list = await find_any_time_conflict(
-                        session,
-                        event_start,
-                        event_end,
-                        task_start=task_start_time,
-                        task_end=task_end_time,
+                    continue
+
+                # First find overlapping windows, then keep only hardware blockers.
+                time_overlaps = await find_any_time_conflict(
+                    session,
+                    event_start,
+                    event_end,
+                    task_start=task_start_time,
+                    task_end=task_end_time,
+                )
+                pass_id = _build_pass_id(monitored_sat["id"], norad_id, pass_data)
+                blocking_observations: list[tuple[ScheduledObservations, list[str]]] = []
+                for overlapping_obs in time_overlaps:
+                    reasons = _get_conflict_reasons(
+                        candidate_resources, _extract_observation_resources(overlapping_obs)
+                    )
+                    if reasons:
+                        blocking_observations.append((overlapping_obs, reasons))
+
+                if not blocking_observations:
+                    if dry_run:
+                        no_conflict_passes.append(
+                            _build_pass_preview(satellite_data, pass_data, monitored_sat)
+                        )
+                    else:
+                        await _create_observation(session, monitored_sat, pass_data)
+                    stats["generated"] += 1
+                    continue
+
+                new_elevation = pass_data["peak_altitude"]
+                strategy_action = "keep_existing"
+                if CONFLICT_RESOLUTION_STRATEGY == CONFLICT_STRATEGY_PRIORITY:
+                    max_existing_elevation = max(
+                        obs.pass_config.get("peak_altitude", 0) for obs, _ in blocking_observations
+                    )
+                    if new_elevation > max_existing_elevation:
+                        strategy_action = "replace_blockers"
+                raw_user_action = user_conflict_overrides.get(pass_id)
+                user_action = raw_user_action
+                if raw_user_action == "keep":
+                    user_action = "keep_existing"
+                elif raw_user_action == "replace":
+                    user_action = "replace_blockers"
+                effective_action = (
+                    user_action
+                    if user_action in {"keep_existing", "replace_blockers"}
+                    else strategy_action
+                )
+
+                blockers_preview = []
+                for conflicting_obs, reasons in blocking_observations:
+                    blockers_preview.append(
+                        {
+                            "id": conflicting_obs.id,
+                            "satellite": conflicting_obs.satellite_config.get("name", "Unknown"),
+                            "norad_id": conflicting_obs.norad_id,
+                            "elevation": conflicting_obs.pass_config.get("peak_altitude", 0),
+                            "start": conflicting_obs.event_start.isoformat(),
+                            "end": conflicting_obs.event_end.isoformat(),
+                            "reasons": reasons,
+                        }
                     )
 
-                    if conflicting_obs_list:
-                        # Conflicts detected - need to check all of them
-                        new_elevation = pass_data["peak_altitude"]
-
-                        # Check if user provided resolution for these conflicts
-                        user_action = None
-                        for conflicting_obs in conflicting_obs_list:
-                            conflict_id = conflicting_obs.id
-                            if conflict_id in user_conflict_overrides:
-                                user_action = user_conflict_overrides[conflict_id]
-                                break  # Use first user action found
-
-                        # If user provided explicit action, use it; otherwise use strategy
-                        if user_action == "replace":
-                            # User wants to replace existing observations with new pass
-                            if not dry_run:
-                                conflicting_ids = [obs.id for obs in conflicting_obs_list]
-                                logger.info(
-                                    f"USER OVERRIDE: Replacing {len(conflicting_ids)} observation(s) "
-                                    f"with {satellite_data['name']} (elevation {new_elevation:.1f}°)"
-                                )
-                                await delete_scheduled_observations(session, conflicting_ids)
-                                await _create_observation(session, monitored_sat, pass_data)
-                            stats["generated"] += 1
-
-                        elif user_action == "keep":
-                            # User wants to keep existing observations
-                            if not dry_run:
-                                logger.info(
-                                    f"USER OVERRIDE: Keeping existing observation(s), skipping {satellite_data['name']}"
-                                )
-                            stats["skipped"] += 1
-
-                        # Determine action based on strategy (only if no user override)
-                        elif CONFLICT_RESOLUTION_STRATEGY == CONFLICT_STRATEGY_SKIP:
-                            # Skip: Don't create this pass at all
-                            if not dry_run:
-                                logger.info(
-                                    f"CONFLICT: Skipping {satellite_data['name']} "
-                                    f"(elevation {new_elevation:.1f}°) - conflicts with {len(conflicting_obs_list)} observation(s)"
-                                )
-                            stats["skipped"] += 1
-
-                            if dry_run:
-                                for conflicting_obs in conflicting_obs_list:
-                                    existing_elevation = conflicting_obs.pass_config.get(
-                                        "peak_altitude", 0
-                                    )
-                                    conflict_info = {
-                                        "conflict_id": conflicting_obs.id,
-                                        "time_window": f"{event_start.strftime('%Y-%m-%d %H:%M')} - {event_end.strftime('%H:%M UTC')}",
-                                        "existing_obs": {
-                                            "id": conflicting_obs.id,
-                                            "satellite": conflicting_obs.satellite_config.get(
-                                                "name", "Unknown"
-                                            ),
-                                            "norad_id": conflicting_obs.norad_id,
-                                            "elevation": existing_elevation,
-                                            "start": conflicting_obs.event_start.isoformat(),
-                                            "end": conflicting_obs.event_end.isoformat(),
-                                        },
-                                        "new_pass": {
-                                            "satellite": satellite_data["name"],
-                                            "norad_id": norad_id,
-                                            "elevation": new_elevation,
-                                            "start": pass_data["event_start"],
-                                            "end": pass_data["event_end"],
-                                            "monitored_satellite_id": monitored_sat["id"],
-                                        },
-                                        "strategy_action": "skip",
-                                        "user_action": None,
-                                    }
-                                    conflicts.append(conflict_info)
-
-                        elif CONFLICT_RESOLUTION_STRATEGY == CONFLICT_STRATEGY_PRIORITY:
-                            # Priority: Check if new pass has higher elevation than ALL conflicting passes
-                            max_existing_elevation = max(
-                                obs.pass_config.get("peak_altitude", 0)
-                                for obs in conflicting_obs_list
-                            )
-
-                            if new_elevation > max_existing_elevation:
-                                # New pass wins - delete all conflicting observations and create new one
-                                if not dry_run:
-                                    conflicting_ids = [obs.id for obs in conflicting_obs_list]
-                                    logger.info(
-                                        f"CONFLICT: Replacing {len(conflicting_ids)} observation(s) "
-                                        f"(max elevation {max_existing_elevation:.1f}°) with {satellite_data['name']} "
-                                        f"(elevation {new_elevation:.1f}°)"
-                                    )
-                                    await delete_scheduled_observations(session, conflicting_ids)
-                                    await _create_observation(session, monitored_sat, pass_data)
-                                stats["generated"] += 1
-
-                                if dry_run:
-                                    for conflicting_obs in conflicting_obs_list:
-                                        existing_elevation = conflicting_obs.pass_config.get(
-                                            "peak_altitude", 0
-                                        )
-                                        conflict_info = {
-                                            "conflict_id": conflicting_obs.id,
-                                            "time_window": f"{event_start.strftime('%Y-%m-%d %H:%M')} - {event_end.strftime('%H:%M UTC')}",
-                                            "existing_obs": {
-                                                "id": conflicting_obs.id,
-                                                "satellite": conflicting_obs.satellite_config.get(
-                                                    "name", "Unknown"
-                                                ),
-                                                "norad_id": conflicting_obs.norad_id,
-                                                "elevation": existing_elevation,
-                                                "start": conflicting_obs.event_start.isoformat(),
-                                                "end": conflicting_obs.event_end.isoformat(),
-                                            },
-                                            "new_pass": {
-                                                "satellite": satellite_data["name"],
-                                                "norad_id": norad_id,
-                                                "elevation": new_elevation,
-                                                "start": pass_data["event_start"],
-                                                "end": pass_data["event_end"],
-                                                "monitored_satellite_id": monitored_sat["id"],
-                                            },
-                                            "strategy_action": "replace",
-                                            "user_action": None,
-                                        }
-                                        conflicts.append(conflict_info)
-                            else:
-                                # Existing pass(es) win - keep them
-                                if not dry_run:
-                                    logger.info(
-                                        f"CONFLICT: Keeping existing observation(s) "
-                                        f"(max elevation {max_existing_elevation:.1f}°) over {satellite_data['name']} "
-                                        f"(elevation {new_elevation:.1f}°)"
-                                    )
-                                stats["skipped"] += 1
-
-                                if dry_run:
-                                    for conflicting_obs in conflicting_obs_list:
-                                        existing_elevation = conflicting_obs.pass_config.get(
-                                            "peak_altitude", 0
-                                        )
-                                        conflict_info = {
-                                            "conflict_id": conflicting_obs.id,
-                                            "time_window": f"{event_start.strftime('%Y-%m-%d %H:%M')} - {event_end.strftime('%H:%M UTC')}",
-                                            "existing_obs": {
-                                                "id": conflicting_obs.id,
-                                                "satellite": conflicting_obs.satellite_config.get(
-                                                    "name", "Unknown"
-                                                ),
-                                                "norad_id": conflicting_obs.norad_id,
-                                                "elevation": existing_elevation,
-                                                "start": conflicting_obs.event_start.isoformat(),
-                                                "end": conflicting_obs.event_end.isoformat(),
-                                            },
-                                            "new_pass": {
-                                                "satellite": satellite_data["name"],
-                                                "norad_id": norad_id,
-                                                "elevation": new_elevation,
-                                                "start": pass_data["event_start"],
-                                                "end": pass_data["event_end"],
-                                                "monitored_satellite_id": monitored_sat["id"],
-                                            },
-                                            "strategy_action": "keep",
-                                            "user_action": None,
-                                        }
-                                        conflicts.append(conflict_info)
-                    else:
-                        # No conflict - create observation
-                        if dry_run:
-                            no_conflicts.append(
-                                _build_pass_preview(satellite_data, pass_data, monitored_sat)
-                            )
-                        else:
-                            await _create_observation(session, monitored_sat, pass_data)
+                if dry_run:
+                    conflicting_passes.append(
+                        {
+                            "pass_id": pass_id,
+                            "time_window": (
+                                f"{event_start.strftime('%Y-%m-%d %H:%M')} - "
+                                f"{event_end.strftime('%H:%M UTC')}"
+                            ),
+                            "new_pass": {
+                                "satellite": satellite_data["name"],
+                                "norad_id": norad_id,
+                                "elevation": new_elevation,
+                                "start": pass_data["event_start"],
+                                "end": pass_data["event_end"],
+                                "monitored_satellite_id": monitored_sat["id"],
+                            },
+                            "blockers": blockers_preview,
+                            "strategy_action": strategy_action,
+                            "user_action": user_action,
+                            "effective_action": effective_action,
+                        }
+                    )
+                    if effective_action == "replace_blockers":
                         stats["generated"] += 1
+                    else:
+                        stats["skipped"] += 1
+                    continue
+
+                if effective_action == "replace_blockers":
+                    blocking_ids = [obs.id for obs, _ in blocking_observations]
+                    logger.info(
+                        "CONFLICT: Replacing %s blocker observation(s) for %s " "(elevation %.1f°)",
+                        len(blocking_ids),
+                        satellite_data["name"],
+                        new_elevation,
+                    )
+                    await delete_scheduled_observations(session, blocking_ids)
+                    await _create_observation(session, monitored_sat, pass_data)
+                    stats["generated"] += 1
+                else:
+                    logger.info(
+                        "CONFLICT: Keeping existing observations, skipping %s " "(elevation %.1f°)",
+                        satellite_data["name"],
+                        new_elevation,
+                    )
+                    stats["skipped"] += 1
 
         except Exception as e:
             logger.error(f"Error processing pass for NORAD ID {norad_id}: {e}")
@@ -568,8 +570,11 @@ async def _generate_observations_for_satellite(
 
     result: dict = stats.copy()
     if dry_run:
-        result["conflicts"] = conflicts
-        result["no_conflicts"] = no_conflicts
+        result["conflicting_passes"] = conflicting_passes
+        result["no_conflict_passes"] = no_conflict_passes
+        # Backward-compatible aliases for older clients.
+        result["conflicts"] = conflicting_passes
+        result["no_conflicts"] = no_conflict_passes
 
     return result
 

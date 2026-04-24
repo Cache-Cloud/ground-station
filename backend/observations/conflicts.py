@@ -103,7 +103,7 @@ async def find_any_time_conflict(
     task_end: Optional[datetime] = None,
 ) -> Sequence[ScheduledObservations]:
     """
-    Check if ANY observations exist that overlap with this time window,
+    Check if ANY enabled observations exist that overlap with this time window,
     regardless of satellite or monitored satellite.
 
     If task_start/task_end are provided, uses those times (actual execution window).
@@ -134,6 +134,7 @@ async def find_any_time_conflict(
     # An observation conflicts if the execution windows overlap
     # Use COALESCE to fall back to event times for observations without task times
     conditions = [
+        ScheduledObservations.enabled.is_(True),
         ScheduledObservations.status.in_([STATUS_SCHEDULED, STATUS_RUNNING]),
         # Check for time window overlap using task times (with fallback to event times)
         func.coalesce(ScheduledObservations.task_start, ScheduledObservations.event_start)

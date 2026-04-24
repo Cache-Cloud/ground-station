@@ -584,9 +584,11 @@ async def regenerate_observations(
                         f"APScheduler sync complete: {sync_stats.get('scheduled', 0)} scheduled"
                     )
         elif result["success"] and dry_run:
+            conflicting_passes = result.get("conflicting_passes", result.get("conflicts", []))
+            no_conflict_passes = result.get("no_conflict_passes", result.get("no_conflicts", []))
             logger.info(
-                f"Dry-run complete: {len(result.get('conflicts', []))} conflicts detected, "
-                f"{len(result.get('no_conflicts', []))} passes without conflicts"
+                f"Dry-run complete: {len(conflicting_passes)} conflicting passes detected, "
+                f"{len(no_conflict_passes)} passes without conflicts"
             )
 
         return {
@@ -594,8 +596,11 @@ async def regenerate_observations(
             "data": result.get("data", {}),
             "dry_run": result.get("dry_run", False),
             "current_strategy": result.get("current_strategy", ""),
-            "conflicts": result.get("conflicts", []),
-            "no_conflicts": result.get("no_conflicts", []),
+            "conflicting_passes": result.get("conflicting_passes", result.get("conflicts", [])),
+            "no_conflict_passes": result.get("no_conflict_passes", result.get("no_conflicts", [])),
+            # Backward-compatible aliases for older clients.
+            "conflicts": result.get("conflicting_passes", result.get("conflicts", [])),
+            "no_conflicts": result.get("no_conflict_passes", result.get("no_conflicts", [])),
             "error": str(result.get("error", "")),
         }
 

@@ -102,7 +102,7 @@ const ObservationsTimeline = () => {
         }).sort((a, b) => new Date(a.task_start) - new Date(b.task_start));
     }, [observations, durationHours, staticNow]);
 
-    // Layout observations to avoid overlaps
+    // Layout observations in a single row; visual overlaps are allowed.
     const { layoutData, requiredRows, sunData } = useMemo(() => {
         const now = staticNow;
         const halfDuration = durationHours / 2;
@@ -197,9 +197,7 @@ const ObservationsTimeline = () => {
             sunData = { nightPeriods, sunEvents };
         }
 
-        const rows = [];
-
-        filteredObservations.forEach((obs) => {
+        const layoutData = filteredObservations.map((obs) => {
             // Use task_start and task_end for positioning
             const obsStartTime = new Date(obs.task_start);
             const obsEndTime = new Date(obs.task_end);
@@ -207,30 +205,10 @@ const ObservationsTimeline = () => {
             const startX = marginLeft + Math.max(0, ((obsStartTime - startTime) / totalMs) * drawableWidth);
             const endX = marginLeft + Math.min(drawableWidth, ((obsEndTime - startTime) / totalMs) * drawableWidth);
             const barWidth = endX - startX;
-
-            let rowIndex = 0;
-            let placed = false;
-
-            while (!placed) {
-                if (!rows[rowIndex]) {
-                    rows[rowIndex] = [];
-                }
-
-                const overlaps = rows[rowIndex].some(existing => {
-                    return !(endX <= existing.startX || startX >= existing.endX);
-                });
-
-                if (!overlaps) {
-                    rows[rowIndex].push({ obs, startX, endX, barWidth, rowIndex });
-                    placed = true;
-                } else {
-                    rowIndex++;
-                }
-            }
+            return { obs, startX, endX, barWidth, rowIndex: 0 };
         });
 
-        const layoutData = rows.flat();
-        return { layoutData, requiredRows: Math.max(1, rows.length), sunData };
+        return { layoutData, requiredRows: 1, sunData };
     }, [filteredObservations, durationHours, width, marginLeft, marginRight, groundStationLocation, staticNow]);
 
     const height = Math.max(200, requiredRows * rowHeight + marginTop + marginBottom);
