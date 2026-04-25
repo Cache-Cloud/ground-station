@@ -67,12 +67,10 @@ import { DecoderConfigSuggestion } from './decoder-config-suggestion.jsx';
 
 const DECODER_TYPES = [
     { value: 'none', label: 'None' },
-    { value: 'lora', label: 'LoRa' },
     { value: 'fsk', label: 'FSK' },
     { value: 'gmsk', label: 'GMSK' },
     { value: 'gfsk', label: 'GFSK' },
     { value: 'bpsk', label: 'BPSK' },
-    { value: 'afsk', label: 'AFSK' },
     { value: 'sstv', label: 'SSTV' },
 ];
 
