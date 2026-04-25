@@ -39,11 +39,13 @@ import StopCircleOutlinedIcon from '@mui/icons-material/StopCircleOutlined';
 import { setTrackerId, setTrackingStateInBackend } from "../target/target-slice.jsx";
 import { TRACKER_COMMAND_STATUS } from "../target/tracking-constants.js";
 import FleetTargetRow from "../common/fleet-target-row.jsx";
-
-const hasAssignedHardwareId = (value) => {
-    const normalized = String(value ?? '').trim().toLowerCase();
-    return !['', 'none', 'null', 'undefined'].includes(normalized);
-};
+import {
+    hasAssignedHardwareId,
+    resolveRotatorLedStatus,
+    resolveRigLedStatus,
+    isRotatorWarningStatus,
+    isRigWarningStatus,
+} from "../common/hardware-status.js";
 
 const HardwareSettingsPopover = () => {
     const dispatch = useDispatch();
@@ -121,6 +123,7 @@ const HardwareSettingsPopover = () => {
         const summary = {
             rotator: {
                 activeCount: 0,
+                connectedCount: 0,
                 warningCount: 0,
                 disconnectedCount: 0,
                 assignedCount: 0,
@@ -128,6 +131,7 @@ const HardwareSettingsPopover = () => {
             },
             rig: {
                 activeCount: 0,
+                connectedCount: 0,
                 warningCount: 0,
                 disconnectedCount: 0,
                 assignedCount: 0,
@@ -146,15 +150,15 @@ const HardwareSettingsPopover = () => {
             const hasRotatorAssigned = hasAssignedHardwareId(rotatorId);
             if (hasRotatorAssigned) {
                 summary.rotator.assignedCount += 1;
-                const rotatorDisconnected = rotatorData?.connected === false || trackingState?.rotator_state === 'disconnected';
-                const rotatorWarning = Boolean(
-                    rotatorData?.outofbounds
-                    || rotatorData?.minelevation
-                    || rotatorData?.parked
-                    || rotatorData?.stopped
+                const rotatorStatus = resolveRotatorLedStatus({ rotatorId, rotatorData, trackingState });
+                const rotatorDisconnected = rotatorStatus === 'disconnected';
+                const rotatorWarning = isRotatorWarningStatus(rotatorStatus);
+                const rotatorActive = rotatorStatus === 'tracking' || rotatorStatus === 'slewing';
+                const rotatorConnected = Boolean(rotatorData?.connected) || (
+                    !['disconnected', 'none', 'unknown'].includes(rotatorStatus)
                 );
-                const rotatorActive = Boolean(rotatorData?.tracking || rotatorData?.slewing);
                 if (rotatorActive) summary.rotator.activeCount += 1;
+                if (rotatorConnected) summary.rotator.connectedCount += 1;
                 if (rotatorDisconnected) summary.rotator.disconnectedCount += 1;
                 else if (rotatorWarning) summary.rotator.warningCount += 1;
             }
@@ -163,10 +167,15 @@ const HardwareSettingsPopover = () => {
             const hasRigAssigned = hasAssignedHardwareId(rigId);
             if (hasRigAssigned) {
                 summary.rig.assignedCount += 1;
-                const rigDisconnected = rigData?.connected === false || trackingState?.rig_state === 'disconnected';
-                const rigWarning = Boolean(rigData?.stopped);
-                const rigActive = Boolean(rigData?.tracking);
+                const rigStatus = resolveRigLedStatus({ rigId, rigData, trackingState });
+                const rigDisconnected = rigStatus === 'disconnected';
+                const rigWarning = isRigWarningStatus(rigStatus);
+                const rigActive = rigStatus === 'tracking';
+                const rigConnected = Boolean(rigData?.connected) || (
+                    !['disconnected', 'none', 'unknown'].includes(rigStatus)
+                );
                 if (rigActive) summary.rig.activeCount += 1;
+                if (rigConnected) summary.rig.connectedCount += 1;
                 if (rigDisconnected) summary.rig.disconnectedCount += 1;
                 else if (rigWarning) summary.rig.warningCount += 1;
             }
@@ -179,20 +188,23 @@ const HardwareSettingsPopover = () => {
         return summary;
     }, [trackerInstances, trackerViews]);
 
-    const getFleetIconColor = useCallback((summaryByType) => {
-        if (!hasConfiguredTargets) return 'text.disabled';
-        if (!connected) return 'text.disabled';
-        if (summaryByType.activeCount > 0) return 'success.main';
-        return 'text.secondary';
-    }, [connected, hasConfiguredTargets]);
-
     const getFleetBadgeColor = useCallback((summaryByType) => {
         if (summaryByType.warningCount > 0) return 'warning';
         return 'default';
     }, []);
 
-    const getRigColor = () => getFleetIconColor(fleetHardwareSummary.rig);
-    const getRotatorColor = () => getFleetIconColor(fleetHardwareSummary.rotator);
+    const getRigColor = () => {
+        if (!hasConfiguredTargets) return 'text.disabled';
+        if (!connected) return 'text.disabled';
+        if (fleetHardwareSummary.rig.connectedCount > 0) return 'success.main';
+        return 'text.secondary';
+    };
+    const getRotatorColor = () => {
+        if (!hasConfiguredTargets) return 'text.disabled';
+        if (!connected) return 'text.disabled';
+        if (fleetHardwareSummary.rotator.connectedCount > 0) return 'success.main';
+        return 'text.secondary';
+    };
 
     const getRigTooltip = () => {
         if (!hasConfiguredTargets) return t('hardware_popover.no_targets_configured', { defaultValue: 'No targets configured' });
@@ -378,13 +390,7 @@ const HardwareSettingsPopover = () => {
                                 if (row.rotatorData?.parked) {
                                     return t('hardware_popover.warning_parked', { defaultValue: 'Parked' });
                                 }
-                                if (row.rotatorData?.stopped) {
-                                    return t('hardware_popover.warning_stopped', { defaultValue: 'Stopped' });
-                                }
                                 return null;
-                            }
-                            if (row.rigData?.stopped) {
-                                return t('hardware_popover.warning_stopped', { defaultValue: 'Stopped' });
                             }
                             return null;
                         })();
@@ -500,7 +506,7 @@ const HardwareSettingsPopover = () => {
                                                 <Chip
                                                     size="small"
                                                     label={statusLabel}
-                                                    color={statusLabel === 'Tracking' ? 'success' : (statusLabel === 'Connected' ? 'info' : 'default')}
+                                                    color={statusLabel === 'Tracking' ? 'success' : (statusLabel === 'Connected' ? 'success' : 'default')}
                                                     variant={statusLabel === 'Disconnected' ? 'outlined' : 'filled'}
                                                     sx={{
                                                         maxWidth: 110,

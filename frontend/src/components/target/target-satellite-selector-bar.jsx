@@ -64,6 +64,7 @@ import SatelliteSearchAutocomplete from "./satellite-search.jsx";
 import { useTargetRotatorSelectionDialog } from "./use-target-rotator-selection-dialog.jsx";
 import { deleteTrackerInstance } from "./tracker-instances-slice.jsx";
 import { cancelRunningObservation } from "../scheduler/scheduler-slice.jsx";
+import { resolveTabHardwareLedStatus } from "../common/hardware-status.js";
 
 const TARGET_SLOT_ID_PATTERN = /^target-(\d+)$/;
 const ADD_TARGET_TAB_VALUE = '__add-target__';
@@ -92,209 +93,134 @@ const deriveNextTrackerSlotId = (instances = []) => {
     return `target-${nextTargetNumber}`;
 };
 
-const NONE_ID_VALUES = ['', 'none', null, undefined];
-
-const resolveRotatorLedState = ({ rotatorId, rotatorData, trackingState }) => {
-    if (NONE_ID_VALUES.includes(rotatorId)) {
-        return {
-            source: 'rotator',
-            status: 'none',
-            label: 'No rotator',
-            bgColor: 'action.disabled',
-            borderColor: 'action.disabledBackground',
-            Icon: null,
-            iconColor: 'text.disabled',
-        };
-    }
-    if (rotatorData?.connected === false || trackingState?.rotator_state === 'disconnected') {
-        return {
-            source: 'rotator',
-            status: 'disconnected',
-            label: 'Rotator disconnected',
-            bgColor: 'status.disconnected',
-            borderColor: 'status.disconnected',
-            Icon: CloseIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rotatorData?.parked === true || trackingState?.rotator_state === 'parked') {
-        return {
-            source: 'rotator',
-            status: 'parked',
-            label: 'Rotator parked',
-            bgColor: 'warning.main',
-            borderColor: 'warning.dark',
-            Icon: LocalParkingIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rotatorData?.outofbounds === true) {
-        return {
-            source: 'rotator',
-            status: 'outofbounds',
-            label: 'Rotator out of bounds',
-            bgColor: 'secondary.main',
-            borderColor: 'secondary.dark',
-            Icon: WarningIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rotatorData?.minelevation === true) {
-        return {
-            source: 'rotator',
-            status: 'minelevation',
-            label: 'Below minimum elevation',
-            bgColor: 'error.light',
-            borderColor: 'error.main',
-            Icon: ArrowDownwardIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rotatorData?.slewing === true) {
-        return {
-            source: 'rotator',
-            status: 'slewing',
-            label: 'Rotator slewing',
-            bgColor: 'warning.main',
-            borderColor: 'warning.dark',
-            Icon: PlayArrowIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rotatorData?.tracking === true || trackingState?.rotator_state === 'tracking') {
-        return {
-            source: 'rotator',
-            status: 'tracking',
-            label: 'Rotator tracking',
-            bgColor: 'success.light',
-            borderColor: 'success.main',
-            Icon: LocationSearchingIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rotatorData?.stopped === true || trackingState?.rotator_state === 'stopped') {
-        return {
-            source: 'rotator',
-            status: 'stopped',
-            label: 'Rotator stopped',
-            bgColor: 'warning.dark',
-            borderColor: 'warning.main',
-            Icon: PauseIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rotatorData?.connected === true || trackingState?.rotator_state === 'connected') {
-        return {
-            source: 'rotator',
-            status: 'connected',
-            label: 'Rotator connected',
-            bgColor: 'success.dark',
-            borderColor: 'success.main',
-            Icon: null,
-            iconColor: 'common.white',
-        };
-    }
-    return {
-        source: 'rotator',
-        status: 'unknown',
-        label: 'Rotator status unknown',
-        bgColor: 'action.disabled',
-        borderColor: 'action.disabledBackground',
-        Icon: null,
-        iconColor: 'text.disabled',
+const resolveTabLedPresentation = ({ source, status, usedRigFallback }) => {
+    const bySource = {
+        rotator: {
+            none: {
+                label: 'No rotator',
+                bgColor: 'action.disabled',
+                borderColor: 'action.disabledBackground',
+                Icon: null,
+                iconColor: 'text.disabled',
+            },
+            disconnected: {
+                label: 'Rotator disconnected',
+                // Neutral gray: disconnected is not an error state.
+                bgColor: 'action.disabled',
+                borderColor: 'action.disabledBackground',
+                Icon: CloseIcon,
+                iconColor: 'text.disabled',
+            },
+            parked: {
+                label: 'Rotator parked',
+                bgColor: 'warning.main',
+                borderColor: 'warning.dark',
+                Icon: LocalParkingIcon,
+                iconColor: 'common.white',
+            },
+            outofbounds: {
+                label: 'Rotator out of bounds',
+                bgColor: 'secondary.main',
+                borderColor: 'secondary.dark',
+                Icon: WarningIcon,
+                iconColor: 'common.white',
+            },
+            minelevation: {
+                label: 'Below minimum elevation',
+                bgColor: 'error.light',
+                borderColor: 'error.main',
+                Icon: ArrowDownwardIcon,
+                iconColor: 'common.white',
+            },
+            slewing: {
+                label: 'Rotator slewing',
+                bgColor: 'warning.main',
+                borderColor: 'warning.dark',
+                Icon: PlayArrowIcon,
+                iconColor: 'common.white',
+            },
+            tracking: {
+                label: 'Rotator tracking',
+                bgColor: 'success.light',
+                borderColor: 'success.main',
+                Icon: LocationSearchingIcon,
+                iconColor: 'common.white',
+            },
+            stopped: {
+                label: 'Rotator stopped',
+                // Neutral informational state (not warning/error).
+                bgColor: 'info.light',
+                borderColor: 'info.main',
+                Icon: PauseIcon,
+                iconColor: 'common.white',
+            },
+            connected: {
+                label: 'Rotator connected',
+                bgColor: 'success.dark',
+                borderColor: 'success.main',
+                Icon: null,
+                iconColor: 'common.white',
+            },
+            unknown: {
+                label: 'Rotator status unknown',
+                bgColor: 'action.disabled',
+                borderColor: 'action.disabledBackground',
+                Icon: null,
+                iconColor: 'text.disabled',
+            },
+        },
+        rig: {
+            none: {
+                label: 'No rig',
+                bgColor: 'action.disabled',
+                borderColor: 'action.disabledBackground',
+                Icon: null,
+                iconColor: 'text.disabled',
+            },
+            disconnected: {
+                label: 'Rig disconnected',
+                bgColor: 'action.disabled',
+                borderColor: 'action.disabledBackground',
+                Icon: CloseIcon,
+                iconColor: 'text.disabled',
+            },
+            tracking: {
+                label: 'Rig tracking',
+                bgColor: 'success.light',
+                borderColor: 'success.main',
+                Icon: LocationSearchingIcon,
+                iconColor: 'common.white',
+            },
+            stopped: {
+                label: 'Rig stopped',
+                bgColor: 'info.light',
+                borderColor: 'info.main',
+                Icon: PauseIcon,
+                iconColor: 'common.white',
+            },
+            connected: {
+                label: 'Rig connected',
+                bgColor: 'success.dark',
+                borderColor: 'success.main',
+                Icon: null,
+                iconColor: 'common.white',
+            },
+            unknown: {
+                label: 'Rig status unknown',
+                bgColor: 'action.disabled',
+                borderColor: 'action.disabledBackground',
+                Icon: null,
+                iconColor: 'text.disabled',
+            },
+        },
     };
-};
 
-const resolveRigLedState = ({ rigId, rigData, trackingState }) => {
-    if (NONE_ID_VALUES.includes(rigId)) {
-        return {
-            source: 'rig',
-            status: 'none',
-            label: 'No rig',
-            bgColor: 'action.disabled',
-            borderColor: 'action.disabledBackground',
-            Icon: null,
-            iconColor: 'text.disabled',
-        };
-    }
-    if (rigData?.connected === false || trackingState?.rig_state === 'disconnected') {
-        return {
-            source: 'rig',
-            status: 'disconnected',
-            label: 'Rig disconnected',
-            bgColor: 'status.disconnected',
-            borderColor: 'status.disconnected',
-            Icon: CloseIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rigData?.tracking === true || trackingState?.rig_state === 'tracking') {
-        return {
-            source: 'rig',
-            status: 'tracking',
-            label: 'Rig tracking',
-            bgColor: 'success.light',
-            borderColor: 'success.main',
-            Icon: LocationSearchingIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rigData?.stopped === true || trackingState?.rig_state === 'stopped') {
-        return {
-            source: 'rig',
-            status: 'stopped',
-            label: 'Rig stopped',
-            bgColor: 'warning.dark',
-            borderColor: 'warning.main',
-            Icon: PauseIcon,
-            iconColor: 'common.white',
-        };
-    }
-    if (rigData?.connected === true || trackingState?.rig_state === 'connected') {
-        return {
-            source: 'rig',
-            status: 'connected',
-            label: 'Rig connected',
-            bgColor: 'success.dark',
-            borderColor: 'success.main',
-            Icon: null,
-            iconColor: 'common.white',
-        };
-    }
+    const fallback = bySource[source]?.unknown || bySource.rig.unknown;
+    const resolved = bySource[source]?.[status] || fallback;
     return {
-        source: 'rig',
-        status: 'unknown',
-        label: 'Rig status unknown',
-        bgColor: 'action.disabled',
-        borderColor: 'action.disabledBackground',
-        Icon: null,
-        iconColor: 'text.disabled',
-    };
-};
-
-const resolveTabHardwareLedState = ({ rotatorId, rigId, rotatorData, rigData, trackingState }) => {
-    const rotatorLed = resolveRotatorLedState({ rotatorId, rotatorData, trackingState });
-    const rigLed = resolveRigLedState({ rigId, rigData, trackingState });
-    const shouldFallbackToRig = (
-        (rotatorLed.status === 'none' || rotatorLed.status === 'disconnected')
-        && !['none', 'unknown'].includes(rigLed.status)
-    );
-    if (shouldFallbackToRig) {
-        return {
-            ...rigLed,
-            label: `${rigLed.label} (rig fallback)`,
-            fallbackSource: 'rig',
-        };
-    }
-    if (rotatorLed.status !== 'none' && rotatorLed.status !== 'unknown') {
-        return {
-            ...rotatorLed,
-            fallbackSource: 'rotator',
-        };
-    }
-    return {
-        ...rigLed,
-        fallbackSource: 'rig',
+        ...resolved,
+        label: usedRigFallback ? `${resolved.label} (rig fallback)` : resolved.label,
+        fallbackSource: source,
     };
 };
 
@@ -623,13 +549,18 @@ const TargetSatelliteSelectorBar = React.memo(function TargetSatelliteSelectorBa
         const isTracking = Boolean(rigData?.tracking || rotatorData?.tracking);
         const satAz = Number.isFinite(view?.satelliteData?.position?.az) ? view.satelliteData.position.az : null;
         const satEl = Number.isFinite(view?.satelliteData?.position?.el) ? view.satelliteData.position.el : null;
-        const tabHardwareLed = resolveTabHardwareLedState({
+        const tabHardwareLedStatus = resolveTabHardwareLedStatus({
             rotatorId,
             rigId,
             rotatorData,
             rigData,
             trackingState: effectiveTrackingState,
         });
+        const tabHardwareLed = {
+            source: tabHardwareLedStatus.source,
+            status: tabHardwareLedStatus.status,
+            ...resolveTabLedPresentation(tabHardwareLedStatus),
+        };
         const linkedObservations = schedulerObservations
             .filter((obs) => obs?.enabled)
             .filter((obs) => {
