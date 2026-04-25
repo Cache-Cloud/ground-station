@@ -292,30 +292,72 @@ const BookmarkCanvas = ({
             return `${normalized.slice(0, 6)}...`;
         };
 
-        const getClusterKey = (bookmark) => {
-            const frequencyKey = String(bookmark.frequency ?? 0);
+        const CLUSTER_FREQUENCY_TOLERANCE_HZ = 500;
+
+        const getClusterMetaKey = (bookmark) => {
             const sourceKey = bookmark.metadata?.source || 'unknown';
             const typeKey = bookmark.metadata?.type || 'unknown';
             const aliveKey = typeof bookmark.metadata?.alive === 'boolean' ? String(bookmark.metadata.alive) : 'unknown';
-            return `${frequencyKey}|${sourceKey}|${typeKey}|${aliveKey}`;
+            return `${sourceKey}|${typeKey}|${aliveKey}`;
+        };
+
+        const toFrequencyNumber = (frequency) => {
+            const numeric = Number(frequency);
+            return Number.isFinite(numeric) ? numeric : 0;
         };
 
         const clusterBookmarks = (items) => {
-            const clusterMap = new Map();
+            const groupedByMeta = new Map();
             items.forEach((bookmark) => {
-                const key = getClusterKey(bookmark);
-                if (!clusterMap.has(key)) {
-                    clusterMap.set(key, []);
+                const key = getClusterMetaKey(bookmark);
+                if (!groupedByMeta.has(key)) {
+                    groupedByMeta.set(key, []);
                 }
-                clusterMap.get(key).push(bookmark);
+                groupedByMeta.get(key).push(bookmark);
             });
 
-            return Array.from(clusterMap.values()).map((clusterItems) => {
+            const frequencyAwareClusters = [];
+            groupedByMeta.forEach((metaItems) => {
+                const sortedByFrequency = [...metaItems].sort(
+                    (a, b) => toFrequencyNumber(a.frequency) - toFrequencyNumber(b.frequency)
+                );
+
+                let currentCluster = [];
+                sortedByFrequency.forEach((bookmark) => {
+                    if (currentCluster.length === 0) {
+                        currentCluster = [bookmark];
+                        return;
+                    }
+
+                    const previous = currentCluster[currentCluster.length - 1];
+                    const diffHz = Math.abs(
+                        toFrequencyNumber(bookmark.frequency) - toFrequencyNumber(previous.frequency)
+                    );
+
+                    // Merge labels when frequencies are close enough to be effectively the same signal area.
+                    if (diffHz <= CLUSTER_FREQUENCY_TOLERANCE_HZ) {
+                        currentCluster.push(bookmark);
+                        return;
+                    }
+
+                    frequencyAwareClusters.push(currentCluster);
+                    currentCluster = [bookmark];
+                });
+
+                if (currentCluster.length > 0) {
+                    frequencyAwareClusters.push(currentCluster);
+                }
+            });
+
+            return frequencyAwareClusters.map((clusterItems) => {
                 const primary = clusterItems[0];
                 const maxLabelParts = 6;
                 const shortParts = clusterItems.map((item) => toShortTransmitterName(item.label));
                 const visibleParts = shortParts.slice(0, maxLabelParts);
                 const hiddenCount = Math.max(0, shortParts.length - visibleParts.length);
+                const averagedClusterFrequency = Math.round(
+                    clusterItems.reduce((sum, item) => sum + toFrequencyNumber(item.frequency), 0) / clusterItems.length
+                );
                 const entityIds = clusterItems
                     .map((item) => (
                         item.metadata?.transmitter_id ??
@@ -338,6 +380,7 @@ const BookmarkCanvas = ({
 
                 return {
                     ...primary,
+                    frequency: averagedClusterFrequency,
                     label,
                     metadata: {
                         ...primary.metadata,
