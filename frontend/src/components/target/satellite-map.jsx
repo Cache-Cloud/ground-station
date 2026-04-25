@@ -382,6 +382,13 @@ const TargetSatelliteMapContainer = ({}) => {
             const paths = satellitePaths;
             const coverage = satelliteCoverage;
             const hasValidSatellitePoint = isValidLatLon(latitude, longitude);
+            const humanizedAltitude = humanizeAltitude(altitude, 0);
+            const altitudeLabel = humanizedAltitude === "Invalid altitude"
+                ? "-- km"
+                : `${humanizedAltitude} km`;
+            const velocityLabel = Number.isFinite(Number(velocity))
+                ? `${Number(velocity).toFixed(2)} km/s`
+                : "-- km/s";
 
             // generate current positions for the group of satellites
             let currentPos = [];
@@ -487,7 +494,7 @@ const TargetSatelliteMapContainer = ({}) => {
                                     badgeTextColor="common.black"
                                 />
                             )}
-                            {satelliteName} - {parseInt(altitude) + " km, " + velocity.toFixed(2) + " km/s"}
+                            {satelliteName} - {`${altitudeLabel}, ${velocityLabel}`}
                         </strong>
                     </TrackedSatelliteTooltip>
                 </Marker>);
