@@ -45,6 +45,24 @@
     "status_label": "Active"
   },
   {
+    "id": "stereoa",
+    "display_name": "STEREO-A",
+    "command": "STEREO-A",
+    "aliases": ["stereo ahead", "stereo a", "-234"],
+    "agency": "NASA",
+    "mission_status": "active",
+    "status_label": "Active"
+  },
+  {
+    "id": "stereob",
+    "display_name": "STEREO-B",
+    "command": "STEREO-B",
+    "aliases": ["stereo behind", "stereo b", "-235"],
+    "agency": "NASA",
+    "mission_status": "completed",
+    "status_label": "Completed"
+  },
+  {
     "id": "juno",
     "display_name": "Juno",
     "command": "-61",
