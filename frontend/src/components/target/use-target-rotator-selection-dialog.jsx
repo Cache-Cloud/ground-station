@@ -9,6 +9,7 @@ import {
     DialogContent,
     DialogContentText,
     DialogTitle,
+    Divider,
     Stack,
     Typography,
 } from '@mui/material';
@@ -102,6 +103,10 @@ export function useTargetRotatorSelectionDialog() {
             mapping[String(rotator.id)] = rotator.name;
             return mapping;
         }, {});
+        const rigNameById = rigs.reduce((mapping, rig) => {
+            mapping[String(rig.id)] = rig.name;
+            return mapping;
+        }, {});
         return trackerInstances
             .map((instance) => {
                 const trackerId = resolveTrackerId(instance?.tracker_id, DEFAULT_TRACKER_ID);
@@ -115,12 +120,19 @@ export function useTargetRotatorSelectionDialog() {
                 const trackingState = instance?.tracking_state || {};
                 const trackerView = trackerViews?.[trackerId] || {};
                 const viewRotatorData = trackerView?.rotatorData || {};
+                const viewRigData = trackerView?.rigData || {};
                 const viewTrackingState = trackerView?.trackingState || trackingState || {};
                 const satName = String(trackerView?.satelliteData?.details?.name || '').trim() || null;
                 const rotatorId = normalizeRotatorId(
                     trackerView?.selectedRotator
                     ?? instance?.rotator_id
                     ?? trackingState?.rotator_id
+                    ?? 'none'
+                );
+                const rigId = normalizeRigId(
+                    trackerView?.selectedRadioRig
+                    ?? instance?.rig_id
+                    ?? trackingState?.rig_id
                     ?? 'none'
                 );
 
@@ -169,6 +181,13 @@ export function useTargetRotatorSelectionDialog() {
                     targetNumber,
                     rotatorId,
                     rotatorName: rotatorNameById[rotatorId] || null,
+                    rigId,
+                    rigName: rigNameById[rigId] || null,
+                    rigConnected: rigId !== 'none'
+                        && (
+                            viewRigData?.connected === true
+                            || ['connected', 'tracking', 'stopped'].includes(String(viewTrackingState?.rig_state || ''))
+                        ),
                     noradId: trackingState?.norad_id ?? null,
                     satName,
                     statusLabel,
@@ -177,32 +196,24 @@ export function useTargetRotatorSelectionDialog() {
             })
             .filter(Boolean)
             .sort((a, b) => a.targetNumber - b.targetNumber);
-    }, [rotators, trackerInstances, trackerViews]);
+    }, [rigs, rotators, trackerInstances, trackerViews]);
 
     const resolveAssignmentForRetarget = React.useCallback(() => {
         const normalizedActiveTrackerId = resolveTrackerId(activeTrackerId, DEFAULT_TRACKER_ID);
-        const fallbackTrackerId = resolveTrackerId(usageRows[0]?.trackerId, DEFAULT_TRACKER_ID);
-        // Retarget should stay on the active tracker; when that is missing, fall back to the first target slot.
-        const trackerId = normalizedActiveTrackerId || fallbackTrackerId || DEFAULT_TRACKER_ID;
-        const trackerInstance = trackerInstances.find(
-            (instance) => resolveTrackerId(instance?.tracker_id, DEFAULT_TRACKER_ID) === trackerId
-        ) || null;
-        const trackerView = trackerViews?.[trackerId] || {};
-        // Keep the tracker's existing rotator assignment, including "none".
-        const rotatorId = normalizeRotatorId(
-            trackerView?.selectedRotator
-            ?? trackerInstance?.rotator_id
-            ?? trackerInstance?.tracking_state?.rotator_id
-            ?? selectedRotator
-        );
-        const rigId = normalizeRigId(
-            trackerView?.selectedRadioRig
-            ?? trackerInstance?.rig_id
-            ?? trackerInstance?.tracking_state?.rig_id
-            ?? selectedRadioRig
-        );
-        return { trackerId, rotatorId, rigId };
-    }, [activeTrackerId, selectedRadioRig, selectedRotator, trackerInstances, trackerViews, usageRows]);
+        const preferredRow = usageRows.find((row) => row.trackerId === normalizedActiveTrackerId) || usageRows[0] || null;
+        if (preferredRow) {
+            return {
+                trackerId: preferredRow.trackerId,
+                rotatorId: preferredRow.rotatorId,
+                rigId: preferredRow.rigId,
+            };
+        }
+        return {
+            trackerId: normalizedActiveTrackerId || DEFAULT_TRACKER_ID,
+            rotatorId: normalizeRotatorId(selectedRotator),
+            rigId: normalizeRigId(selectedRadioRig),
+        };
+    }, [activeTrackerId, selectedRadioRig, selectedRotator, usageRows]);
 
     const requestRotatorForTarget = React.useCallback((satelliteName = '', options = {}) => {
         return new Promise((resolve) => {
@@ -222,34 +233,11 @@ export function useTargetRotatorSelectionDialog() {
         ? Boolean(nextTargetSlotId)
         : Boolean(resolveTrackerId(pendingAssignment?.trackerId, DEFAULT_TRACKER_ID));
     const satelliteLabel = pendingSatelliteName || t('target_retarget_dialog.this_satellite', { defaultValue: 'this satellite' });
-    const targetNumber = parseTargetSlotNumber(pendingAssignment?.trackerId || '');
-    const targetLabel = targetNumber != null
-        ? t('target_retarget_dialog.target_number', { defaultValue: `Target ${targetNumber}`, number: targetNumber })
-        : t('target_retarget_dialog.active_target', { defaultValue: 'the active target' });
     const newTargetLabel = t(
         'target_retarget_dialog.new_target_slot',
         { defaultValue: `New target (${nextTargetSlotId})`, slot: nextTargetSlotId },
     );
-    const rotatorId = normalizeRotatorId(pendingAssignment?.rotatorId);
-    const selectedRotatorName = rotatorId === 'none'
-        ? t('target_retarget_dialog.no_rotator', { defaultValue: 'No rotator control' })
-        : (rotators.find((rotator) => String(rotator.id) === String(rotatorId))?.name || rotatorId);
-    const rigId = normalizeRigId(pendingAssignment?.rigId);
-    const selectedRigName = rigId === 'none'
-        ? t('target_retarget_dialog.no_rig', { defaultValue: 'No rig control' })
-        : (rigs.find((rig) => String(rig.id) === String(rigId))?.name || rigId);
-    const currentTrackerId = resolveTrackerId(pendingAssignment?.trackerId, DEFAULT_TRACKER_ID);
-    const currentTrackerView = trackerViews?.[currentTrackerId] || {};
-    const currentTrackerInstance = trackerInstances.find(
-        (instance) => resolveTrackerId(instance?.tracker_id, DEFAULT_TRACKER_ID) === currentTrackerId
-    ) || null;
-    const currentTrackingState = currentTrackerView?.trackingState || currentTrackerInstance?.tracking_state || {};
-    const currentRigData = currentTrackerView?.rigData || {};
-    const isCurrentRigConnected = rigId !== 'none'
-        && (
-            currentRigData?.connected === true
-            || ['connected', 'tracking', 'stopped'].includes(String(currentTrackingState?.rig_state || ''))
-        );
+    const selectedTrackerId = resolveTrackerId(pendingAssignment?.trackerId, DEFAULT_TRACKER_ID);
 
     const dialog = (
         <Dialog
@@ -302,102 +290,174 @@ export function useTargetRotatorSelectionDialog() {
                             <Trans
                                 ns="target"
                                 i18nKey="target_retarget_dialog.description"
-                                defaults="Choose where to apply <satellite>{{satellite}}</satellite>: retarget <target>{{target}}</target> or create a new target slot."
-                                values={{ satellite: satelliteLabel, target: targetLabel }}
-                                components={{ satellite: <strong />, target: <strong /> }}
+                                defaults="Choose which slot should track <satellite>{{satellite}}</satellite>."
+                                values={{ satellite: satelliteLabel }}
+                                components={{ satellite: <strong /> }}
                             />
                         </DialogContentText>
                         <Stack spacing={1}>
-                            <Button
-                                variant="outlined"
-                                color="inherit"
-                                onClick={() => {
-                                    if (submitting) return;
-                                    setPendingAction(RETARGET_ACTIONS.CURRENT_SLOT);
-                                    if (pendingErrorMessage) {
-                                        setPendingErrorMessage('');
-                                    }
-                                }}
-                                fullWidth
-                                disabled={submitting}
-                                sx={{
-                                    justifyContent: 'flex-start',
-                                    textTransform: 'none',
-                                    alignItems: 'stretch',
-                                    px: 1.35,
-                                    py: 1.2,
-                                    minHeight: 104,
-                                    borderRadius: 1.6,
-                                    borderWidth: 1.5,
-                                    color: 'text.primary',
-                                    borderColor: (theme) => pendingAction === RETARGET_ACTIONS.CURRENT_SLOT
-                                        ? theme.palette.primary.main
-                                        : (theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400'),
-                                    bgcolor: (theme) => pendingAction === RETARGET_ACTIONS.CURRENT_SLOT
-                                        ? (theme.palette.mode === 'dark' ? 'rgba(25, 118, 210, 0.18)' : 'rgba(25, 118, 210, 0.08)')
-                                        : 'background.paper',
-                                    boxShadow: (theme) => pendingAction === RETARGET_ACTIONS.CURRENT_SLOT
-                                        ? (theme.palette.mode === 'dark'
-                                            ? '0 6px 18px rgba(0, 0, 0, 0.45)'
-                                            : '0 6px 16px rgba(15, 23, 42, 0.16)')
-                                        : (theme.palette.mode === 'dark'
-                                            ? '0 1px 4px rgba(0, 0, 0, 0.35)'
-                                            : '0 1px 3px rgba(15, 23, 42, 0.10)'),
-                                    transition: 'border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease, transform 120ms ease',
-                                    '&:hover': {
-                                        borderColor: (theme) => pendingAction === RETARGET_ACTIONS.CURRENT_SLOT
-                                            ? theme.palette.primary.main
-                                            : (theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500'),
-                                        bgcolor: (theme) => pendingAction === RETARGET_ACTIONS.CURRENT_SLOT
-                                            ? (theme.palette.mode === 'dark' ? 'rgba(25, 118, 210, 0.24)' : 'rgba(25, 118, 210, 0.12)')
-                                            : (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50'),
-                                        boxShadow: (theme) => pendingAction === RETARGET_ACTIONS.CURRENT_SLOT
-                                            ? (theme.palette.mode === 'dark'
-                                                ? '0 8px 22px rgba(0, 0, 0, 0.5)'
-                                                : '0 8px 20px rgba(15, 23, 42, 0.18)')
-                                            : (theme.palette.mode === 'dark'
-                                                ? '0 4px 12px rgba(0, 0, 0, 0.42)'
-                                                : '0 4px 10px rgba(15, 23, 42, 0.12)'),
-                                    },
-                                    '&:active': { transform: 'translateY(1px)' },
-                                }}
-                            >
-                                <Box sx={{ display: 'grid', gap: 0.55, width: '100%', minWidth: 0 }}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                                        <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                                            {t('target_retarget_dialog.option_current_title', { defaultValue: 'Retarget current slot' })}
-                                        </Typography>
-                                        <Chip
-                                            size="small"
-                                            variant="outlined"
-                                            label={pendingAssignment?.trackerId ? `Slot ${pendingAssignment.trackerId}` : 'Current slot'}
-                                            sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem', fontFamily: 'monospace' } }}
-                                        />
-                                    </Box>
-                                    <Typography
-                                        variant="caption"
-                                        sx={{ color: 'text.secondary', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                            {usageRows.length > 0 ? usageRows.map((row) => {
+                                const isSelected = pendingAction === RETARGET_ACTIONS.CURRENT_SLOT
+                                    && row.trackerId === selectedTrackerId;
+                                const slotTitle = t(
+                                    'target_retarget_dialog.option_slot_title',
+                                    { defaultValue: `Retarget Target ${row.targetNumber}`, number: row.targetNumber },
+                                );
+                                const slotLabel = row.trackerId ? `Slot ${row.trackerId}` : 'Slot';
+                                const rotatorLabel = row.rotatorId !== 'none'
+                                    ? (row.rotatorName || row.rotatorId)
+                                    : t('target_retarget_dialog.no_rotator', { defaultValue: 'No rotator control' });
+                                return (
+                                    <Button
+                                        key={row.trackerId}
+                                        variant="outlined"
+                                        color="inherit"
+                                        onClick={() => {
+                                            if (submitting) return;
+                                            setPendingAction(RETARGET_ACTIONS.CURRENT_SLOT);
+                                            setPendingAssignment({
+                                                trackerId: row.trackerId,
+                                                rotatorId: row.rotatorId,
+                                                rigId: row.rigId,
+                                            });
+                                            if (pendingErrorMessage) {
+                                                setPendingErrorMessage('');
+                                            }
+                                        }}
+                                        fullWidth
+                                        disabled={submitting}
+                                        sx={{
+                                            justifyContent: 'flex-start',
+                                            textTransform: 'none',
+                                            alignItems: 'stretch',
+                                            px: 1.15,
+                                            py: 0.9,
+                                            minHeight: 88,
+                                            borderRadius: 1.6,
+                                            borderWidth: 1.5,
+                                            color: 'text.primary',
+                                            borderColor: (theme) => isSelected
+                                                ? theme.palette.primary.main
+                                                : (theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400'),
+                                            bgcolor: (theme) => isSelected
+                                                ? (theme.palette.mode === 'dark' ? 'rgba(25, 118, 210, 0.18)' : 'rgba(25, 118, 210, 0.08)')
+                                                : 'transparent',
+                                            boxShadow: (theme) => isSelected
+                                                ? (theme.palette.mode === 'dark'
+                                                    ? '0 6px 18px rgba(0, 0, 0, 0.45)'
+                                                    : '0 6px 16px rgba(15, 23, 42, 0.16)')
+                                                : (theme.palette.mode === 'dark'
+                                                    ? '0 1px 4px rgba(0, 0, 0, 0.35)'
+                                                    : '0 1px 3px rgba(15, 23, 42, 0.10)'),
+                                            transition: 'border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease, transform 120ms ease',
+                                            '&:hover': {
+                                                borderColor: (theme) => isSelected
+                                                    ? theme.palette.primary.main
+                                                    : (theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500'),
+                                                bgcolor: (theme) => isSelected
+                                                    ? (theme.palette.mode === 'dark' ? 'rgba(25, 118, 210, 0.24)' : 'rgba(25, 118, 210, 0.12)')
+                                                    : 'transparent',
+                                            },
+                                            '&:active': { transform: 'translateY(1px)' },
+                                        }}
                                     >
-                                        {targetLabel}
-                                    </Typography>
-                                    <Stack direction="row" spacing={0.6} sx={{ flexWrap: 'wrap' }}>
-                                        <Chip
-                                            size="small"
-                                            variant="outlined"
-                                            label={selectedRotatorName}
-                                            sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
-                                        />
-                                        {isCurrentRigConnected && (
-                                            <Chip
-                                                size="small"
-                                                variant="outlined"
-                                                label={selectedRigName}
-                                                sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
-                                            />
-                                        )}
-                                    </Stack>
-                                </Box>
-                            </Button>
+                                        <Box sx={{ display: 'grid', gap: 0.45, width: '100%', minWidth: 0 }}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                                                <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                                                    {slotTitle}
+                                                </Typography>
+                                                <Chip
+                                                    size="small"
+                                                    variant="outlined"
+                                                    label={slotLabel}
+                                                    sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem', fontFamily: 'monospace' } }}
+                                                />
+                                            </Box>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, minWidth: 0 }}>
+                                                <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center', minWidth: 0, flexWrap: 'wrap' }}>
+                                                    {row.satName ? (
+                                                        <Typography
+                                                            variant="caption"
+                                                            sx={{
+                                                                minWidth: 0,
+                                                                maxWidth: 220,
+                                                                whiteSpace: 'nowrap',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                color: 'text.secondary',
+                                                            }}
+                                                            title={row.satName}
+                                                        >
+                                                            {row.satName}
+                                                        </Typography>
+                                                    ) : (
+                                                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                                            {t('target_retarget_dialog.no_target', { defaultValue: 'No target selected' })}
+                                                        </Typography>
+                                                    )}
+                                                    <Chip
+                                                        size="small"
+                                                        variant="outlined"
+                                                        color={row.noradId ? 'success' : 'default'}
+                                                        label={row.noradId ? `SAT ${row.noradId}` : 'No target'}
+                                                        sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
+                                                    />
+                                                </Stack>
+                                                <Stack
+                                                    direction="row"
+                                                    spacing={0.6}
+                                                    sx={{ flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', ml: 'auto', flexShrink: 0 }}
+                                                >
+                                                    <Chip
+                                                        size="small"
+                                                        variant="outlined"
+                                                        label={rotatorLabel}
+                                                        sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
+                                                    />
+                                                    {row.rigConnected ? (
+                                                        <Chip
+                                                            size="small"
+                                                            variant="outlined"
+                                                            label={row.rigName || row.rigId}
+                                                            sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
+                                                        />
+                                                    ) : null}
+                                                </Stack>
+                                            </Box>
+                                        </Box>
+                                    </Button>
+                                );
+                            }) : (
+                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                    {t('target_retarget_dialog.no_slots', { defaultValue: 'No active target slots available to retarget.' })}
+                                </Typography>
+                            )}
+                        </Stack>
+                    </Box>
+
+                    <Divider
+                        sx={{
+                            mx: 0.25,
+                            color: 'text.secondary',
+                            fontWeight: 700,
+                            letterSpacing: 0.6,
+                            textTransform: 'uppercase',
+                            '&::before, &::after': {
+                                borderColor: 'divider',
+                            },
+                        }}
+                    >
+                        {t('target_retarget_dialog.or', { defaultValue: 'or' })}
+                    </Divider>
+
+                    <Box
+                        sx={{
+                            p: 1.25,
+                            borderRadius: 1.5,
+                            background: (theme) => `linear-gradient(135deg, ${theme.palette.secondary.main}1A 0%, ${theme.palette.secondary.main}08 100%)`,
+                        }}
+                    >
+                        <Stack spacing={1}>
                             <Button
                                 variant="outlined"
                                 color="inherit"
@@ -414,37 +474,38 @@ export function useTargetRotatorSelectionDialog() {
                                     justifyContent: 'flex-start',
                                     textTransform: 'none',
                                     alignItems: 'stretch',
-                                    px: 1.35,
-                                    py: 1.2,
-                                    minHeight: 104,
+                                    px: 1.15,
+                                    py: 0.9,
+                                    minHeight: 88,
                                     borderRadius: 1.6,
-                                    borderWidth: 1.5,
+                                    borderWidth: 2,
+                                    borderStyle: 'dashed',
                                     color: 'text.primary',
                                     borderColor: (theme) => pendingAction === RETARGET_ACTIONS.NEW_SLOT
-                                        ? theme.palette.primary.main
+                                        ? theme.palette.success.main
                                         : (theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400'),
                                     bgcolor: (theme) => pendingAction === RETARGET_ACTIONS.NEW_SLOT
-                                        ? (theme.palette.mode === 'dark' ? 'rgba(25, 118, 210, 0.18)' : 'rgba(25, 118, 210, 0.08)')
-                                        : 'background.paper',
+                                        ? (theme.palette.mode === 'dark' ? 'rgba(76, 175, 80, 0.16)' : 'rgba(76, 175, 80, 0.10)')
+                                        : 'transparent',
                                     boxShadow: (theme) => pendingAction === RETARGET_ACTIONS.NEW_SLOT
                                         ? (theme.palette.mode === 'dark'
                                             ? '0 6px 18px rgba(0, 0, 0, 0.45)'
-                                            : '0 6px 16px rgba(15, 23, 42, 0.16)')
+                                            : '0 6px 16px rgba(16, 185, 129, 0.18)')
                                         : (theme.palette.mode === 'dark'
                                             ? '0 1px 4px rgba(0, 0, 0, 0.35)'
                                             : '0 1px 3px rgba(15, 23, 42, 0.10)'),
                                     transition: 'border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease, transform 120ms ease',
                                     '&:hover': {
                                         borderColor: (theme) => pendingAction === RETARGET_ACTIONS.NEW_SLOT
-                                            ? theme.palette.primary.main
+                                            ? theme.palette.success.main
                                             : (theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500'),
                                         bgcolor: (theme) => pendingAction === RETARGET_ACTIONS.NEW_SLOT
-                                            ? (theme.palette.mode === 'dark' ? 'rgba(25, 118, 210, 0.24)' : 'rgba(25, 118, 210, 0.12)')
-                                            : (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50'),
+                                            ? (theme.palette.mode === 'dark' ? 'rgba(76, 175, 80, 0.22)' : 'rgba(76, 175, 80, 0.14)')
+                                            : 'transparent',
                                         boxShadow: (theme) => pendingAction === RETARGET_ACTIONS.NEW_SLOT
                                             ? (theme.palette.mode === 'dark'
                                                 ? '0 8px 22px rgba(0, 0, 0, 0.5)'
-                                                : '0 8px 20px rgba(15, 23, 42, 0.18)')
+                                                : '0 8px 20px rgba(16, 185, 129, 0.2)')
                                             : (theme.palette.mode === 'dark'
                                                 ? '0 4px 12px rgba(0, 0, 0, 0.42)'
                                                 : '0 4px 10px rgba(15, 23, 42, 0.12)'),
@@ -452,120 +513,54 @@ export function useTargetRotatorSelectionDialog() {
                                     '&:active': { transform: 'translateY(1px)' },
                                 }}
                             >
-                                <Box sx={{ display: 'grid', gap: 0.55, width: '100%', minWidth: 0 }}>
+                                <Box sx={{ display: 'grid', gap: 0.45, width: '100%', minWidth: 0 }}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                                        <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                                        <Typography
+                                            variant="body2"
+                                            sx={{
+                                                fontWeight: 800,
+                                                color: pendingAction === RETARGET_ACTIONS.NEW_SLOT ? 'success.main' : 'text.primary',
+                                            }}
+                                        >
                                             {t('target_retarget_dialog.option_new_title', { defaultValue: 'Create new target slot' })}
                                         </Typography>
                                         <Chip
                                             size="small"
-                                            variant="outlined"
+                                            variant={pendingAction === RETARGET_ACTIONS.NEW_SLOT ? 'filled' : 'outlined'}
+                                            color={pendingAction === RETARGET_ACTIONS.NEW_SLOT ? 'success' : 'default'}
                                             label={`Slot ${nextTargetSlotId}`}
                                             sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem', fontFamily: 'monospace' } }}
                                         />
                                     </Box>
-                                    <Typography
-                                        variant="caption"
-                                        sx={{ color: 'text.secondary', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                                    >
-                                        {newTargetLabel}
-                                    </Typography>
-                                    <Stack direction="row" spacing={0.6} sx={{ flexWrap: 'wrap' }}>
-                                        <Chip
-                                            size="small"
-                                            variant="outlined"
-                                            label={t('target_retarget_dialog.no_rotator', { defaultValue: 'No rotator control' })}
-                                            sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
-                                        />
-                                        <Chip
-                                            size="small"
-                                            variant="outlined"
-                                            label={t('target_retarget_dialog.no_rig', { defaultValue: 'No rig control' })}
-                                            sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
-                                        />
-                                    </Stack>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, minWidth: 0 }}>
+                                        <Typography
+                                            variant="caption"
+                                            sx={{ color: 'text.secondary', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                        >
+                                            {newTargetLabel}
+                                        </Typography>
+                                        <Stack
+                                            direction="row"
+                                            spacing={0.6}
+                                            sx={{ flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', ml: 'auto', flexShrink: 0 }}
+                                        >
+                                            <Chip
+                                                size="small"
+                                                variant="outlined"
+                                                label={t('target_retarget_dialog.no_rotator', { defaultValue: 'No rotator control' })}
+                                                sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
+                                            />
+                                            <Chip
+                                                size="small"
+                                                variant="outlined"
+                                                label={t('target_retarget_dialog.no_rig', { defaultValue: 'No rig control' })}
+                                                sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
+                                            />
+                                        </Stack>
+                                    </Box>
                                 </Box>
                             </Button>
                         </Stack>
-                    </Box>
-
-                    <Box
-                        sx={{
-                            p: 1.25,
-                            borderRadius: 1.5,
-                            background: (theme) => `linear-gradient(135deg, ${theme.palette.secondary.main}1A 0%, ${theme.palette.secondary.main}08 100%)`,
-                        }}
-                    >
-                        {usageRows.length > 0 && (
-                            <>
-                                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
-                                    {t('target_retarget_dialog.usage_overview', { defaultValue: 'Current Usage' })}
-                                </Typography>
-                                <Stack spacing={0.7}>
-                                    {usageRows.map((row) => {
-                                        const isSelectedTarget = pendingAction === RETARGET_ACTIONS.CURRENT_SLOT
-                                            && row.trackerId === pendingAssignment?.trackerId;
-                                        return (
-                                            <Box
-                                                key={row.trackerId}
-                                                sx={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    px: 1,
-                                                    py: 0.6,
-                                                    borderRadius: 1,
-                                                    bgcolor: isSelectedTarget ? 'action.selected' : 'action.hover',
-                                                }}
-                                            >
-                                                <Typography variant="body2" sx={{ minWidth: 72, fontWeight: 700 }}>
-                                                    {`Target ${row.targetNumber}`}
-                                                </Typography>
-                                                <Typography
-                                                    variant="caption"
-                                                    sx={{
-                                                        flex: 1,
-                                                        mx: 1,
-                                                        whiteSpace: 'nowrap',
-                                                        overflow: 'hidden',
-                                                        textOverflow: 'ellipsis',
-                                                    }}
-                                                >
-                                                    {row.rotatorId !== 'none'
-                                                        ? `${row.rotatorName || row.rotatorId} (${row.rotatorId.slice(0, 6)})`
-                                                        : 'No rotator'}
-                                                </Typography>
-                                                <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center', minWidth: 0, maxWidth: 220 }}>
-                                                    {row.noradId && row.satName ? (
-                                                        <Typography
-                                                            variant="caption"
-                                                            sx={{
-                                                                minWidth: 0,
-                                                                maxWidth: 130,
-                                                                whiteSpace: 'nowrap',
-                                                                overflow: 'hidden',
-                                                                textOverflow: 'ellipsis',
-                                                                color: 'text.secondary',
-                                                            }}
-                                                            title={row.satName}
-                                                        >
-                                                            {row.satName}
-                                                        </Typography>
-                                                    ) : null}
-                                                    <Chip
-                                                        size="small"
-                                                        variant="outlined"
-                                                        color={row.noradId ? 'success' : 'default'}
-                                                        label={row.noradId ? `SAT ${row.noradId}` : 'No target'}
-                                                        sx={{ height: 20, '& .MuiChip-label': { px: 0.8, fontSize: '0.68rem' } }}
-                                                    />
-                                                </Stack>
-                                            </Box>
-                                        );
-                                    })}
-                                </Stack>
-                            </>
-                        )}
                     </Box>
                 </Box>
                 {pendingErrorMessage && (
@@ -622,7 +617,7 @@ export function useTargetRotatorSelectionDialog() {
                             : {
                                 action: RETARGET_ACTIONS.CURRENT_SLOT,
                                 trackerId: resolveTrackerId(pendingAssignment?.trackerId, DEFAULT_TRACKER_ID),
-                                rotatorId,
+                                rotatorId: normalizeRotatorId(pendingAssignment?.rotatorId),
                                 rigId: normalizeRigId(pendingAssignment?.rigId),
                             };
                         const submitHandler = submitHandlerRef.current;
@@ -661,7 +656,7 @@ export function useTargetRotatorSelectionDialog() {
                         ? t('target_retarget_dialog.submitting', { defaultValue: 'Applying...' })
                         : pendingAction === RETARGET_ACTIONS.NEW_SLOT
                         ? t('target_retarget_dialog.confirm_create', { defaultValue: 'Create New Target' })
-                        : t('target_retarget_dialog.confirm_retarget', { defaultValue: 'Retarget Current Slot' })}
+                        : t('target_retarget_dialog.confirm_retarget', { defaultValue: 'Retarget Selected Slot' })}
                 </Button>
             </DialogActions>
         </Dialog>
