@@ -421,11 +421,7 @@ class AMDemodulator(threading.Thread):
                 # Measure RF signal power for squelch AFTER filtering
                 # Calculate on every chunk for accurate squelch operation
                 signal_power = np.mean(np.abs(filtered) ** 2)
-                rf_power_db_raw = 10 * np.log10(signal_power + 1e-10)
-
-                # Calibration offset (matches FM demodulator to align with FFT waterfall)
-                calibration_offset_db = 17.0
-                rf_power_db = rf_power_db_raw + calibration_offset_db
+                rf_power_db = 10 * np.log10(signal_power + 1e-10)
 
                 # Update cached power value periodically for UI updates (throttled to N Hz)
                 current_time = time.time()

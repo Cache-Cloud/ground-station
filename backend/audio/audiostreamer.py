@@ -163,6 +163,7 @@ class WebAudioStreamer(threading.Thread):
                                 "rf_power_db": audio_message.get(
                                     "rf_power_db"
                                 ),  # RF power measurement
+                                "rf_power_method": audio_message.get("rf_power_method"),
                             },
                             room=originating_session_id,
                         ),  # Emit ONLY to the originating session

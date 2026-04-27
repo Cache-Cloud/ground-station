@@ -205,9 +205,10 @@ def fft_processor_process(iq_queue, data_queue, stop_event, client_id):
                         # Use proper window correction for non-overlapped FFTs
                         window_correction = np.sum(window**2) / N
 
-                    power = 10 * np.log10(
-                        (np.abs(fft_segment) ** 2) / (N * window_correction) + 1e-10
-                    )
+                    # FFT output magnitude scales with N; use N^2 to keep power levels
+                    # normalized across FFT sizes.
+                    normalization = (N**2) * window_correction
+                    power = 10 * np.log10((np.abs(fft_segment) ** 2) / normalization + 1e-10)
                     fft_result += power
 
                 # Average the segments
