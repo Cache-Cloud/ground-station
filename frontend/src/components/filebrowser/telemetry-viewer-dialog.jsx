@@ -18,11 +18,8 @@ import {
     Box,
     Tabs,
     Tab,
-    IconButton,
     Typography,
-    useTheme,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 import OverviewTab from './telemetry-overview-tab';
 import HexAsciiTab from './telemetry-hex-ascii-tab';
@@ -51,7 +48,6 @@ function TabPanel({ children, value, index, ...other }) {
 }
 
 export default function TelemetryViewerDialog({ open, onClose, file, metadata }) {
-    const theme = useTheme();
     const [activeTab, setActiveTab] = useState(0);
 
     // Reset tab when dialog opens
@@ -81,16 +77,19 @@ export default function TelemetryViewerDialog({ open, onClose, file, metadata })
             fullWidth
             PaperProps={{
                 sx: {
+                    bgcolor: 'background.paper',
+                    border: (theme) => `1px solid ${theme.palette.divider}`,
+                    borderRadius: 2,
                     minHeight: '80vh',
                     maxHeight: '90vh',
                 }
             }}
         >
             <DialogTitle sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                borderBottom: `1px solid ${theme.palette.divider}`,
+                bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+                py: 2.5,
+                px: 3,
             }}>
                 <Box>
                     <Typography variant="h6">
@@ -100,20 +99,12 @@ export default function TelemetryViewerDialog({ open, onClose, file, metadata })
                         {file.filename || file.name}
                     </Typography>
                 </Box>
-                <IconButton
-                    edge="end"
-                    color="inherit"
-                    onClick={onClose}
-                    aria-label="close"
-                >
-                    <CloseIcon />
-                </IconButton>
             </DialogTitle>
 
             <Box sx={{
                 borderBottom: 1,
                 borderColor: 'divider',
-                backgroundColor: theme.palette.background.paper,
+                backgroundColor: 'background.paper',
             }}>
                 <Tabs
                     value={activeTab}
@@ -132,7 +123,12 @@ export default function TelemetryViewerDialog({ open, onClose, file, metadata })
                 </Tabs>
             </Box>
 
-            <DialogContent sx={{ p: 0 }}>
+            <DialogContent
+                sx={{
+                    p: 0,
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.36)' : 'grey.100'),
+                }}
+            >
                 <TabPanel value={activeTab} index={0}>
                     <Box sx={{ px: 3, pb: 2 }}>
                         <OverviewTab
@@ -198,15 +194,20 @@ export default function TelemetryViewerDialog({ open, onClose, file, metadata })
             </DialogContent>
 
             <DialogActions sx={{
-                borderTop: `1px solid ${theme.palette.divider}`,
+                bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                borderTop: (theme) => `1px solid ${theme.palette.divider}`,
                 px: 3,
-                py: 2,
+                py: 2.5,
+                gap: 1,
+                flexWrap: 'wrap',
+                justifyContent: 'flex-end',
             }}>
                 <Button
                     startIcon={<DownloadIcon />}
                     href={file.url}
                     download={file.filename}
                     component="a"
+                    variant="outlined"
                 >
                     Download Binary
                 </Button>
@@ -215,11 +216,21 @@ export default function TelemetryViewerDialog({ open, onClose, file, metadata })
                     href={file.url.replace('.bin', '.json')}
                     download={file.filename?.replace('.bin', '.json')}
                     component="a"
+                    variant="outlined"
                 >
                     Download Metadata
                 </Button>
-                <Box sx={{ flex: 1 }} />
-                <Button onClick={onClose}>
+                <Button
+                    onClick={onClose}
+                    variant="outlined"
+                    sx={{
+                        borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400'),
+                        '&:hover': {
+                            borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500'),
+                            bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200'),
+                        },
+                    }}
+                >
                     Close
                 </Button>
             </DialogActions>

@@ -58,9 +58,11 @@ Usage Example (JavaScript via Socket.IO):
 import asyncio
 import multiprocessing as mp
 import time
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
+from queue import Empty
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from common.logger import logger
@@ -129,9 +131,11 @@ def _task_wrapper(func: Callable, args: Tuple, kwargs: Dict, queue: mp.Queue):
                 "type": TaskMessage.FAILED,
                 "error": str(e),
                 "exception_type": type(e).__name__,
+                "traceback": traceback.format_exc(),
                 "timestamp": time.time(),
             }
         )
+        raise
 
 
 class BackgroundTaskManager:
@@ -290,19 +294,34 @@ class BackgroundTaskManager:
 
         try:
             # Monitor queue for messages
-            while process.is_alive() or not queue.empty():
+            process_exited_at: Optional[float] = None
+            while True:
                 try:
-                    # Non-blocking queue check
-                    if not queue.empty():
-                        message = queue.get_nowait()
-                        await self._handle_message(task_id, message)
-                    else:
-                        # Short sleep to avoid busy waiting
-                        await asyncio.sleep(0.1)
-
+                    message = queue.get_nowait()
+                    await self._handle_message(task_id, message)
+                    continue
+                except Empty:
+                    pass
                 except Exception as e:
                     logger.error(f"Error processing message for task {task_id}: {e}")
                     await asyncio.sleep(0.1)
+                    continue
+
+                if process.is_alive():
+                    await asyncio.sleep(0.1)
+                    continue
+
+                # Give multiprocessing queue feeder threads a short grace period
+                # to flush trailing messages after process exit.
+                if process_exited_at is None:
+                    process_exited_at = time.time()
+                    await asyncio.sleep(0.05)
+                    continue
+                if time.time() - process_exited_at < 0.5:
+                    await asyncio.sleep(0.05)
+                    continue
+
+                break
 
             # Wait for process to complete
             process.join(timeout=1)
@@ -323,6 +342,15 @@ class BackgroundTaskManager:
                     logger.warning(
                         f"Background task '{task_info.name}' failed with exit code {return_code}"
                     )
+            elif task_info.status == TaskStatus.COMPLETED and return_code != 0:
+                # Defensive guard: if task reported completion but exited non-zero,
+                # treat it as failed to avoid false-success states.
+                task_info.status = TaskStatus.FAILED
+                logger.warning(
+                    "Background task '%s' exited with non-zero code %s after completion message",
+                    task_info.name,
+                    return_code,
+                )
 
             # Emit completion event
             await self.sio.emit(
@@ -448,6 +476,23 @@ class BackgroundTaskManager:
             task_info.status = TaskStatus.FAILED
             error = message.get("error", "Unknown error")
             task_info.error_lines.append(f"FAILED: {error}")
+            await self.sio.emit(
+                "background_task:progress",
+                {
+                    "task_id": task_id,
+                    "name": task_info.name,
+                    "stream": "stderr",
+                    "output": f"FAILED: {error}",
+                },
+            )
+            await self.sio.emit(
+                "background_task:error",
+                {
+                    "task_id": task_id,
+                    "name": task_info.name,
+                    "error": error,
+                },
+            )
 
         elif msg_type == "discovery_update":
             # SoapySDR discovery data update from background task

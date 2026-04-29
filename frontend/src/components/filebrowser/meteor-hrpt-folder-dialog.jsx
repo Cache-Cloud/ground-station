@@ -33,8 +33,6 @@ import {
     CardMedia,
     CardContent,
     Chip,
-    IconButton,
-    Divider,
     Paper,
     Table,
     TableBody,
@@ -42,7 +40,6 @@ import {
     TableContainer,
     TableRow,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import ImageIcon from '@mui/icons-material/Image';
@@ -161,12 +158,22 @@ export default function MeteorHrptFolderDialog({ open, onClose, folder }) {
                 fullWidth
                 PaperProps={{
                     sx: {
+                        bgcolor: 'background.paper',
+                        border: (theme) => `1px solid ${theme.palette.divider}`,
+                        borderRadius: 2,
                         height: '90vh',
                         maxHeight: '90vh',
                     }
                 }}
             >
-                <DialogTitle>
+                <DialogTitle
+                    sx={{
+                        bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                        borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+                        py: 2.5,
+                        px: 3,
+                    }}
+                >
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Box>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -201,14 +208,9 @@ export default function MeteorHrptFolderDialog({ open, onClose, folder }) {
                                 size="small"
                                 variant="outlined"
                             />
-                            <IconButton onClick={onClose}>
-                                <CloseIcon />
-                            </IconButton>
                         </Box>
                     </Box>
                 </DialogTitle>
-
-                <Divider />
 
                 {categories.length > 0 && (
                     <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}>
@@ -225,7 +227,15 @@ export default function MeteorHrptFolderDialog({ open, onClose, folder }) {
                     </Box>
                 )}
 
-                <DialogContent sx={{ overflow: 'auto', flex: 1 }}>
+                <DialogContent
+                    sx={{
+                        bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.36)' : 'grey.100'),
+                        overflow: 'auto',
+                        flex: 1,
+                        px: 3,
+                        py: 3,
+                    }}
+                >
                     {categories.length === 0 ? (
                         <Box sx={{ textAlign: 'center', py: 8 }}>
                             <FolderIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
@@ -390,13 +400,33 @@ export default function MeteorHrptFolderDialog({ open, onClose, folder }) {
                     )}
                 </DialogContent>
 
-                <DialogActions>
+                <DialogActions
+                    sx={{
+                        bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                        borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+                        px: 3,
+                        py: 2.5,
+                        gap: 1,
+                    }}
+                >
                     {folder.images && folder.images.length > 0 && (
-                        <Button onClick={handleDownloadFolder} startIcon={<DownloadIcon />}>
+                        <Button onClick={handleDownloadFolder} startIcon={<DownloadIcon />} variant="outlined">
                             DOWNLOAD ZIP ({folder.image_count})
                         </Button>
                     )}
-                    <Button onClick={onClose}>Close</Button>
+                    <Button
+                        onClick={onClose}
+                        variant="outlined"
+                        sx={{
+                            borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400'),
+                            '&:hover': {
+                                borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500'),
+                                bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200'),
+                            },
+                        }}
+                    >
+                        Close
+                    </Button>
                 </DialogActions>
             </Dialog>
 
@@ -407,8 +437,22 @@ export default function MeteorHrptFolderDialog({ open, onClose, folder }) {
                     onClose={() => setSelectedImage(null)}
                     maxWidth="lg"
                     fullWidth
+                    PaperProps={{
+                        sx: {
+                            bgcolor: 'background.paper',
+                            border: (theme) => `1px solid ${theme.palette.divider}`,
+                            borderRadius: 2,
+                        },
+                    }}
                 >
-                    <DialogTitle>
+                    <DialogTitle
+                        sx={{
+                            bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                            borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+                            py: 2.5,
+                            px: 3,
+                        }}
+                    >
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Typography variant="h6" sx={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
                                 {getImageLabel(selectedImage)}
@@ -426,9 +470,6 @@ export default function MeteorHrptFolderDialog({ open, onClose, folder }) {
                                     size="small"
                                     variant="outlined"
                                 />
-                                <IconButton onClick={() => setSelectedImage(null)}>
-                                    <CloseIcon />
-                                </IconButton>
                             </Box>
                         </Box>
                     </DialogTitle>
@@ -459,14 +500,35 @@ export default function MeteorHrptFolderDialog({ open, onClose, folder }) {
                             }}
                         />
                     </DialogContent>
-                    <DialogActions>
+                    <DialogActions
+                        sx={{
+                            bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                            borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+                            px: 3,
+                            py: 2.5,
+                            gap: 1,
+                        }}
+                    >
                         <Button
                             onClick={() => window.open(selectedImage.url, '_blank')}
                             startIcon={<DownloadIcon />}
+                            variant="outlined"
                         >
                             Download
                         </Button>
-                        <Button onClick={() => setSelectedImage(null)}>Close</Button>
+                        <Button
+                            onClick={() => setSelectedImage(null)}
+                            variant="outlined"
+                            sx={{
+                                borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400'),
+                                '&:hover': {
+                                    borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500'),
+                                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200'),
+                                },
+                            }}
+                        >
+                            Close
+                        </Button>
                     </DialogActions>
                 </Dialog>
             )}

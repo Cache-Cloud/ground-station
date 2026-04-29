@@ -17,7 +17,7 @@
  *
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
     Dialog,
@@ -27,7 +27,6 @@ import {
     Button,
     Box,
     Typography,
-    IconButton,
     FormControl,
     InputLabel,
     Select,
@@ -39,8 +38,8 @@ import {
     Chip,
     LinearProgress,
     Stack,
+    Paper,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
 import BuildIcon from '@mui/icons-material/Build';
 import PlaylistPlayIcon from '@mui/icons-material/PlaylistPlay';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -70,10 +69,69 @@ const getRecordingBaseName = (recordingName) => {
     return recordingName;
 };
 
+// Parse ANSI color codes into renderable text parts for terminal-style output.
+const parseAnsiColors = (text = '') => {
+    const normalized = String(text).replace(/\uFFFD/g, '').replaceAll('\u001b', '');
+    const ansiRegex = /\[(\d*(?:;\d+)*)m/g;
+    const parts = [];
+    let lastIndex = 0;
+    let currentColor = null;
+    let currentBold = false;
+
+    for (const match of normalized.matchAll(ansiRegex)) {
+        if (match.index > lastIndex) {
+            parts.push({
+                text: normalized.substring(lastIndex, match.index),
+                color: currentColor,
+                bold: currentBold,
+            });
+        }
+
+        const codes = match[1] ? match[1].split(';') : ['0'];
+        for (const code of codes) {
+            if (code === '0') {
+                currentColor = null;
+                currentBold = false;
+            } else if (code === '1') {
+                currentBold = true;
+            } else if (code === '22') {
+                currentBold = false;
+            } else if (code === '30') currentColor = '#000000';
+            else if (code === '31') currentColor = '#ff4444';
+            else if (code === '32') currentColor = '#44ff44';
+            else if (code === '33') currentColor = '#ffff44';
+            else if (code === '34') currentColor = '#4444ff';
+            else if (code === '35') currentColor = '#ff44ff';
+            else if (code === '36') currentColor = '#44ffff';
+            else if (code === '37') currentColor = '#ffffff';
+            else if (code === '90') currentColor = '#666666';
+            else if (code === '91') currentColor = '#ff6666';
+            else if (code === '92') currentColor = '#66ff66';
+            else if (code === '93') currentColor = '#ffff66';
+            else if (code === '94') currentColor = '#6666ff';
+            else if (code === '95') currentColor = '#ff66ff';
+            else if (code === '96') currentColor = '#66ffff';
+            else if (code === '97') currentColor = '#ffffff';
+        }
+
+        lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < normalized.length) {
+        parts.push({
+            text: normalized.substring(lastIndex),
+            color: currentColor,
+            bold: currentBold,
+        });
+    }
+
+    return parts;
+};
+
 export default function ProcessingDialog({ open, onClose, recording }) {
     const { socket } = useSocket();
     const dispatch = useDispatch();
-    const { tasks, runningTaskIds, completedTaskIds } = useSelector(state => state.backgroundTasks);
+    const { tasks } = useSelector(state => state.backgroundTasks);
 
     // Helper function to map SigMF data type to SatDump baseband format
     const getSatDumpFormat = (datatype) => {
@@ -98,6 +156,8 @@ export default function ProcessingDialog({ open, onClose, recording }) {
     const [finishProcessing, setFinishProcessing] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [submittedTaskId, setSubmittedTaskId] = useState(null);
+    const [showFullOutput, setShowFullOutput] = useState(false);
+    const outputRef = useRef(null);
 
     // Update format and sample rate when recording changes
     useEffect(() => {
@@ -142,6 +202,17 @@ export default function ProcessingDialog({ open, onClose, recording }) {
     const selectedTask = (submittedTaskId && tasks[submittedTaskId]) || matchingTask;
     const isTaskRunning = selectedTask?.status === 'running';
     const hasTask = Boolean(selectedTask);
+    const outputLines = selectedTask?.output_lines || [];
+    const visibleOutputLines = showFullOutput ? outputLines.slice(-1000) : outputLines.slice(-1);
+
+    useEffect(() => {
+        setShowFullOutput(false);
+    }, [selectedTask?.task_id]);
+
+    useEffect(() => {
+        if (!outputRef.current || !showFullOutput) return;
+        outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }, [outputLines.length, showFullOutput]);
 
     if (!recording) return null;
 
@@ -237,26 +308,45 @@ export default function ProcessingDialog({ open, onClose, recording }) {
             onClose={onClose}
             maxWidth="md"
             fullWidth
+            PaperProps={{
+                sx: {
+                    bgcolor: 'background.paper',
+                    border: (theme) => `1px solid ${theme.palette.divider}`,
+                    borderRadius: 2,
+                },
+            }}
         >
-            <DialogTitle>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <DialogTitle
+                sx={{
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                    borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+                    fontSize: '1.25rem',
+                    fontWeight: 'bold',
+                    py: 2.5,
+                    px: 3,
+                }}
+            >
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <BuildIcon color="primary" />
                         <Typography variant="h6">
                             Process IQ Recording
                         </Typography>
                     </Box>
-                    <IconButton onClick={onClose}>
-                        <CloseIcon />
-                    </IconButton>
                 </Box>
                 <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
                     {recording.name}
                 </Typography>
             </DialogTitle>
 
-            <DialogContent>
-                <Box sx={{ pt: 2 }}>
+            <DialogContent
+                sx={{
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.36)' : 'grey.100'),
+                    px: 3,
+                    py: 3,
+                }}
+            >
+                <Box sx={{ mt: 3 }}>
                     <Typography variant="subtitle2" gutterBottom>
                         SatDump Processing
                     </Typography>
@@ -264,12 +354,13 @@ export default function ProcessingDialog({ open, onClose, recording }) {
                         Process this IQ recording using SatDump satellite decoder
                     </Typography>
 
-                    <FormControl fullWidth sx={{ mb: 2 }} disabled={isTaskRunning}>
+                    <FormControl fullWidth size="small" sx={{ mb: 2 }} disabled={isTaskRunning}>
                         <InputLabel>Satellite / Pipeline</InputLabel>
                         <Select
                             value={selectedPipeline}
                             label="Satellite / Pipeline"
                             onChange={(e) => setSelectedPipeline(e.target.value)}
+                            size="small"
                         >
                             {Object.entries(SATDUMP_PIPELINES).map(([key, group]) => {
                                 const pipelines = group?.pipelines || [];
@@ -289,12 +380,13 @@ export default function ProcessingDialog({ open, onClose, recording }) {
                         </Select>
                     </FormControl>
 
-                    <FormControl fullWidth sx={{ mb: 2 }} disabled>
+                    <FormControl fullWidth size="small" sx={{ mb: 2 }} disabled>
                         <InputLabel>Baseband Format</InputLabel>
                         <Select
                             value={basebandFormat}
                             label="Baseband Format"
                             onChange={(e) => setBasebandFormat(e.target.value)}
+                            size="small"
                         >
                             {BASEBAND_FORMATS.map((format) => (
                                 <MenuItem key={format.value} value={format.value}>
@@ -311,6 +403,7 @@ export default function ProcessingDialog({ open, onClose, recording }) {
                         value={samplerate}
                         onChange={(e) => setSamplerate(e.target.value)}
                         disabled
+                        size="small"
                         sx={{ mb: 2 }}
                     />
 
@@ -368,6 +461,75 @@ export default function ProcessingDialog({ open, onClose, recording }) {
                                                 {selectedTask.return_code !== null && ` | Exit code: ${selectedTask.return_code}`}
                                             </Typography>
                                         )}
+
+                                        <Divider />
+
+                                        <Stack spacing={0.75}>
+                                            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                                                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
+                                                    Task Output
+                                                </Typography>
+                                                {outputLines.length > 1 && (
+                                                    <Button
+                                                        size="small"
+                                                        variant="text"
+                                                        onClick={() => setShowFullOutput((current) => !current)}
+                                                        sx={{ minWidth: 0, px: 0.5 }}
+                                                    >
+                                                        {showFullOutput ? 'Show last line' : 'Show full output'}
+                                                    </Button>
+                                                )}
+                                            </Stack>
+
+                                            <Paper
+                                                ref={outputRef}
+                                                variant="outlined"
+                                                sx={{
+                                                    p: 1,
+                                                    maxHeight: showFullOutput ? 220 : 42,
+                                                    overflow: showFullOutput ? 'auto' : 'hidden',
+                                                    bgcolor: (theme) => (theme.palette.mode === 'dark'
+                                                        ? 'rgba(0, 0, 0, 0.35)'
+                                                        : 'rgba(0, 0, 0, 0.2)'),
+                                                    borderColor: 'divider',
+                                                    borderRadius: 1,
+                                                }}
+                                            >
+                                                {visibleOutputLines.length > 0 ? visibleOutputLines.map((line, idx) => {
+                                                    const parts = parseAnsiColors(line.output);
+                                                    return (
+                                                        <Typography
+                                                            key={`${idx}-${line.timestamp || idx}`}
+                                                            variant="caption"
+                                                            component="div"
+                                                            sx={{
+                                                                fontFamily: 'monospace',
+                                                                lineHeight: 1.35,
+                                                                whiteSpace: showFullOutput ? 'pre-wrap' : 'nowrap',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                            }}
+                                                        >
+                                                            {parts.map((part, partIdx) => (
+                                                                <span
+                                                                    key={partIdx}
+                                                                    style={{
+                                                                        color: part.color || 'inherit',
+                                                                        fontWeight: part.bold ? 'bold' : 'normal',
+                                                                    }}
+                                                                >
+                                                                    {part.text}
+                                                                </span>
+                                                            ))}
+                                                        </Typography>
+                                                    );
+                                                }) : (
+                                                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                                                        Waiting for task output...
+                                                    </Typography>
+                                                )}
+                                            </Paper>
+                                        </Stack>
                                     </>
                                 )}
                             </Stack>
@@ -387,10 +549,31 @@ export default function ProcessingDialog({ open, onClose, recording }) {
                 </Box>
             </DialogContent>
 
-            <DialogActions>
-                <Button onClick={onClose}>{hasTask ? 'Close' : 'Cancel'}</Button>
+            <DialogActions
+                sx={{
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                    borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+                    px: 3,
+                    py: 2.5,
+                    gap: 2,
+                }}
+            >
+                <Button
+                    onClick={onClose}
+                    variant="outlined"
+                    sx={{
+                        borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400'),
+                        '&:hover': {
+                            borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500'),
+                            bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200'),
+                        },
+                    }}
+                >
+                    {hasTask ? 'Close' : 'Cancel'}
+                </Button>
                 <Button
                     onClick={handleSubmit}
+                    color="success"
                     variant="contained"
                     disabled={submitting || isTaskRunning}
                     startIcon={<BuildIcon />}

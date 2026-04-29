@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 from multiprocessing import Queue
 from pathlib import Path
@@ -27,6 +28,142 @@ class GracefulKiller:
 
     def exit_gracefully(self, *args):
         self.kill_now = True
+
+
+def _has_tle_content(path: Path) -> bool:
+    """Return True when a TLE file contains at least one valid line pair."""
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+
+    has_line1 = False
+    has_line2 = False
+    try:
+        with path.open("r") as handle:
+            for line in handle:
+                line = line.strip()
+                if line.startswith("1 "):
+                    has_line1 = True
+                elif line.startswith("2 "):
+                    has_line2 = True
+                if has_line1 and has_line2:
+                    return True
+    except Exception:
+        return False
+    return False
+
+
+def _build_tle_file_from_ground_station_db(db_path: Path, output_path: Path) -> int:
+    """Build a SatDump-compatible TLE file from Ground Station's satellites table."""
+    if not db_path.exists():
+        return 0
+
+    entries: list[str] = []
+    inserted = 0
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT name, tle1, tle2
+            FROM satellites
+            WHERE tle1 IS NOT NULL AND tle1 != '' AND tle2 IS NOT NULL AND tle2 != ''
+            """
+        )
+
+        for name, tle1, tle2 in cursor.fetchall():
+            line1 = str(tle1).strip()
+            line2 = str(tle2).strip()
+            if not line1.startswith("1 ") or not line2.startswith("2 "):
+                continue
+
+            sat_name = (str(name).strip() if name is not None else "") or "UNKNOWN"
+            entries.extend([sat_name, line1, line2, ""])
+            inserted += 1
+    except Exception:
+        return 0
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    if inserted > 0:
+        tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+        with tmp_path.open("w") as handle:
+            handle.write("\n".join(entries).rstrip() + "\n")
+        tmp_path.replace(output_path)
+
+    return inserted
+
+
+def _prepare_satdump_tle_cache(backend_dir: Path, progress_queue: Optional[Queue] = None) -> Path:
+    """
+    Prepare a local SatDump-compatible TLE file for --tle_override.
+
+    Returns:
+        Path to a TLE file.
+    """
+    cache_dir = backend_dir / "data" / "satdump_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    tles_path = cache_dir / "satdump_tles.txt"
+
+    if not _has_tle_content(tles_path):
+        seeded = False
+
+        # First try existing caches.
+        source_candidates: list[Path] = []
+        current_home = os.environ.get("HOME", "")
+        if current_home:
+            source_candidates.append(
+                Path(current_home) / ".config" / "satdump" / "satdump_tles.txt"
+            )
+        source_candidates.append(
+            backend_dir / "data" / "satdump_home" / ".config" / "satdump" / "satdump_tles.txt"
+        )
+        source_candidates.append(
+            backend_dir / "data" / "satdump_config" / "satdump" / "satdump_tles.txt"
+        )
+
+        for source in source_candidates:
+            if source.resolve() == tles_path.resolve():
+                continue
+            if _has_tle_content(source):
+                shutil.copy2(source, tles_path)
+                seeded = True
+                if progress_queue:
+                    progress_queue.put(
+                        {
+                            "type": "output",
+                            "output": f"Seeded SatDump TLE cache from: {source}",
+                            "stream": "stdout",
+                        }
+                    )
+                break
+
+        # Fallback: build a TLE cache from Ground Station DB records.
+        if not seeded:
+            db_path = backend_dir / "data" / "db" / "gs.db"
+            count = _build_tle_file_from_ground_station_db(db_path, tles_path)
+            if count > 0 and progress_queue:
+                progress_queue.put(
+                    {
+                        "type": "output",
+                        "output": f"Built SatDump TLE cache from database ({count} entries)",
+                        "stream": "stdout",
+                    }
+                )
+
+        if not _has_tle_content(tles_path) and progress_queue:
+            progress_queue.put(
+                {
+                    "type": "output",
+                    "output": "Warning: Local SatDump TLE cache is empty; SatDump may attempt network TLE updates",
+                    "stream": "stderr",
+                }
+            )
+
+    return tles_path
 
 
 def _cleanup_empty_directory(directory: Path, progress_queue: Optional[Queue] = None):
@@ -163,7 +300,7 @@ def satdump_process_recording(
         "--dc_block",
     ]
 
-    # Log command
+    # Log basic task info
     if _progress_queue:
         _progress_queue.put(
             {
@@ -193,22 +330,46 @@ def satdump_process_recording(
                 "stream": "stdout",
             }
         )
-        _progress_queue.put(
-            {"type": "output", "output": f"Command: {' '.join(cmd)}", "stream": "stdout"}
-        )
-        _progress_queue.put({"type": "output", "output": "-" * 60, "stream": "stdout"})
 
     try:
-        # Isolate SatDump settings to avoid cross-version config breakage
-        satdump_cfg_dir = backend_dir / "data" / "satdump_config"
-        satdump_cfg_dir.mkdir(parents=True, exist_ok=True)
-        env = os.environ.copy()
-        env["XDG_CONFIG_HOME"] = str(satdump_cfg_dir)
+        satdump_tles_path = _prepare_satdump_tle_cache(backend_dir, _progress_queue)
+        cmd_runtime = list(cmd)
+
+        if _progress_queue and satdump_tles_path.exists():
+            _progress_queue.put(
+                {
+                    "type": "output",
+                    "output": f"SatDump TLE cache: {satdump_tles_path}",
+                    "stream": "stdout",
+                }
+            )
+
+        # Force local TLE usage and bypass launch-time network fetch/update paths.
+        if _has_tle_content(satdump_tles_path):
+            cmd_runtime.extend(["--tle_override", str(satdump_tles_path)])
+            if _progress_queue:
+                _progress_queue.put(
+                    {
+                        "type": "output",
+                        "output": "SatDump TLE mode: local override (offline-safe)",
+                        "stream": "stdout",
+                    }
+                )
+
+        if _progress_queue:
+            _progress_queue.put(
+                {
+                    "type": "output",
+                    "output": f"Command: {' '.join(cmd_runtime)}",
+                    "stream": "stdout",
+                }
+            )
+            _progress_queue.put({"type": "output", "output": "-" * 60, "stream": "stdout"})
 
         # Start the subprocess
         process = subprocess.Popen(
-            cmd,
-            env=env,
+            cmd_runtime,
+            cwd=str(backend_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,

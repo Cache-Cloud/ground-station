@@ -394,8 +394,22 @@ export default function AudioDialog({ open, onClose, audio, metadata }) {
             onClose={onClose}
             maxWidth="md"
             fullWidth
+            PaperProps={{
+                sx: {
+                    bgcolor: 'background.paper',
+                    border: (theme) => `1px solid ${theme.palette.divider}`,
+                    borderRadius: 2,
+                },
+            }}
         >
-            <DialogTitle>
+            <DialogTitle
+                sx={{
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                    borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+                    py: 2.5,
+                    px: 3,
+                }}
+            >
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Typography variant="h6">Audio Recording Details</Typography>
                     <Box>
@@ -417,9 +431,15 @@ export default function AudioDialog({ open, onClose, audio, metadata }) {
                     </Box>
                 </Box>
             </DialogTitle>
-            <DialogContent>
+            <DialogContent
+                sx={{
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.36)' : 'grey.100'),
+                    px: 3,
+                    py: 3,
+                }}
+            >
                 {audio && (
-                    <Box sx={{ mt: 1 }} key={audio.url}>
+                    <Box sx={{ mt: 3 }} key={audio.url}>
                         {/* Hidden audio element */}
                         <audio
                             ref={audioRef}
@@ -699,10 +719,21 @@ export default function AudioDialog({ open, onClose, audio, metadata }) {
                     </Box>
                 )}
             </DialogContent>
-            <DialogActions>
+            <DialogActions
+                sx={{
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+                    borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+                    px: 3,
+                    py: 2.5,
+                    gap: 1,
+                    flexWrap: 'wrap',
+                    justifyContent: 'flex-end',
+                }}
+            >
                 <Button
                     onClick={handleDownloadAudio}
                     startIcon={<DownloadIcon />}
+                    variant="outlined"
                 >
                     Download Audio
                 </Button>
@@ -710,11 +741,24 @@ export default function AudioDialog({ open, onClose, audio, metadata }) {
                     <Button
                         onClick={handleDownloadMetadata}
                         startIcon={<DownloadIcon />}
+                        variant="outlined"
                     >
                         Download Metadata
                     </Button>
                 )}
-                <Button onClick={onClose}>Close</Button>
+                <Button
+                    onClick={onClose}
+                    variant="outlined"
+                    sx={{
+                        borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.700' : 'grey.400'),
+                        '&:hover': {
+                            borderColor: (theme) => (theme.palette.mode === 'dark' ? 'grey.600' : 'grey.500'),
+                            bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200'),
+                        },
+                    }}
+                >
+                    Close
+                </Button>
             </DialogActions>
         </Dialog>
     );
