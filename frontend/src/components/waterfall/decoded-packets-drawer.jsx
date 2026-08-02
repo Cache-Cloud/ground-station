@@ -74,13 +74,15 @@ const LIVE_DRAWER_REFRESH_MS = 200;
 const LIVE_DRAWER_ROW_LIMIT = 50;
 const DEFAULT_DRAWER_ROW_LIMIT = 100;
 
-const mapOutputsToRows = (outputs, rowLimit = DEFAULT_DRAWER_ROW_LIMIT) => {
+// Decoder output is stored newest-first. Keep that ordering when selecting the
+// bounded live window so new packets are never displaced by older history.
+export const mapOutputsToRows = (outputs, rowLimit = DEFAULT_DRAWER_ROW_LIMIT) => {
     return outputs
         .filter(output =>
             output.type === 'decoder-output' &&
             String(output.decoder_type || '').toLowerCase() !== 'gnss'
         )
-        .slice(-rowLimit)
+        .slice(0, rowLimit)
         .map(output => {
             const isSstv = output.decoder_type === 'sstv';
             const isLora = output.decoder_type === ModulationType.LORA;
@@ -294,8 +296,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'timestamp',
             headerName: 'Time',
-            minWidth: 180,
-            flex: 1.5,
+            minWidth: 150,
+            flex: 1.1,
             renderCell: (params) => <TimeFormatter value={params.value} nowMs={timeNowMs} timezone={timezone} locale={locale} />
         },
         {
@@ -323,8 +325,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'decoderType',
             headerName: 'Decoder',
-            minWidth: 80,
-            flex: 0.8,
+            minWidth: 72,
+            flex: 0.65,
             align: 'center',
             headerAlign: 'center',
             renderCell: (params) => (
@@ -336,8 +338,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'framing',
             headerName: 'Framing',
-            minWidth: 90,
-            flex: 0.8,
+            minWidth: 76,
+            flex: 0.65,
             align: 'center',
             headerAlign: 'center',
             renderCell: (params) => (
@@ -349,8 +351,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'payloadProtocol',
             headerName: 'Payload',
-            minWidth: 90,
-            flex: 0.8,
+            minWidth: 76,
+            flex: 0.65,
             align: 'center',
             headerAlign: 'center',
             renderCell: (params) => (
@@ -362,8 +364,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'parser',
             headerName: 'Parser',
-            minWidth: 100,
-            flex: 1,
+            minWidth: 76,
+            flex: 0.65,
             align: 'center',
             headerAlign: 'center',
             renderCell: (params) => (
@@ -410,8 +412,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'parameters',
             headerName: 'Parameters',
-            minWidth: 120,
-            flex: 1.5,
+            minWidth: 200,
+            flex: 2.6,
             renderCell: (params) => (
                 <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', color: 'text.disabled' }}>
                     {params.value || '-'}
@@ -460,8 +462,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'timestamp',
             headerName: 'Time',
-            minWidth: 180,
-            flex: 1.5,
+            minWidth: 150,
+            flex: 1.1,
             renderCell: (params) => <TimeFormatter value={params.value} nowMs={timeNowMs} timezone={timezone} locale={locale} />
         },
         {
@@ -489,8 +491,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'decoderType',
             headerName: 'Decoder',
-            minWidth: 80,
-            flex: 0.8,
+            minWidth: 72,
+            flex: 0.65,
             align: 'center',
             headerAlign: 'center',
             renderCell: (params) => (
@@ -502,8 +504,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'framing',
             headerName: 'Framing',
-            minWidth: 90,
-            flex: 0.8,
+            minWidth: 76,
+            flex: 0.65,
             align: 'center',
             headerAlign: 'center',
             renderCell: (params) => (
@@ -515,8 +517,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'payloadProtocol',
             headerName: 'Payload',
-            minWidth: 90,
-            flex: 0.8,
+            minWidth: 76,
+            flex: 0.65,
             align: 'center',
             headerAlign: 'center',
             renderCell: (params) => (
@@ -528,8 +530,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'parser',
             headerName: 'Parser',
-            minWidth: 100,
-            flex: 1,
+            minWidth: 76,
+            flex: 0.65,
             align: 'center',
             headerAlign: 'center',
             renderCell: (params) => (
@@ -576,8 +578,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         {
             field: 'parameters',
             headerName: 'Parameters',
-            minWidth: 120,
-            flex: 1.5,
+            minWidth: 200,
+            flex: 2.6,
             renderCell: (params) => (
                 <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', color: 'text.disabled' }}>
                     {params.value || '-'}
