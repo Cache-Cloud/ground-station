@@ -1,6 +1,7 @@
 """Filesystem bundles for artifacts produced by automated observations."""
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
@@ -46,6 +47,11 @@ def create_observation_bundle(
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
         "artifact_directories": list(ARTIFACT_DIRECTORIES),
+        # Bundles are visible as soon as AOS starts, before an artifact is
+        # necessarily produced. The UI uses this state to distinguish them
+        # from finalized observations.
+        "status": "in_progress",
+        "in_progress": True,
     }
     write_bundle_manifest(bundle_dir, manifest)
     return bundle_dir
@@ -76,3 +82,36 @@ def add_bundle_session(bundle_dir: Path, session_id: str, session_key: str) -> N
     if entry not in sessions:
         sessions.append(entry)
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+
+
+def bundle_has_artifacts(bundle_dir: Path) -> bool:
+    """Return whether a bundle contains a user-visible produced artifact."""
+    manifest_path = bundle_dir / "manifest.json"
+    return any(
+        file_path.is_file() and file_path != manifest_path
+        # JSON sidecars only describe another product and are not displayed as
+        # artifacts in the file browser.
+        and file_path.suffix.lower() != ".json"
+        for file_path in bundle_dir.rglob("*")
+    )
+
+
+def finalize_observation_bundle(bundle_dir: Path, status: str) -> bool:
+    """Finalize a bundle and remove it when its observation produced no artifacts.
+
+    Returns ``True`` when the finalized bundle remains on disk and ``False`` when
+    it was removed as empty.
+    """
+    write_bundle_manifest(
+        bundle_dir,
+        {
+            "status": status,
+            "in_progress": False,
+            "finalized_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    if bundle_has_artifacts(bundle_dir):
+        return True
+
+    shutil.rmtree(bundle_dir)
+    return False

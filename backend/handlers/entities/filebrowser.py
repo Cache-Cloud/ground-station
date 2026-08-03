@@ -466,6 +466,12 @@ def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
         "artifact_count": len(artifacts),
         "images": images,
         "artifacts": artifacts,
+        # Keep the lifecycle state easy for cards and tables to consume without
+        # every frontend caller needing to inspect the complete manifest.
+        "observation_status": manifest.get("status", "unknown"),
+        "observation_in_progress": bool(
+            manifest.get("in_progress", manifest.get("status") in {"in_progress", "running"})
+        ),
         "metadata": manifest,
     }
 

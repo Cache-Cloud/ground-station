@@ -100,6 +100,9 @@ export default function ObservationFolderDialog({ open, onClose, folder, onOpenA
                         </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexShrink: 0 }}>
+                        {folder.observation_in_progress && (
+                            <Chip label="In progress" size="small" color="warning" />
+                        )}
                         <Chip label={`${folder.artifact_count || 0} files`} size="small" color="info" />
                         <Chip label={formatBytes(folder.size)} size="small" variant="outlined" />
                     </Box>

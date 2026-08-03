@@ -256,6 +256,17 @@ function FileTableRow({ item, selectionMode, isSelected, onToggleSelection, onSh
                 );
             }
             if (item.folder_kind === 'observation') {
+                if (item.observation_in_progress) {
+                    chips.push(
+                        <Chip
+                            key="observation-in-progress"
+                            label="In progress"
+                            size="small"
+                            color="warning"
+                            sx={{ height: '20px', fontSize: '0.65rem' }}
+                        />
+                    );
+                }
                 chips.push(
                     <Chip
                         key="artifact-count"

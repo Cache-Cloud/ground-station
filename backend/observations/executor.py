@@ -27,7 +27,12 @@ from crud import trackingstate
 from crud.hardware import fetch_sdr
 from crud.scheduledobservations import fetch_scheduled_observations
 from db import AsyncSessionLocal
-from observations.bundle import add_bundle_session, create_observation_bundle, write_bundle_manifest
+from observations.bundle import (
+    add_bundle_session,
+    create_observation_bundle,
+    finalize_observation_bundle,
+    write_bundle_manifest,
+)
 from observations.constants import (
     STATUS_CANCELLED,
     STATUS_COMPLETED,
@@ -322,7 +327,7 @@ class ObservationExecutor:
             self._bundle_dirs[observation_id] = bundle_dir
             write_bundle_manifest(
                 bundle_dir,
-                {"observation_name": observation.get("name"), "status": "running"},
+                {"observation_name": observation.get("name")},
             )
 
             # 6. Execute observation sessions
@@ -390,7 +395,7 @@ class ObservationExecutor:
             self._running_observations.discard(observation_id)
             bundle_dir = self._bundle_dirs.pop(observation_id, None)
             if bundle_dir:
-                write_bundle_manifest(bundle_dir, {"status": "failed"})
+                finalize_observation_bundle(bundle_dir, "failed")
 
             await update_observation_status(self.sio, observation_id, STATUS_FAILED, str(e))
             # Remove scheduled stop job on error
@@ -461,10 +466,12 @@ class ObservationExecutor:
             self._running_observations.discard(observation_id)
             bundle_dir = self._bundle_dirs.pop(observation_id, None)
             if bundle_dir:
-                write_bundle_manifest(
+                retained_bundle = finalize_observation_bundle(
                     bundle_dir,
-                    {"status": "completed" if not stop_errors else "completed_with_warnings"},
+                    "completed" if not stop_errors else "completed_with_warnings",
                 )
+                if not retained_bundle:
+                    logger.info("Removed empty observation bundle at LOS: %s", bundle_dir.name)
 
             logger.info(
                 f"Observation {observation['name']} ({observation_id}) stopped successfully"
@@ -482,7 +489,7 @@ class ObservationExecutor:
             self._running_observations.discard(observation_id)
             bundle_dir = self._bundle_dirs.pop(observation_id, None)
             if bundle_dir:
-                write_bundle_manifest(bundle_dir, {"status": "failed"})
+                finalize_observation_bundle(bundle_dir, "failed")
 
             # Mark observation as failed since stop encountered a critical error
             try:
@@ -538,6 +545,11 @@ class ObservationExecutor:
 
             # 5. Remove from running observations tracking
             self._running_observations.discard(observation_id)
+            bundle_dir = self._bundle_dirs.pop(observation_id, None)
+            if bundle_dir:
+                # Cancellation can stop an active observation before LOS. Do
+                # not leave a bundle permanently marked as in progress.
+                finalize_observation_bundle(bundle_dir, "cancelled")
 
             logger.info(f"Observation {observation_id} cancelled successfully")
             return {"success": True}

@@ -1,4 +1,11 @@
-from observations.bundle import ARTIFACT_DIRECTORIES, add_bundle_session, create_observation_bundle
+import json
+
+from observations.bundle import (
+    ARTIFACT_DIRECTORIES,
+    add_bundle_session,
+    create_observation_bundle,
+    finalize_observation_bundle,
+)
 
 
 def test_create_observation_bundle_has_readable_name_and_manifest(tmp_path):
@@ -13,6 +20,32 @@ def test_create_observation_bundle_has_readable_name_and_manifest(tmp_path):
     assert all((bundle_dir / name).is_dir() for name in ARTIFACT_DIRECTORIES)
 
     add_bundle_session(bundle_dir, "internal:observation-12345678:sdr-1", "sdr-1")
-    manifest = (bundle_dir / "manifest.json").read_text()
-    assert '"observation_id": "observation-12345678"' in manifest
-    assert '"session_key": "sdr-1"' in manifest
+    manifest = json.loads((bundle_dir / "manifest.json").read_text())
+    assert manifest["observation_id"] == "observation-12345678"
+    assert manifest["sessions"] == [
+        {"session_id": "internal:observation-12345678:sdr-1", "session_key": "sdr-1"}
+    ]
+    assert manifest["status"] == "in_progress"
+    assert manifest["in_progress"] is True
+
+
+def test_finalize_observation_bundle_deletes_empty_bundle(tmp_path):
+    bundle_dir = create_observation_bundle("observation-empty", {}, tmp_path)
+
+    retained = finalize_observation_bundle(bundle_dir, "completed")
+
+    assert retained is False
+    assert not bundle_dir.exists()
+
+
+def test_finalize_observation_bundle_retains_artifacts_and_metadata(tmp_path):
+    bundle_dir = create_observation_bundle("observation-artifact", {}, tmp_path)
+    (bundle_dir / "decoded" / "image.png").write_bytes(b"image")
+
+    retained = finalize_observation_bundle(bundle_dir, "completed")
+
+    manifest = json.loads((bundle_dir / "manifest.json").read_text())
+    assert retained is True
+    assert manifest["status"] == "completed"
+    assert manifest["in_progress"] is False
+    assert manifest["finalized_at"]

@@ -1542,7 +1542,7 @@ export default function FileBrowserMain() {
                                                     <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                                                         {item.type === 'decoded_folder'
                                                             ? item.folder_kind === 'observation'
-                                                                ? `${item.artifact_count || 0} files - Automated observation`
+                                                                ? `${item.artifact_count || 0} files - ${item.observation_in_progress ? 'Observation in progress' : 'Automated observation'}`
                                                                 : `${item.image_count} images - ${item.pipeline || 'SatDump output'}`
                                                             : item.type === 'decoded'
                                                             ? (item.decoder_type ? `${item.decoder_type} file` : 'Decoded file')
@@ -1705,7 +1705,7 @@ export default function FileBrowserMain() {
                                         ) : item.type === 'decoded_folder' ? (
                                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                                                 {item.folder_kind === 'observation'
-                                                    ? `${item.artifact_count || 0} files - Automated observation`
+                                                    ? `${item.artifact_count || 0} files - ${item.observation_in_progress ? 'Observation in progress' : 'Automated observation'}`
                                                     : `${item.image_count} images - ${item.pipeline || 'SatDump output'}`}
                                             </Typography>
                                         ) : item.type === 'decoded' ? (
@@ -1783,13 +1783,23 @@ export default function FileBrowserMain() {
                                                 />
                                             )}
                                             {item.folder_kind === 'observation' && (
-                                                <Chip
-                                                    label={`${item.artifact_count || 0} files`}
-                                                    size="small"
-                                                    variant="outlined"
-                                                    color="info"
-                                                    sx={{ height: '20px', fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }}
-                                                />
+                                                <>
+                                                    {item.observation_in_progress && (
+                                                        <Chip
+                                                            label="In progress"
+                                                            size="small"
+                                                            color="warning"
+                                                            sx={{ height: '20px', fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }}
+                                                        />
+                                                    )}
+                                                    <Chip
+                                                        label={`${item.artifact_count || 0} files`}
+                                                        size="small"
+                                                        variant="outlined"
+                                                        color="info"
+                                                        sx={{ height: '20px', fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }}
+                                                    />
+                                                </>
                                             )}
                                             {item.type === 'decoded_folder' && item.satellite_name && (
                                                 <Chip
