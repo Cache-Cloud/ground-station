@@ -461,7 +461,6 @@ def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
         "thumbnail_url": images[0]["url"] if images else None,
         "satellite_name": satellite.get("name", "Unknown"),
         "satellite_id": satellite.get("norad_id"),
-        "pipeline": "Automated Observation",
         "image_count": len(images),
         "artifact_count": len(artifacts),
         "images": images,

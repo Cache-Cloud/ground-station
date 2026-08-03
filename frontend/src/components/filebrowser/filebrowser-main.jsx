@@ -1811,7 +1811,7 @@ export default function FileBrowserMain() {
                                                     sx={{ height: '20px', fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 }, '& .MuiChip-icon': { fontSize: '0.85rem' } }}
                                                 />
                                             )}
-                                            {item.type === 'decoded_folder' && item.pipeline && (
+                                            {item.type === 'decoded_folder' && item.folder_kind !== 'observation' && item.pipeline && (
                                                 <Chip
                                                     label={item.pipeline.toUpperCase()}
                                                     size="small"

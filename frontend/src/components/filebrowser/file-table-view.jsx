@@ -243,7 +243,7 @@ function FileTableRow({ item, selectionMode, isSelected, onToggleSelection, onSh
                     />
                 );
             }
-            if (item.pipeline) {
+            if (item.pipeline && item.folder_kind !== 'observation') {
                 chips.push(
                     <Chip
                         key="pipeline"
