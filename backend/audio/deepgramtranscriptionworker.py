@@ -66,6 +66,7 @@ class DeepgramTranscriptionWorker(TranscriptionWorker):
         google_translate_api_key: Optional[str] = None,
         satellite: Optional[Dict[str, Any]] = None,
         transmitter: Optional[Dict[str, Any]] = None,
+        output_dir: Optional[str] = None,
     ):
         super().__init__(
             transcription_queue=transcription_queue,
@@ -79,6 +80,7 @@ class DeepgramTranscriptionWorker(TranscriptionWorker):
             provider_name="deepgram",
             satellite=satellite,
             transmitter=transmitter,
+            output_dir=output_dir,
         )
 
         # Google Translate API key for translating Deepgram transcriptions

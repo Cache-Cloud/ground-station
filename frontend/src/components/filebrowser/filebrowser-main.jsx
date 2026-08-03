@@ -90,6 +90,7 @@ import {
     deleteRecording,
     deleteSnapshot,
     deleteDecoded,
+    deleteObservationBundle,
     deleteAudio,
     deleteTranscription,
     deleteBatch,
@@ -114,6 +115,7 @@ import TranscriptionDialog from './transcription-dialog.jsx';
 import FileTableView from './file-table-view.jsx';
 import MeteorM2xLrptFolderDialog from './meteor-m2x-lrpt-folder-dialog.jsx';
 import MeteorHrptFolderDialog from './meteor-hrpt-folder-dialog.jsx';
+import ObservationFolderDialog from './observation-folder-dialog.jsx';
 import ProcessingDialog from './processing-dialog.jsx';
 import ZoomableImage from '../common/zoomable-image.jsx';
 import DecodedFolderThumbnail from './decoded-folder-thumbnail.jsx';
@@ -360,6 +362,8 @@ export default function FileBrowserMain() {
     const [meteorM2xLrptFolder, setMeteorM2xLrptFolder] = useState(null);
     const [meteorHrptFolderDialogOpen, setMeteorHrptFolderDialogOpen] = useState(false);
     const [meteorHrptFolder, setMeteorHrptFolder] = useState(null);
+    const [observationFolderDialogOpen, setObservationFolderDialogOpen] = useState(false);
+    const [observationFolder, setObservationFolder] = useState(null);
     const [processingDialogOpen, setProcessingDialogOpen] = useState(false);
     const [processingRecording, setProcessingRecording] = useState(null);
     const [processingMenuAnchorEl, setProcessingMenuAnchorEl] = useState(null);
@@ -542,7 +546,10 @@ export default function FileBrowserMain() {
     const handleShowDetails = async (item) => {
         // Route to appropriate dialog based on item type
         if (item.type === 'decoded_folder') {
-            if (item.pipeline === 'meteor_hrpt') {
+            if (item.folder_kind === 'observation') {
+                setObservationFolder(item);
+                setObservationFolderDialogOpen(true);
+            } else if (item.pipeline === 'meteor_hrpt') {
                 handleViewMeteorHrptFolder(item);
             } else {
                 handleViewMeteorM2xLrptFolder(item);
@@ -577,7 +584,11 @@ export default function FileBrowserMain() {
                     await dispatch(deleteDecoded({ socket, filename: itemToDelete.filename })).unwrap();
                     // Success toast will be shown by socket event listener
                 } else if (itemToDelete.type === 'decoded_folder') {
-                    await dispatch(deleteDecoded({ socket, foldername: itemToDelete.foldername, is_folder: true })).unwrap();
+                    if (itemToDelete.folder_kind === 'observation') {
+                        await dispatch(deleteObservationBundle({ socket, foldername: itemToDelete.foldername })).unwrap();
+                    } else {
+                        await dispatch(deleteDecoded({ socket, foldername: itemToDelete.foldername, is_folder: true })).unwrap();
+                    }
                     // Success toast will be shown by socket event listener
                 } else if (itemToDelete.type === 'audio') {
                     await dispatch(deleteAudio({ socket, filename: itemToDelete.filename })).unwrap();
@@ -604,6 +615,8 @@ export default function FileBrowserMain() {
             setTimeout(() => {
                 window.open(item.download_urls.meta, '_blank');
             }, 100);
+        } else if (item.download_url) {
+            window.open(item.download_url, '_blank');
         } else {
             window.open(item.url, '_blank');
         }
@@ -674,6 +687,91 @@ export default function FileBrowserMain() {
         // Open the METEOR HRPT folder dialog with the item data
         setMeteorHrptFolder(item);
         setMeteorHrptFolderDialogOpen(true);
+    };
+
+    const handleObservationArtifact = async (artifact) => {
+        const fileType = String(artifact.file_type || '').toLowerCase();
+        const path = String(artifact.path || '');
+        const baseItem = {
+            ...artifact,
+            filename: artifact.name,
+            displayName: artifact.name,
+            created: observationFolder?.created,
+            modified: observationFolder?.modified,
+        };
+
+        // The bundle is only a container: once an artifact is selected it must
+        // continue into the same specialised viewer used by standalone files.
+        if (fileType === '.sigmf-data') {
+            let metadata = {};
+            const metaUrl = artifact.url.replace(/\.sigmf-data$/, '.sigmf-meta');
+            try {
+                const response = await fetch(metaUrl);
+                if (response.ok) metadata = await response.json();
+            } catch (_) {
+                // Recording details remain useful even when metadata was interrupted.
+            }
+            setSelectedItem({
+                ...baseItem,
+                type: 'recording',
+                name: artifact.name.replace(/\.sigmf-data$/, ''),
+                data_file: artifact.name,
+                data_size: artifact.size,
+                meta_file: artifact.name.replace(/\.sigmf-data$/, '.sigmf-meta'),
+                metadata: {
+                    ...(metadata.global || {}),
+                    start_time: metadata.global?.['gs:start_time'],
+                    finalized_time: metadata.global?.['gs:finalized_time'],
+                    sample_rate: metadata.global?.['core:sample_rate'],
+                    target_satellite_name: metadata.global?.['gs:target_satellite_name'],
+                },
+                download_urls: { data: artifact.url, meta: metaUrl },
+            });
+            setDetailsOpen(true);
+            return;
+        }
+
+        if (fileType === '.wav') {
+            let metadata = {};
+            try {
+                const response = await fetch(artifact.url.replace(/\.wav$/, '.json'));
+                if (response.ok) metadata = await response.json();
+            } catch (_) {
+                // The audio player can still play a WAV file without sidecar metadata.
+            }
+            setAudioFile({ ...baseItem, type: 'audio' });
+            setAudioMetadata(metadata);
+            setAudioDialogOpen(true);
+            return;
+        }
+
+        if (fileType === '.txt' && path.startsWith('transcriptions/')) {
+            setTranscriptionFile({ ...baseItem, type: 'transcription' });
+            setTranscriptionDialogOpen(true);
+            return;
+        }
+
+        if (path.startsWith('decoded/') && fileType === '.bin') {
+            try {
+                const response = await fetch(artifact.url.replace(/\.bin$/, '.json'));
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const metadata = await response.json();
+                setTelemetryFile({ ...baseItem, type: 'decoded' });
+                setTelemetryMetadata(metadata);
+                setTelemetryViewerOpen(true);
+            } catch (error) {
+                toast.error(`Failed to load telemetry metadata: ${error.message}`);
+            }
+            return;
+        }
+
+        if (['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'].includes(fileType)) {
+            setSelectedItem({ ...baseItem, type: 'snapshot' });
+            setDetailsOpen(true);
+            return;
+        }
+
+        window.open(artifact.url, '_blank', 'noopener,noreferrer');
     };
 
     const handleOpenProcessing = (item) => {
@@ -791,7 +889,7 @@ export default function FileBrowserMain() {
                         return selectedItems.includes(key);
                     })
                     .map(f => ({
-                        type: f.type,
+                        type: f.folder_kind === 'observation' ? 'observation_bundle' : f.type,
                         name: f.type === 'recording' ? f.name : undefined,
                         filename: (f.type === 'snapshot' || f.type === 'decoded' || f.type === 'audio' || f.type === 'transcription') ? f.filename : undefined,
                         foldername: f.type === 'decoded_folder' ? f.foldername : undefined,
@@ -1443,7 +1541,9 @@ export default function FileBrowserMain() {
                                                     )}
                                                     <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                                                         {item.type === 'decoded_folder'
-                                                            ? `${item.image_count} images - ${item.pipeline || 'SatDump output'}`
+                                                            ? item.folder_kind === 'observation'
+                                                                ? `${item.artifact_count || 0} files - Automated observation`
+                                                                : `${item.image_count} images - ${item.pipeline || 'SatDump output'}`
                                                             : item.type === 'decoded'
                                                             ? (item.decoder_type ? `${item.decoder_type} file` : 'Decoded file')
                                                             : item.type === 'audio'
@@ -1604,7 +1704,9 @@ export default function FileBrowserMain() {
                                             )
                                         ) : item.type === 'decoded_folder' ? (
                                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                                {`${item.image_count} images - ${item.pipeline || 'SatDump output'}`}
+                                                {item.folder_kind === 'observation'
+                                                    ? `${item.artifact_count || 0} files - Automated observation`
+                                                    : `${item.image_count} images - ${item.pipeline || 'SatDump output'}`}
                                             </Typography>
                                         ) : item.type === 'decoded' ? (
                                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
@@ -1678,6 +1780,15 @@ export default function FileBrowserMain() {
                                                     color="success"
                                                     icon={<ImageIcon />}
                                                     sx={{ height: '20px', fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 }, '& .MuiChip-icon': { fontSize: '0.85rem' } }}
+                                                />
+                                            )}
+                                            {item.folder_kind === 'observation' && (
+                                                <Chip
+                                                    label={`${item.artifact_count || 0} files`}
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="info"
+                                                    sx={{ height: '20px', fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }}
                                                 />
                                             )}
                                             {item.type === 'decoded_folder' && item.satellite_name && (
@@ -2448,7 +2559,9 @@ export default function FileBrowserMain() {
                     {itemToDelete?.type === 'recording'
                         ? t('delete_dialog.title_recording', 'Delete Recording')
                         : itemToDelete?.type === 'decoded_folder'
-                        ? t('delete_dialog.title_decoded_folder', 'Delete Decoded Folder')
+                        ? itemToDelete?.folder_kind === 'observation'
+                            ? 'Delete Observation Folder'
+                            : t('delete_dialog.title_decoded_folder', 'Delete Decoded Folder')
                         : itemToDelete?.type === 'decoded'
                         ? t('delete_dialog.title_decoded', 'Delete Decoded File')
                         : itemToDelete?.type === 'audio'
@@ -2722,6 +2835,13 @@ export default function FileBrowserMain() {
                 open={meteorHrptFolderDialogOpen}
                 onClose={() => setMeteorHrptFolderDialogOpen(false)}
                 folder={meteorHrptFolder}
+            />
+
+            <ObservationFolderDialog
+                open={observationFolderDialogOpen}
+                onClose={() => setObservationFolderDialogOpen(false)}
+                folder={observationFolder}
+                onOpenArtifact={handleObservationArtifact}
             />
 
             {/* Processing Dialog */}

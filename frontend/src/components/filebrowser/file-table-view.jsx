@@ -82,7 +82,7 @@ function FileTableRow({ item, selectionMode, isSelected, onToggleSelection, onSh
         if (item.type === 'recording') {
             return 'IQ Recording';
         } else if (item.type === 'decoded_folder') {
-            return 'SatDump Folder';
+            return item.folder_kind === 'observation' ? 'Observation Folder' : 'SatDump Folder';
         } else if (item.type === 'decoded') {
             if (item.decoder_type === 'SSTV') {
                 return 'SSTV Image';
@@ -248,6 +248,18 @@ function FileTableRow({ item, selectionMode, isSelected, onToggleSelection, onSh
                     <Chip
                         key="pipeline"
                         label={item.pipeline.toUpperCase()}
+                        size="small"
+                        variant="outlined"
+                        color="info"
+                        sx={{ height: '20px', fontSize: '0.65rem' }}
+                    />
+                );
+            }
+            if (item.folder_kind === 'observation') {
+                chips.push(
+                    <Chip
+                        key="artifact-count"
+                        label={`${item.artifact_count || 0} files`}
                         size="small"
                         variant="outlined"
                         color="info"

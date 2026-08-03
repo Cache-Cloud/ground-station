@@ -604,6 +604,7 @@ snapshots_dir = os.path.join(backend_dir, "..", "data", "snapshots")
 decoded_dir = os.path.join(backend_dir, "..", "data", "decoded")
 audio_dir = os.path.join(backend_dir, "..", "data", "audio")
 transcriptions_dir = os.path.join(backend_dir, "..", "data", "transcriptions")
+observations_dir = os.path.join(backend_dir, "..", "data", "observations")
 
 # Create directories if they don't exist
 os.makedirs(satellites_dir, exist_ok=True)
@@ -614,11 +615,17 @@ os.makedirs(snapshots_dir, exist_ok=True)
 os.makedirs(decoded_dir, exist_ok=True)
 os.makedirs(audio_dir, exist_ok=True)
 os.makedirs(transcriptions_dir, exist_ok=True)
+os.makedirs(observations_dir, exist_ok=True)
 
 # Use html=True to enable directory browsing
 app.mount("/satimages", StaticFiles(directory=satellites_dir, html=True), name="satimages")
 app.mount(
     "/recordings", AuthenticatedStaticFiles(directory=recordings_dir, html=True), name="recordings"
+)
+app.mount(
+    "/observations",
+    AuthenticatedStaticFiles(directory=observations_dir, html=False),
+    name="observations",
 )
 app.mount("/snapshots", StaticFiles(directory=snapshots_dir, html=True), name="snapshots")
 app.mount("/decoded", AuthenticatedStaticFiles(directory=decoded_dir, html=True), name="decoded")
@@ -670,6 +677,20 @@ def _resolve_decoded_folder(decoded_root: Path, foldername: str) -> Path:
     return folder_path
 
 
+def _resolve_observation_bundle(observations_root: Path, foldername: str) -> Path:
+    """Resolve a .gsobs directory without allowing a path outside the bundle root."""
+    if not foldername.endswith(".gsobs"):
+        raise HTTPException(status_code=400, detail="Invalid observation bundle")
+    folder_path = (observations_root / foldername).resolve()
+    try:
+        folder_path.relative_to(observations_root)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid observation bundle path")
+    if not folder_path.exists() or not folder_path.is_dir():
+        raise HTTPException(status_code=404, detail="Observation bundle not found")
+    return folder_path
+
+
 @app.get("/api/decoded/{foldername}/download")
 async def download_decoded_folder(
     foldername: str, request: Request, background_tasks: BackgroundTasks
@@ -685,6 +706,34 @@ async def download_decoded_folder(
             for file_path in folder_path.rglob("*"):
                 if file_path.is_file():
                     archive.write(file_path, file_path.relative_to(folder_path).as_posix())
+    except Exception as exc:
+        if os.path.exists(temp_zip.name):
+            os.remove(temp_zip.name)
+        raise HTTPException(status_code=500, detail=f"Failed to create archive: {exc}")
+
+    background_tasks.add_task(os.remove, temp_zip.name)
+    return FileResponse(
+        temp_zip.name,
+        media_type="application/zip",
+        filename=f"{foldername}.zip",
+        background=background_tasks,
+    )
+
+
+@app.get("/api/observations/{foldername}/download")
+async def download_observation_bundle(
+    foldername: str, request: Request, background_tasks: BackgroundTasks
+):
+    """Return an automated-observation bundle as one ZIP download."""
+    await _require_request_auth(request, require_auth=True, require_admin=False)
+    bundle_path = _resolve_observation_bundle(Path(observations_dir).resolve(), foldername)
+    temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    temp_zip.close()
+    try:
+        with zipfile.ZipFile(temp_zip.name, "w", zipfile.ZIP_DEFLATED) as archive:
+            for file_path in bundle_path.rglob("*"):
+                if file_path.is_file():
+                    archive.write(file_path, file_path.relative_to(bundle_path).as_posix())
     except Exception as exc:
         if os.path.exists(temp_zip.name):
             os.remove(temp_zip.name)

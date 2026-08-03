@@ -115,6 +115,22 @@ export const deleteDecoded = createAsyncThunk(
     }
 );
 
+// Async thunk to delete one complete automated-observation bundle.
+export const deleteObservationBundle = createAsyncThunk(
+    'filebrowser/deleteObservationBundle',
+    async ({ socket, foldername }, { rejectWithValue }) => {
+        try {
+            socket.emit("api.call", {
+                cmd: "filebrowser.delete-observation-bundle",
+                data: { foldername }
+            });
+            return { foldername, pending: true };
+        } catch (error) {
+            return rejectWithValue(error.message || 'Failed to delete observation bundle');
+        }
+    }
+);
+
 // Async thunk to delete an audio file
 // Note: This now uses pub/sub model - response comes via 'file_browser_state' event
 export const deleteAudio = createAsyncThunk(
@@ -373,6 +389,15 @@ const fileBrowserSlice = createSlice({
             state.total = Math.max(0, state.total - 1);
         });
 
+        builder.addCase(deleteObservationBundle.fulfilled, (state, action) => {
+            state.files = state.files.filter(f => !(
+                f.type === 'decoded_folder'
+                && f.folder_kind === 'observation'
+                && f.foldername === action.payload.foldername
+            ));
+            state.total = Math.max(0, state.total - 1);
+        });
+
         // Delete audio - optimistic update
         builder.addCase(deleteAudio.fulfilled, (state, action) => {
             // Remove from files list
@@ -398,11 +423,12 @@ const fileBrowserSlice = createSlice({
                     ? f.name
                     : (f.type === 'decoded_folder' ? f.foldername : f.filename);
                 return !itemsToDelete.find(item =>
-                    item.type === f.type && (
+                    (item.type === f.type || (item.type === 'observation_bundle' && f.folder_kind === 'observation')) && (
                         (item.type === 'recording' && item.name === key) ||
                         (item.type === 'snapshot' && item.filename === key) ||
                         (item.type === 'decoded' && item.filename === key) ||
                         (item.type === 'decoded_folder' && item.foldername === key) ||
+                        (item.type === 'observation_bundle' && item.foldername === key) ||
                         (item.type === 'audio' && item.filename === key) ||
                         (item.type === 'transcription' && item.filename === key)
                     )

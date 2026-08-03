@@ -16,6 +16,7 @@
 """Transcription task handler - manages transcription worker lifecycle."""
 
 import traceback
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from sqlalchemy import select
@@ -50,6 +51,7 @@ class TranscriptionHandler:
         sdr_config: Dict[str, Any],
         satellite: Dict[str, Any],
         task_config: Dict[str, Any],
+        bundle_dir: Path | None = None,
     ) -> bool:
         """
         Start a transcription task.
@@ -168,6 +170,7 @@ class TranscriptionHandler:
                     provider=provider,
                     satellite=satellite,
                     transmitter=transmitter_dict,
+                    output_dir=str(bundle_dir / "transcriptions") if bundle_dir else None,
                 )
 
                 if success:

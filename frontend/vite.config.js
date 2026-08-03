@@ -39,6 +39,11 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
         },
+        '/observations': {
+          target: `http://${backendHost}:${backendPort}`,
+          changeOrigin: true,
+          secure: false,
+        },
         '/snapshots': {
           target: `http://${backendHost}:${backendPort}`,
           changeOrigin: true,

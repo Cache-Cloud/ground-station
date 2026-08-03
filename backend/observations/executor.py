@@ -27,6 +27,7 @@ from crud import trackingstate
 from crud.hardware import fetch_sdr
 from crud.scheduledobservations import fetch_scheduled_observations
 from db import AsyncSessionLocal
+from observations.bundle import add_bundle_session, create_observation_bundle, write_bundle_manifest
 from observations.constants import (
     STATUS_CANCELLED,
     STATUS_COMPLETED,
@@ -91,6 +92,7 @@ class ObservationExecutor:
         self._running_observations: set[str] = set()
         self._observations_lock: Optional[asyncio.Lock] = None  # Will be initialized lazily
         self._iq_recording_info: Dict[str, Dict[str, Dict[int, Dict[str, Any]]]] = {}
+        self._bundle_dirs: Dict[str, Path] = {}
         self._tracker_context_by_observation: Dict[str, Dict[str, Any]] = {}
 
     @property
@@ -311,6 +313,18 @@ class ObservationExecutor:
             }
             self._tracker_context_by_observation[observation_id] = tracker_context
 
+            # Preserve SatDump's decoded-folder experience while keeping every other
+            # automated artifact together in a physical observation bundle. Create it
+            # only after tracker setup succeeds, so preflight failures leave no folder.
+            bundle_dir = create_observation_bundle(
+                observation_id, satellite, Path(__file__).parents[1]
+            )
+            self._bundle_dirs[observation_id] = bundle_dir
+            write_bundle_manifest(
+                bundle_dir,
+                {"observation_name": observation.get("name"), "status": "running"},
+            )
+
             # 6. Execute observation sessions
             logger.info(f"Executing observation tasks for {observation['name']}")
             await log_execution_event(
@@ -374,6 +388,9 @@ class ObservationExecutor:
 
             # Clean up running observation tracking
             self._running_observations.discard(observation_id)
+            bundle_dir = self._bundle_dirs.pop(observation_id, None)
+            if bundle_dir:
+                write_bundle_manifest(bundle_dir, {"status": "failed"})
 
             await update_observation_status(self.sio, observation_id, STATUS_FAILED, str(e))
             # Remove scheduled stop job on error
@@ -442,6 +459,12 @@ class ObservationExecutor:
 
             # 4. Remove from running observations tracking
             self._running_observations.discard(observation_id)
+            bundle_dir = self._bundle_dirs.pop(observation_id, None)
+            if bundle_dir:
+                write_bundle_manifest(
+                    bundle_dir,
+                    {"status": "completed" if not stop_errors else "completed_with_warnings"},
+                )
 
             logger.info(
                 f"Observation {observation['name']} ({observation_id}) stopped successfully"
@@ -457,6 +480,9 @@ class ObservationExecutor:
 
             # Clean up running observation tracking even on error
             self._running_observations.discard(observation_id)
+            bundle_dir = self._bundle_dirs.pop(observation_id, None)
+            if bundle_dir:
+                write_bundle_manifest(bundle_dir, {"status": "failed"})
 
             # Mark observation as failed since stop encountered a critical error
             try:
@@ -552,6 +578,7 @@ class ObservationExecutor:
         # Extract configuration
         satellite = observation.get("satellite", {})
         tasks = session.get("tasks", [])
+        bundle_dir = self._bundle_dirs.get(observation_id)
 
         logger.info(f"Starting observation for {satellite.get('name', 'unknown')}")
         logger.info(f"Observation ID: {observation_id}")
@@ -609,6 +636,9 @@ class ObservationExecutor:
                 session_key=session_key,
             )
 
+            if bundle_dir:
+                add_bundle_session(bundle_dir, session_id, session_key)
+
             logger.info(f"Internal session created: {session_id}")
 
             # 3. Process tasks
@@ -633,7 +663,13 @@ class ObservationExecutor:
                     vfo_number = task_config.get("vfo_number")
 
                     await self.decoder_handler.start_decoder_task(
-                        observation_id, session_id, sdr_id, sdr_config, task_config, vfo_number
+                        observation_id,
+                        session_id,
+                        sdr_id,
+                        sdr_config,
+                        task_config,
+                        vfo_number,
+                        bundle_dir,
                     )
 
                 elif task_type == "iq_recording":
@@ -645,6 +681,7 @@ class ObservationExecutor:
                         satellite,
                         task_config,
                         recorder_id=recorder_id,
+                        bundle_dir=bundle_dir,
                     )
                     if recording_path:
                         self._iq_recording_info.setdefault(observation_id, {}).setdefault(
@@ -657,13 +694,25 @@ class ObservationExecutor:
                 elif task_type == "audio_recording":
                     vfo_number = task_config.get("vfo_number")
                     await self.recorder_handler.start_audio_recording_task(
-                        observation_id, session_id, sdr_id, sdr_config, satellite, task_config
+                        observation_id,
+                        session_id,
+                        sdr_id,
+                        sdr_config,
+                        satellite,
+                        task_config,
+                        bundle_dir,
                     )
 
                 elif task_type == "transcription":
                     vfo_number = task_config.get("vfo_number")
                     await self.transcription_handler.start_transcription_task(
-                        observation_id, session_id, sdr_id, sdr_config, satellite, task_config
+                        observation_id,
+                        session_id,
+                        sdr_id,
+                        sdr_config,
+                        satellite,
+                        task_config,
+                        bundle_dir,
                     )
 
             logger.info(f"Observation {observation_id} session {session_key} started successfully")

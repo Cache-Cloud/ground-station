@@ -70,6 +70,7 @@ class GeminiTranscriptionWorker(TranscriptionWorker):
         translate_to: str = "none",
         satellite: Optional[Dict[str, Any]] = None,
         transmitter: Optional[Dict[str, Any]] = None,
+        output_dir: Optional[str] = None,
     ):
         super().__init__(
             transcription_queue=transcription_queue,
@@ -83,6 +84,7 @@ class GeminiTranscriptionWorker(TranscriptionWorker):
             provider_name="gemini",
             satellite=satellite,
             transmitter=transmitter,
+            output_dir=output_dir,
         )
 
         # Gemini-specific settings

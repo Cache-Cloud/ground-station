@@ -16,6 +16,7 @@
 """Decoder task handler - manages decoder VFO configuration and lifecycle."""
 
 import traceback
+from pathlib import Path
 from typing import Any, Dict
 
 from sqlalchemy import select
@@ -130,6 +131,7 @@ class DecoderHandler:
         sdr_config: Dict[str, Any],
         task_config: Dict[str, Any],
         vfo_number: int,
+        bundle_dir: Path | None = None,
     ) -> bool:
         """
         Start a decoder task.
@@ -216,7 +218,9 @@ class DecoderHandler:
                 "decoder_class": decoder_class,
                 "data_queue": data_queue,
                 "audio_out_queue": None,  # No audio streaming for observations
-                "output_dir": "data/decoded",
+                # Automated observations own their decoder artifacts; manual decoder output
+                # continues to use the shared decoded directory.
+                "output_dir": str(bundle_dir / "decoded") if bundle_dir else "data/decoded",
                 "vfo_center_freq": center_freq,
                 "vfo": vfo_number,
                 "decoder_param_overrides": decoder_param_overrides,

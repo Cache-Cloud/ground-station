@@ -531,6 +531,9 @@ class DecoderManager:
                 "ui_subscription_key": (
                     ui_subscription_key_to_store if not needs_raw_iq else None
                 ),  # UI subscription key for cleanup
+                # Scheduled observations supply their own .gsobs/decoded directory.
+                # Preserve it so a decoder restart never falls back to data/decoded.
+                "output_dir": kwargs.get("output_dir"),
                 "config": (
                     decoder_config if needs_raw_iq or not internal_demod_created else decoder_config
                 ),  # Store config for comparison
@@ -919,6 +922,7 @@ class DecoderManager:
                     vfo=vfo_number,
                     config=decoder_config,
                     caller="restart",
+                    output_dir=decoder_entry.get("output_dir"),
                     # Preserve other parameters that might have been used
                     satellite=(
                         decoder_config.satellite if hasattr(decoder_config, "satellite") else {}

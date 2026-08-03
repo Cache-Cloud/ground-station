@@ -18,6 +18,7 @@
 import os
 import traceback
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from sqlalchemy import select
@@ -58,6 +59,7 @@ class RecorderHandler:
         satellite: Dict[str, Any],
         task_config: Optional[Dict[str, Any]] = None,
         recorder_id: Optional[str] = None,
+        bundle_dir: Optional[Path] = None,
     ) -> Optional[str]:
         """
         Start an IQ recording task.
@@ -99,7 +101,12 @@ class RecorderHandler:
             backend_dir = os.path.dirname(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             )
-            recordings_dir = os.path.join(backend_dir, "data", "recordings")
+            recordings_dir = (
+                str(bundle_dir / "recordings")
+                if bundle_dir
+                else os.path.join(backend_dir, "data", "recordings")
+            )
+            os.makedirs(recordings_dir, exist_ok=True)
             recording_path = str(resolve_base_path_within_root(recordings_dir, recording_name))
 
             # Extract frequency shift parameters from task config
@@ -157,6 +164,7 @@ class RecorderHandler:
         sdr_config: Dict[str, Any],
         satellite: Dict[str, Any],
         task_config: Dict[str, Any],
+        bundle_dir: Optional[Path] = None,
     ) -> bool:
         """
         Start an audio recording task.
@@ -241,7 +249,12 @@ class RecorderHandler:
             backend_dir = os.path.dirname(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             )
-            audio_dir = os.path.join(backend_dir, "data", "audio")
+            audio_dir = (
+                str(bundle_dir / "audio")
+                if bundle_dir
+                else os.path.join(backend_dir, "data", "audio")
+            )
+            os.makedirs(audio_dir, exist_ok=True)
             recording_path = str(resolve_base_path_within_root(audio_dir, recording_name_full))
 
             # 4. Start audio recorder

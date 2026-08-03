@@ -26,6 +26,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import quote
 
 from PIL import Image
 
@@ -375,6 +376,100 @@ def delete_decoded_folder(decoded_dir: Path, foldername: str, logger) -> bool:
         return False
 
 
+def delete_observation_bundle(observations_dir: Path, foldername: str, logger) -> bool:
+    """Delete one complete automated-observation artifact bundle."""
+    if not foldername.endswith(".gsobs") or not validate_filename(foldername):
+        return False
+    bundle_dir = observations_dir / foldername
+    if not bundle_dir.exists() or not bundle_dir.is_dir():
+        return False
+    try:
+        shutil.rmtree(bundle_dir)
+        logger.info(f"Deleted observation bundle: {foldername}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete observation bundle {foldername}: {e}")
+        return False
+
+
+def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
+    """Build the compact folder-card payload for one .gsobs directory."""
+    manifest: Dict[str, Any] = {}
+    manifest_path = bundle_dir / "manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest_data = json.loads(manifest_path.read_text())
+            # Bundles from older or manually edited sources may contain a JSON
+            # scalar/list; only an object can serve as observation metadata.
+            if isinstance(manifest_data, dict):
+                manifest = manifest_data
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+
+    artifacts: List[Dict[str, Any]] = []
+    images: List[Dict[str, Any]] = []
+    total_size = 0
+    image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+    kind_by_directory = {
+        "recordings": "recording",
+        "audio": "audio",
+        "decoded": "decoded",
+        "transcriptions": "transcription",
+        "snapshots": "snapshot",
+    }
+    for file_path in sorted(bundle_dir.rglob("*")):
+        # JSON files are internal sidecars (manifest, decoder/audio metadata) that
+        # power the dedicated viewers and are not user-facing observation artifacts.
+        if (
+            not file_path.is_file()
+            or file_path == manifest_path
+            or file_path.suffix.lower() == ".json"
+        ):
+            continue
+        relative_path = file_path.relative_to(bundle_dir)
+        artifact_kind = kind_by_directory.get(relative_path.parts[0], "file")
+        url = f"/observations/{quote(bundle_dir.name)}/{quote(relative_path.as_posix())}"
+        file_size = file_path.stat().st_size
+        artifact = {
+            "name": file_path.name,
+            "path": relative_path.as_posix(),
+            "url": url,
+            "size": file_size,
+            "kind": artifact_kind,
+            "file_type": file_path.suffix.lower(),
+        }
+        artifacts.append(artifact)
+        total_size += file_size
+        if file_path.suffix.lower() in image_extensions:
+            images.append(artifact)
+
+    stat = bundle_dir.stat()
+    satellite_data = manifest.get("satellite")
+    satellite: Dict[str, Any] = satellite_data if isinstance(satellite_data, dict) else {}
+    return {
+        # Reuse the established folder-card/table presentation, while folder_kind
+        # selects the generic observation dialog instead of a SatDump dialog.
+        "type": "decoded_folder",
+        "folder_kind": "observation",
+        "name": bundle_dir.stem,
+        "foldername": bundle_dir.name,
+        "size": total_size,
+        "created": datetime.fromtimestamp(stat.st_ctime, timezone.utc).isoformat(),
+        "modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+        "url": f"/observations/{quote(bundle_dir.name)}",
+        "download_url": f"/api/observations/{quote(bundle_dir.name)}/download",
+        "thumbnail_url": images[0]["url"] if images else None,
+        "satellite_name": satellite.get("name", "Unknown"),
+        "satellite_id": satellite.get("norad_id"),
+        "pipeline": "Automated Observation",
+        "image_count": len(images),
+        "artifact_count": len(artifacts),
+        "images": images,
+        "artifacts": artifacts,
+        "metadata": manifest,
+    }
+
+
 def delete_audio_file(audio_dir: Path, audio_filename: str, logger) -> bool:
     """
     Delete an audio recording file and its associated metadata.
@@ -473,6 +568,7 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
     decoded_dir = backend_dir / "data" / "decoded"
     audio_dir = backend_dir / "data" / "audio"
     transcriptions_dir = backend_dir / "data" / "transcriptions"
+    observations_dir = backend_dir / "data" / "observations"
 
     try:
         if cmd == "list-files":
@@ -688,6 +784,13 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                             "telemetry": telemetry_data,
                         }
                     )
+
+                # Keep each automated observation compact in the browser even when
+                # it produced recordings, packets, audio, and transcripts together.
+                if observations_dir.exists():
+                    for bundle_dir in sorted(observations_dir.glob("*.gsobs")):
+                        if bundle_dir.is_dir():
+                            processed_items.append(build_observation_bundle_item(bundle_dir))
 
                 # STEP 2: Support multiple file types in decoded directory (exclude .json metadata files)
                 decoded_files = []
@@ -1218,6 +1321,35 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                 logger,
             )
 
+        elif cmd == "delete-observation-bundle":
+            logger.info(f"Deleting observation bundle: {data}")
+            foldername = (data or {}).get("foldername", "")
+            if not validate_filename(foldername) or not foldername.endswith(".gsobs"):
+                await emit_file_browser_error(
+                    sio,
+                    "Invalid observation bundle name",
+                    "delete-observation-bundle",
+                    logger,
+                )
+                return
+            if not delete_observation_bundle(observations_dir, foldername, logger):
+                await emit_file_browser_error(
+                    sio,
+                    "Observation bundle not found",
+                    "delete-observation-bundle",
+                    logger,
+                )
+                return
+            await emit_file_browser_state(
+                sio,
+                {
+                    "action": "delete-observation-bundle",
+                    "foldername": foldername,
+                    "message": f"Deleted observation bundle: {foldername}",
+                },
+                logger,
+            )
+
         elif cmd == "delete-audio":
             logger.info(f"Deleting audio file: {data}")
             audio_filename = data.get("filename")
@@ -1301,6 +1433,7 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
             deleted_decoded = []
             deleted_audio = []
             deleted_transcriptions = []
+            deleted_observation_bundles = []
             failed_items = []
             total_files_deleted = []
 
@@ -1372,6 +1505,33 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                             {
                                 "type": "snapshot",
                                 "filename": snapshot_filename,
+                                "error": "Not found",
+                            }
+                        )
+
+                elif item_type == "observation_bundle":
+                    foldername = item.get("foldername")
+                    if (
+                        not foldername
+                        or not validate_filename(foldername)
+                        or not foldername.endswith(".gsobs")
+                    ):
+                        failed_items.append(
+                            {
+                                "type": "observation_bundle",
+                                "foldername": foldername,
+                                "error": "Invalid bundle",
+                            }
+                        )
+                        continue
+                    if delete_observation_bundle(observations_dir, foldername, logger):
+                        deleted_observation_bundles.append(foldername)
+                        total_files_deleted.append(foldername)
+                    else:
+                        failed_items.append(
+                            {
+                                "type": "observation_bundle",
+                                "foldername": foldername,
                                 "error": "Not found",
                             }
                         )
@@ -1493,6 +1653,7 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                 + len(deleted_decoded)
                 + len(deleted_audio)
                 + len(deleted_transcriptions)
+                + len(deleted_observation_bundles)
             )
             message_parts = []
             if deleted_recordings:
@@ -1505,6 +1666,8 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                 message_parts.append(f"{len(deleted_audio)} audio file(s)")
             if deleted_transcriptions:
                 message_parts.append(f"{len(deleted_transcriptions)} transcription(s)")
+            if deleted_observation_bundles:
+                message_parts.append(f"{len(deleted_observation_bundles)} observation bundle(s)")
 
             message = f"Deleted {', '.join(message_parts)}" if message_parts else "No items deleted"
 

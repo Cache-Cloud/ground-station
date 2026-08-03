@@ -102,6 +102,7 @@ class TranscriptionManager:
         provider: str = "gemini",
         satellite: Optional[Dict[str, Any]] = None,
         transmitter: Optional[Dict[str, Any]] = None,
+        output_dir: Optional[str] = None,
     ):
         """
         Start a transcription worker for a specific VFO.
@@ -252,6 +253,7 @@ class TranscriptionManager:
                             translate_to=translate_to,
                             satellite=satellite,
                             transmitter=transmitter,
+                            output_dir=output_dir,
                         )
                     elif provider == "deepgram":
                         transcription_worker = DeepgramTranscriptionWorker(
@@ -266,6 +268,7 @@ class TranscriptionManager:
                             google_translate_api_key=self.google_translate_api_key,
                             satellite=satellite,
                             transmitter=transmitter,
+                            output_dir=output_dir,
                         )
                     else:
                         raise ValueError(f"Unknown provider: {provider}")

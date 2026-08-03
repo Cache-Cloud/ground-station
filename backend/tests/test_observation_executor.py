@@ -6,6 +6,7 @@ import types
 
 import pytest
 
+from observations.bundle import create_observation_bundle
 from observations.constants import STATUS_FAILED
 
 
@@ -34,7 +35,7 @@ def _build_observation(rotator=None):
     }
 
 
-def _patch_common_start_dependencies(monkeypatch, executor_module, observation):
+def _patch_common_start_dependencies(monkeypatch, executor_module, observation, tmp_path):
     async def _fetch_observation(_session, _observation_id):
         return {"success": True, "data": observation}
 
@@ -50,6 +51,13 @@ def _patch_common_start_dependencies(monkeypatch, executor_module, observation):
         executor_module.session_tracker,
         "get_sessions_for_sdr",
         lambda _sdr_id: [],
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "create_observation_bundle",
+        lambda observation_id, satellite, _backend_dir: create_observation_bundle(
+            observation_id, satellite, tmp_path
+        ),
     )
 
 
@@ -72,10 +80,10 @@ def _load_executor_module(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_start_observation_starts_tracker_before_session_tasks(monkeypatch):
+async def test_start_observation_starts_tracker_before_session_tasks(monkeypatch, tmp_path):
     executor_module = _load_executor_module(monkeypatch)
     observation = _build_observation()
-    _patch_common_start_dependencies(monkeypatch, executor_module, observation)
+    _patch_common_start_dependencies(monkeypatch, executor_module, observation, tmp_path)
 
     executor = _new_executor(executor_module)
     events = []
@@ -104,10 +112,10 @@ async def test_start_observation_starts_tracker_before_session_tasks(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_start_observation_fails_fast_when_tracker_start_fails(monkeypatch):
+async def test_start_observation_fails_fast_when_tracker_start_fails(monkeypatch, tmp_path):
     executor_module = _load_executor_module(monkeypatch)
     observation = _build_observation()
-    _patch_common_start_dependencies(monkeypatch, executor_module, observation)
+    _patch_common_start_dependencies(monkeypatch, executor_module, observation, tmp_path)
 
     executor = _new_executor(executor_module)
     session_started = {"value": False}
@@ -139,10 +147,10 @@ async def test_start_observation_fails_fast_when_tracker_start_fails(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_start_observation_cleans_up_tracker_when_session_start_raises(monkeypatch):
+async def test_start_observation_cleans_up_tracker_when_session_start_raises(monkeypatch, tmp_path):
     executor_module = _load_executor_module(monkeypatch)
     observation = _build_observation()
-    _patch_common_start_dependencies(monkeypatch, executor_module, observation)
+    _patch_common_start_dependencies(monkeypatch, executor_module, observation, tmp_path)
 
     executor = _new_executor(executor_module)
     stop_calls = []

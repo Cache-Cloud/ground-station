@@ -331,6 +331,7 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
                 case 'delete-recording':
                 case 'delete-snapshot':
                 case 'delete-decoded':
+                case 'delete-observation-bundle':
                     // No toast notification for deletions
                     break;
 

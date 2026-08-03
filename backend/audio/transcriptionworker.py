@@ -66,6 +66,7 @@ class TranscriptionWorker(ABC, threading.Thread):
         provider_name: str = "unknown",
         satellite: Optional[Dict[str, Any]] = None,
         transmitter: Optional[Dict[str, Any]] = None,
+        output_dir: Optional[str] = None,
     ):
         """
         Initialize the transcription worker.
@@ -103,6 +104,9 @@ class TranscriptionWorker(ABC, threading.Thread):
         # Satellite and transmitter metadata
         self.satellite = satellite
         self.transmitter = transmitter
+        # Scheduled observations pass their bundle's transcriptions directory here.
+        # Manual sessions intentionally retain the established shared location.
+        self.output_dir = output_dir
 
         # Audio buffer for this VFO (stores dicts with audio data and type)
         self.audio_buffer: List[Dict[str, Any]] = []
@@ -254,10 +258,12 @@ class TranscriptionWorker(ABC, threading.Thread):
             return
 
         try:
-            # Get the backend directory
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            backend_dir = os.path.dirname(current_dir)
-            transcriptions_dir = os.path.join(backend_dir, "data", "transcriptions")
+            if self.output_dir:
+                transcriptions_dir = self.output_dir
+            else:
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                backend_dir = os.path.dirname(current_dir)
+                transcriptions_dir = os.path.join(backend_dir, "data", "transcriptions")
 
             # Ensure directory exists
             os.makedirs(transcriptions_dir, exist_ok=True)
