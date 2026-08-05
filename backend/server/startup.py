@@ -26,6 +26,7 @@ from db import AsyncSessionLocal, engine
 from db.migrations import run_migrations
 from db.models import Locations
 from observations import events as obs_events
+from observations.bundle import prune_finalized_empty_observation_bundles
 from observations.events import emit_scheduled_observations_changed as _emit
 from observations.events import set_socketio_instance
 from observations.executor import ObservationExecutor
@@ -90,6 +91,18 @@ async def lifespan(fastapiapp: FastAPI):
     logger.info("FastAPI lifespan startup...")
     # In an async context, prefer get_running_loop() (get_event_loop() is deprecated when no loop set)
     event_loop = asyncio.get_running_loop()
+
+    # A previous process can finish SatDump after LOS has retained its bundle,
+    # leaving only the manifest once the disposable IQ input is removed.
+    try:
+        removed_bundles = prune_finalized_empty_observation_bundles(Path(__file__).parents[1])
+        if removed_bundles:
+            logger.info(
+                "Removed %s finalized empty observation bundle(s) at startup", removed_bundles
+            )
+    except Exception:
+        # Observation cleanup must not prevent the station from starting.
+        logger.exception("Failed to prune finalized empty observation bundles at startup")
 
     # Set socketio instance for observations events
     set_socketio_instance(sio)

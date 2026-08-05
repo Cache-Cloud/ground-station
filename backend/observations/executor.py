@@ -118,6 +118,46 @@ class ObservationExecutor:
         return str(sdr_id) if sdr_id else f"session-{session_index}"
 
     @staticmethod
+    def _requires_observation_bundle(sessions: list[Dict[str, Any]]) -> bool:
+        """Return whether this observation can leave an artifact in its bundle.
+
+        SatDump-only IQ captures that delete their source after processing use the
+        shared recordings and decoded locations. SatDump owns their final output,
+        so creating a bundle for the temporary IQ files would leave an empty
+        observation folder after the background task removes them.
+        """
+        bundled_task_types = {"decoder", "audio_recording", "transcription"}
+
+        for session in sessions:
+            tasks = session.get("tasks", []) if isinstance(session, dict) else []
+            for task in tasks:
+                if not isinstance(task, dict):
+                    # Preserve artifacts for malformed or future task shapes.
+                    return True
+
+                task_type = task.get("type")
+                if task_type in bundled_task_types:
+                    return True
+
+                if task_type == "iq_recording":
+                    task_config = task.get("config", {}) or {}
+                    source_is_disposable = (
+                        task_config.get("enable_post_processing")
+                        and task_config.get("post_process_pipeline")
+                        and task_config.get("delete_after_post_processing")
+                    )
+                    if not source_is_disposable:
+                        return True
+                    continue
+
+                if task_type:
+                    # Unknown task types may write artifacts, so default to the
+                    # safe bundle-preserving behavior.
+                    return True
+
+        return False
+
+    @staticmethod
     def _resolve_tracker_id(rotator_config: Dict[str, Any]) -> str:
         """Resolve tracker slot id from current rotator ownership only."""
         owner_tracker_id = get_assigned_tracker_for_rotator(rotator_config.get("id"))
@@ -318,17 +358,23 @@ class ObservationExecutor:
             }
             self._tracker_context_by_observation[observation_id] = tracker_context
 
-            # Preserve SatDump's decoded-folder experience while keeping every other
-            # automated artifact together in a physical observation bundle. Create it
-            # only after tracker setup succeeds, so preflight failures leave no folder.
-            bundle_dir = create_observation_bundle(
-                observation_id, satellite, Path(__file__).parents[1]
-            )
-            self._bundle_dirs[observation_id] = bundle_dir
-            write_bundle_manifest(
-                bundle_dir,
-                {"observation_name": observation.get("name")},
-            )
+            # SatDump-only disposable IQ captures retain the established shared
+            # decoded-folder workflow. All other artifact-producing observations
+            # receive a physical bundle after tracker setup succeeds.
+            if self._requires_observation_bundle(sessions):
+                bundle_dir = create_observation_bundle(
+                    observation_id, satellite, Path(__file__).parents[1]
+                )
+                self._bundle_dirs[observation_id] = bundle_dir
+                write_bundle_manifest(
+                    bundle_dir,
+                    {"observation_name": observation.get("name")},
+                )
+            else:
+                logger.info(
+                    "Observation %s has only disposable SatDump IQ captures; skipping bundle creation",
+                    observation_id,
+                )
 
             # 6. Execute observation sessions
             logger.info(f"Executing observation tasks for {observation['name']}")

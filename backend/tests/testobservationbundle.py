@@ -5,6 +5,7 @@ from observations.bundle import (
     add_bundle_session,
     create_observation_bundle,
     finalize_observation_bundle,
+    prune_finalized_empty_observation_bundles,
 )
 
 
@@ -49,3 +50,26 @@ def test_finalize_observation_bundle_retains_artifacts_and_metadata(tmp_path):
     assert manifest["status"] == "completed"
     assert manifest["in_progress"] is False
     assert manifest["finalized_at"]
+
+
+def test_prune_finalized_empty_observation_bundles_preserves_active_and_artifact_bundles(tmp_path):
+    finalized_empty = create_observation_bundle("observation-empty", {}, tmp_path)
+    finalized_empty_manifest = finalized_empty / "manifest.json"
+    finalized_empty_data = json.loads(finalized_empty_manifest.read_text())
+    finalized_empty_data.update({"status": "completed", "in_progress": False})
+    finalized_empty_manifest.write_text(json.dumps(finalized_empty_data))
+
+    active_empty = create_observation_bundle("observation-active", {}, tmp_path)
+    finalized_with_artifact = create_observation_bundle("observation-artifact", {}, tmp_path)
+    (finalized_with_artifact / "recordings" / "capture.sigmf-data").write_bytes(b"iq")
+    artifact_manifest = finalized_with_artifact / "manifest.json"
+    artifact_data = json.loads(artifact_manifest.read_text())
+    artifact_data.update({"status": "completed", "in_progress": False})
+    artifact_manifest.write_text(json.dumps(artifact_data))
+
+    removed_count = prune_finalized_empty_observation_bundles(tmp_path)
+
+    assert removed_count == 1
+    assert not finalized_empty.exists()
+    assert active_empty.exists()
+    assert finalized_with_artifact.exists()

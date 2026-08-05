@@ -115,3 +115,34 @@ def finalize_observation_bundle(bundle_dir: Path, status: str) -> bool:
 
     shutil.rmtree(bundle_dir)
     return False
+
+
+def prune_finalized_empty_observation_bundles(backend_dir: Path) -> int:
+    """Remove empty bundles left behind after an earlier process lifetime.
+
+    Only bundles whose manifest has reached a terminal observation status are
+    considered. Active observations can legitimately have no artifact yet.
+    """
+    observations_dir = backend_dir / "data" / "observations"
+    if not observations_dir.exists():
+        return 0
+
+    terminal_statuses = {"completed", "completed_with_warnings", "failed", "cancelled"}
+    removed_count = 0
+    for bundle_dir in observations_dir.glob(f"*{BUNDLE_SUFFIX}"):
+        manifest_path = bundle_dir / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            # An unreadable manifest is not enough evidence that this bundle is stale.
+            continue
+
+        if not isinstance(manifest, dict) or manifest.get("status") not in terminal_statuses:
+            continue
+        if bundle_has_artifacts(bundle_dir):
+            continue
+
+        shutil.rmtree(bundle_dir)
+        removed_count += 1
+
+    return removed_count

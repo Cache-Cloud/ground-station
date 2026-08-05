@@ -112,6 +112,87 @@ async def test_start_observation_starts_tracker_before_session_tasks(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_start_observation_skips_bundle_for_disposable_satdump_iq_only(monkeypatch, tmp_path):
+    executor_module = _load_executor_module(monkeypatch)
+    observation = _build_observation()
+    observation["sessions"][0]["tasks"] = [
+        {
+            "type": "iq_recording",
+            "config": {
+                "enable_post_processing": True,
+                "post_process_pipeline": "meteor_m2-x_lrpt",
+                "delete_after_post_processing": True,
+            },
+        }
+    ]
+    _patch_common_start_dependencies(monkeypatch, executor_module, observation, tmp_path)
+
+    executor = _new_executor(executor_module)
+
+    async def _mock_start_tracker(*_args, **_kwargs):
+        return {"success": True, "tracker_id": "target-1"}
+
+    async def _mock_execute_session(*_args, **_kwargs):
+        return None
+
+    def _unexpected_bundle(*_args, **_kwargs):
+        raise AssertionError("disposable SatDump-only observation must not create a bundle")
+
+    monkeypatch.setattr(executor.tracker_handler, "start_tracker_task", _mock_start_tracker)
+    monkeypatch.setattr(executor, "_execute_observation_session", _mock_execute_session)
+    monkeypatch.setattr(executor_module, "create_observation_bundle", _unexpected_bundle)
+
+    result = await executor.start_observation("obs-1")
+
+    assert result["success"] is True
+    assert "obs-1" not in executor._bundle_dirs
+
+
+def test_requires_observation_bundle_for_retained_or_mixed_artifacts(monkeypatch):
+    executor_module = _load_executor_module(monkeypatch)
+
+    disposable_iq = {
+        "type": "iq_recording",
+        "config": {
+            "enable_post_processing": True,
+            "post_process_pipeline": "meteor_m2-x_lrpt",
+            "delete_after_post_processing": True,
+        },
+    }
+
+    assert (
+        executor_module.ObservationExecutor._requires_observation_bundle(
+            [{"tasks": [disposable_iq]}]
+        )
+        is False
+    )
+    assert (
+        executor_module.ObservationExecutor._requires_observation_bundle(
+            [
+                {
+                    "tasks": [
+                        {
+                            **disposable_iq,
+                            "config": {
+                                **disposable_iq["config"],
+                                "delete_after_post_processing": False,
+                            },
+                        }
+                    ]
+                }
+            ]
+        )
+        is True
+    )
+    assert (
+        executor_module.ObservationExecutor._requires_observation_bundle(
+            [{"tasks": [disposable_iq, {"type": "decoder", "config": {}}]}]
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
 async def test_start_observation_fails_fast_when_tracker_start_fails(monkeypatch, tmp_path):
     executor_module = _load_executor_module(monkeypatch)
     observation = _build_observation()
