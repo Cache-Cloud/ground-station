@@ -1267,8 +1267,10 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
             // Set the selected playback recording
             dispatch(setSelectedPlaybackRecording(recording));
 
-            // Just send the recording name, backend will resolve the full path
-            const recordingPath = recording.name;
+            // Bundle recordings live below data/observations, while manual
+            // recordings remain below data/recordings. The backend validates
+            // the supplied playback path against both trusted roots.
+            const recordingPath = recording.playback_path || recording.name;
             dispatch(setPlaybackRecordingPath(recordingPath));
 
             // Get sample rate from recording metadata and set it in the UI
@@ -1339,7 +1341,9 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
             return;
         }
 
-        const recording = playbackRecordings.find((item) => item.name === recordingName);
+        const recording = playbackRecordings.find(
+            (item) => (item.playback_path || item.name) === recordingName
+        );
         if (!recording) {
             toast.error('Recording not found. Refresh and try again.');
             return;
@@ -1488,7 +1492,7 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     startStreamValidationErrors={startStreamValidationErrors}
                     playbackRecordings={playbackRecordings}
                     playbackRecordingsLoading={playbackRecordingsLoading}
-                    selectedPlaybackRecordingName={selectedPlaybackRecording?.name || playbackRecordingPath || 'none'}
+                    selectedPlaybackRecordingName={selectedPlaybackRecording?.playback_path || selectedPlaybackRecording?.name || playbackRecordingPath || 'none'}
                     onPlaybackRecordingChange={handlePlaybackRecordingDropdownChange}
                 />
 

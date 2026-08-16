@@ -1061,8 +1061,9 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
 
             recordings = []
 
-            # Ensure directory exists
-            if not recordings_dir.exists():
+            # A deployment can retain only observation bundles, so neither
+            # storage location should suppress the other from playback.
+            if not recordings_dir.exists() and not observations_dir.exists():
                 await emit_file_browser_state(
                     sio,
                     {"action": "list-recordings", "items": []},
@@ -1071,51 +1072,77 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                 )
                 return
 
-            # Find all .sigmf-meta files
-            meta_files = list(recordings_dir.glob("*.sigmf-meta"))
+            # Include both manual captures and the recordings nested in the
+            # per-observation artifact bundles. Playback receives a relative
+            # path for bundle files; pathguard resolves and constrains it.
+            recording_sources: List[Tuple[Path, Optional[Path]]] = []
+            if recordings_dir.exists():
+                recording_sources.append((recordings_dir, None))
+            if observations_dir.exists():
+                recording_sources.extend(
+                    (candidate_bundle_dir / "recordings", candidate_bundle_dir)
+                    for candidate_bundle_dir in observations_dir.glob("*.gsobs")
+                    if candidate_bundle_dir.is_dir()
+                )
 
-            for meta_file in meta_files:
-                base_name = meta_file.stem
-                data_file = recordings_dir / f"{base_name}.sigmf-data"
+            for source_dir, recording_bundle_dir in recording_sources:
+                for meta_file in source_dir.glob("*.sigmf-meta"):
+                    base_name = meta_file.stem
+                    data_file = source_dir / f"{base_name}.sigmf-data"
 
-                if not data_file.exists():
-                    logger.warning(f"Data file missing for {meta_file.name}")
-                    continue
+                    if not data_file.exists():
+                        logger.warning(f"Data file missing for {meta_file.name}")
+                        continue
 
-                # Get file stats
-                data_stat = data_file.stat()
-                meta_stat = meta_file.stat()
+                    data_stat = data_file.stat()
+                    meta_stat = meta_file.stat()
+                    metadata = parse_sigmf_metadata(str(meta_file))
+                    snapshot_file = source_dir / f"{base_name}.png"
 
-                # Parse metadata
-                metadata = parse_sigmf_metadata(str(meta_file))
+                    if recording_bundle_dir is None:
+                        playback_path = base_name
+                        display_name = base_name
+                    else:
+                        # resolve_sigmf_meta_path starts relative paths under
+                        # data/recordings, so one parent reaches data/ and then
+                        # enters the trusted observations root.
+                        playback_path = str(
+                            Path("..")
+                            / "observations"
+                            / recording_bundle_dir.name
+                            / "recordings"
+                            / base_name
+                        )
+                        display_name = f"{recording_bundle_dir.stem} / {base_name}"
 
-                # Check if recording is in progress
-                is_recording_in_progress = metadata.get("recording_in_progress", False)
-
-                # Check for waterfall snapshot
-                snapshot_file = recordings_dir / f"{base_name}.png"
-                snapshot_info = build_recording_snapshot_info(snapshot_file)
-
-                recording = {
-                    "type": "recording",
-                    "name": base_name,
-                    "data_file": data_file.name,
-                    "meta_file": meta_file.name,
-                    "data_size": data_stat.st_size,
-                    "meta_size": meta_stat.st_size,
-                    "created": datetime.fromtimestamp(data_stat.st_ctime, timezone.utc).isoformat(),
-                    "modified": datetime.fromtimestamp(
-                        data_stat.st_mtime, timezone.utc
-                    ).isoformat(),
-                    "metadata": metadata,
-                    "snapshot": snapshot_info,
-                    "recording_in_progress": is_recording_in_progress,
-                    "download_urls": {
-                        "data": f"/recordings/{data_file.name}",
-                        "meta": f"/recordings/{meta_file.name}",
-                    },
-                }
-                recordings.append(recording)
+                    recordings.append(
+                        {
+                            "type": "recording",
+                            "name": base_name,
+                            "display_name": display_name,
+                            "playback_path": playback_path,
+                            "observation_bundle": (
+                                recording_bundle_dir.name if recording_bundle_dir else None
+                            ),
+                            "data_file": data_file.name,
+                            "meta_file": meta_file.name,
+                            "data_size": data_stat.st_size,
+                            "meta_size": meta_stat.st_size,
+                            "created": datetime.fromtimestamp(
+                                data_stat.st_ctime, timezone.utc
+                            ).isoformat(),
+                            "modified": datetime.fromtimestamp(
+                                data_stat.st_mtime, timezone.utc
+                            ).isoformat(),
+                            "metadata": metadata,
+                            "snapshot": build_recording_snapshot_info(snapshot_file),
+                            "recording_in_progress": metadata.get("recording_in_progress", False),
+                            "download_urls": {
+                                "data": f"/recordings/{data_file.name}",
+                                "meta": f"/recordings/{meta_file.name}",
+                            },
+                        }
+                    )
 
             # This is intentionally separate from list-files: SigMF playback
             # needs an unfiltered recording inventory even when the File
@@ -1174,6 +1201,7 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                     "meta": f"/recordings/{meta_file.name}",
                 },
             }
+            return {"success": True, "data": recording}
 
         elif cmd == "delete-recording":
             logger.info(f"Deleting recording: {data}")

@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Efstratios Goudelis
 
 import base64
+import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -10,7 +12,8 @@ from common.filenames import (
     resolve_base_path_within_root,
     sanitize_filename_component,
 )
-from common.pathguard import resolve_sigmf_meta_path
+from common.pathguard import get_observations_root, resolve_sigmf_meta_path
+from handlers.entities import filebrowser
 from observations.tasks.recorderhandler import RecorderHandler
 from server.snapshots import save_waterfall_snapshot
 
@@ -86,6 +89,62 @@ def test_resolve_sigmf_meta_path_allows_explicit_trusted_root(tmp_path):
     )
 
     assert resolved == trusted_meta.resolve()
+
+
+def test_resolve_sigmf_meta_path_allows_observation_bundle_recording():
+    observations_root = get_observations_root()
+    expected = (
+        observations_root / "NOAA_19_20260816_120000.gsobs" / "recordings" / "capture.sigmf-meta"
+    )
+
+    resolved = resolve_sigmf_meta_path(
+        "../observations/NOAA_19_20260816_120000.gsobs/recordings/capture"
+    )
+
+    assert resolved == expected
+
+
+@pytest.mark.asyncio
+async def test_playback_catalog_includes_observation_bundle_recording(tmp_path, monkeypatch):
+    backend_dir = tmp_path / "backend"
+    recordings_dir = backend_dir / "data" / "recordings"
+    bundle_recordings_dir = (
+        backend_dir / "data" / "observations" / "NOAA_19_20260816_120000.gsobs" / "recordings"
+    )
+    recordings_dir.mkdir(parents=True)
+    bundle_recordings_dir.mkdir(parents=True)
+    (bundle_recordings_dir / "capture.sigmf-data").write_bytes(b"iq")
+    (bundle_recordings_dir / "capture.sigmf-meta").write_text(
+        json.dumps({"global": {"core:datatype": "cf32_le"}})
+    )
+    monkeypatch.setattr(
+        filebrowser,
+        "__file__",
+        str(backend_dir / "handlers" / "entities" / "filebrowser.py"),
+    )
+
+    class FakeSio:
+        def __init__(self):
+            self.events = []
+
+        async def emit(self, event, payload, room=None):
+            self.events.append((event, payload, room))
+
+    sio = FakeSio()
+    await filebrowser.filebrowser_request_routing(
+        sio, "list-recordings", {}, logging.getLogger("test"), "test-session"
+    )
+
+    _, payload, room = sio.events[-1]
+    assert room == "test-session"
+    assert payload["action"] == "list-recordings"
+    assert len(payload["items"]) == 1
+    recording = payload["items"][0]
+    assert (
+        recording["playback_path"]
+        == "../observations/NOAA_19_20260816_120000.gsobs/recordings/capture"
+    )
+    assert recording["observation_bundle"] == "NOAA_19_20260816_120000.gsobs"
 
 
 def test_sanitize_filename_component_flattens_path_like_satellite_names():

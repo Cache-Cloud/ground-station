@@ -13,6 +13,11 @@ def get_recordings_root() -> Path:
     return (get_backend_root() / "data" / "recordings").resolve()
 
 
+def get_observations_root() -> Path:
+    """Return the root containing automated-observation artifact bundles."""
+    return (get_backend_root() / "data" / "observations").resolve()
+
+
 def get_snapshots_root() -> Path:
     return (get_backend_root() / "data" / "snapshots").resolve()
 
@@ -26,7 +31,10 @@ def _is_within(path: Path, root: Path) -> bool:
 
 
 def get_sigmf_allowed_roots(recordings_root: Path | None = None) -> List[Path]:
-    roots: List[Path] = [(recordings_root or get_recordings_root()).resolve()]
+    roots: List[Path] = [
+        (recordings_root or get_recordings_root()).resolve(),
+        get_observations_root(),
+    ]
     extra_roots = os.environ.get("GS_SIGMF_ALLOWED_DIRS", "")
     for raw_root in extra_roots.split(os.pathsep):
         cleaned = raw_root.strip()

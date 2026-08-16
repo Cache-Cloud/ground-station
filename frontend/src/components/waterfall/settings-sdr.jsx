@@ -482,14 +482,17 @@ const SdrAccordion = ({
                                         </MenuItem>
                                     )}
                                     {playbackRecordingOptions.map((recording) => (
-                                        <MenuItem key={recording.name} value={recording.name}>
+                                        <MenuItem
+                                            key={recording.playback_path || recording.name}
+                                            value={recording.playback_path || recording.name}
+                                        >
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
                                                 <DescriptionOutlinedIcon sx={{ fontSize: '1rem', opacity: 0.9 }} />
                                                 <Typography
                                                     variant="body2"
                                                     sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
                                                 >
-                                                    {recording.name} - {formatRecordingTimestamp(recording)}
+                                                    {recording.display_name || recording.name} - {formatRecordingTimestamp(recording)}
                                                 </Typography>
                                             </Box>
                                         </MenuItem>
