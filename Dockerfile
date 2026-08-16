@@ -454,6 +454,19 @@ RUN git clone --depth=1 https://github.com/daniestevez/gr-satellites.git && \
 RUN /app/venv/bin/python3 -c "from satellites.satyaml.satyaml import SatYAML; print('✓ gr-satellites satyaml module available')" || \
     (echo "ERROR: satyaml not properly installed!" && exit 1)
 
+# Build the upstream GPL-3.0 SSDV utility.  It is kept in the image so the
+# backend can use the reference packet/JPEG codec without a host dependency.
+# Pinning the source revision keeps decoding behavior reproducible.
+WORKDIR /src
+ARG SSDV_COMMIT=d1ceda81b69f88741396f3e052b50c8ae40efb76
+RUN git clone --depth=1 https://github.com/fsphil/ssdv.git && \
+    cd ssdv && \
+    git fetch --depth=1 origin ${SSDV_COMMIT} && \
+    git checkout ${SSDV_COMMIT} && \
+    make -j$(nproc) && \
+    install -m 755 ssdv /usr/local/bin/ssdv && \
+    ssdv -d /dev/null /dev/null
+
 # Compile SatDump (without GUI, using system libvolk-dev and libnng-dev)
 # Pin to a specific commit to avoid upstream CLI/behavior changes breaking decoding.
 WORKDIR /src

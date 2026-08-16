@@ -65,7 +65,7 @@ class DecoderConfigService:
         Resolve decoder configuration from multiple sources.
 
         Args:
-            decoder_type: Decoder type ('gmsk', 'bpsk', 'aprs', 'gfsk', 'fsk', 'gnss')
+            decoder_type: Decoder type ('gmsk', 'bpsk', 'aprs', 'gfsk', 'fsk', 'ssdv', 'gnss')
             satellite: Satellite dict with 'norad_id', 'name', etc.
             transmitter: Transmitter dict with 'baud', 'deviation', 'mode', 'description', etc.
             overrides: Manual parameter overrides (highest priority)
@@ -113,6 +113,34 @@ class DecoderConfigService:
             if overrides:
                 config = self._apply_overrides(config, overrides)
 
+            config.satellite = satellite if satellite else None
+            config.transmitter = transmitter if transmitter else None
+            return config
+
+        # SSDV is a packetised JPEG format.  The initial receiver profile is
+        # BPSK and uses SSDV's own fixed 256-byte framing, never AX.25.
+        if decoder_type == "ssdv":
+            baudrate = self._resolve_baudrate(transmitter, overrides)
+            config = DecoderConfig(
+                baudrate=baudrate,
+                framing=FramingType.SSDV,
+                config_source=(
+                    "transmitter_metadata"
+                    if (transmitter.get("mode") or transmitter.get("description"))
+                    else "smart_default"
+                ),
+                differential=(
+                    "DBPSK" in str(transmitter.get("mode", "")).upper()
+                    or "DBPSK" in str(transmitter.get("description", "")).upper()
+                ),
+                packet_size=256,
+            )
+            if overrides:
+                config = self._apply_overrides(config, overrides)
+            # Do not allow a generic UI framing override to put an SSDV
+            # decoder back onto AX.25 after its packet-sync flowgraph starts.
+            config.framing = FramingType.SSDV
+            config.packet_size = 256
             config.satellite = satellite if satellite else None
             config.transmitter = transmitter if transmitter else None
             return config

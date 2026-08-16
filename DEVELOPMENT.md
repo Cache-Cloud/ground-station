@@ -128,6 +128,26 @@ python -c "from gnuradio import gr, lora_sdr; print('LoRa decoder ready!')"
 
 > **Note:** This is only required for development. Docker images include pre-built GNU Radio and gr-lora_sdr.
 
+## SSDV Decoder Support
+
+The SSDV decoder uses the upstream reference codec to reconstruct packetised
+JPEG images. Docker builds it automatically. For a native development setup,
+build the same pinned utility and point the backend at it:
+
+```bash
+sudo apt-get install build-essential git
+git clone https://github.com/fsphil/ssdv.git /tmp/ground-station-ssdv
+cd /tmp/ground-station-ssdv
+git checkout d1ceda81b69f88741396f3e052b50c8ae40efb76
+make -j"$(nproc)"
+
+export GS_SSDV_BIN="$PWD/ssdv"
+```
+
+The first receiver profile is 9600-baud BPSK for standard 256-byte SSDV
+packets, including OBJECT AY. Other satellite-specific SSDV transports require
+their own verified PHY/framing profile.
+
 ## Development Workflow with pyproject.toml
 
 The project's `pyproject.toml` provides comprehensive tooling configuration:

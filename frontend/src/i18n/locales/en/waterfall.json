@@ -106,6 +106,7 @@
     "decoders_modes": {
       "none": "None",
       "sstv": "SSTV",
+      "ssdv": "SSDV",
       "morse": "Morse",
       "lora": "LoRa",
       "aprs": "APRS",

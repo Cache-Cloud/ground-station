@@ -294,6 +294,7 @@ export const DataDecoderSelector = ({
 
                 // Set bandwidth based on decoder type
                 if (newValue === 'sstv') updates.bandwidth = 3300;
+                else if (newValue === 'ssdv') updates.bandwidth = 20000;
                 else if (newValue === 'apt') updates.bandwidth = 40000;
                 else if (newValue === 'lora') updates.bandwidth = 500000;
                 else if (newValue === 'gnss') updates.bandwidth = 2000000;
@@ -345,6 +346,7 @@ export const DataDecoderSelector = ({
                 {[
                     { value: 'none', label: t('vfo.decoders_modes.none', 'None') },
                     { value: 'sstv', label: t('vfo.decoders_modes.sstv', 'SSTV') },
+                    { value: 'ssdv', label: t('vfo.decoders_modes.ssdv', 'SSDV') },
                     { value: 'morse', label: t('vfo.decoders_modes.morse', 'Morse') },
                     { value: 'lora', label: t('vfo.decoders_modes.lora', 'LoRa') },
                     { value: 'fsk', label: t('vfo.decoders_modes.fsk', 'FSK') },

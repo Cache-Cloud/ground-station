@@ -12,12 +12,17 @@ def test_maps_aprs_scheduler_parameters_to_decoder_overrides():
         "aprs_af_carrier": 1810,
         "aprs_deviation": 565,
     }
-
     assert map_scheduler_decoder_parameters("aprs", parameters) == {
         "baudrate": 1240,
         "af_carrier": 1810,
         "deviation": 565,
     }
+
+
+def test_maps_ssdv_scheduler_parameters_to_decoder_overrides():
+    assert map_scheduler_decoder_parameters(
+        "ssdv", {"ssdv_baudrate": 9600, "ssdv_differential": True}
+    ) == {"baudrate": 9600, "differential": True}
 
 
 def test_preserves_false_values_and_accepts_normalized_parameters():

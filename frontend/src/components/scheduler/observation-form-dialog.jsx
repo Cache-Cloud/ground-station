@@ -90,6 +90,7 @@ const DECODER_TYPES = [
     { value: 'bpsk', labelKey: 'decoder_type_bpsk' },
     { value: 'aprs', labelKey: 'decoder_type_aprs' },
     { value: 'sstv', labelKey: 'decoder_type_sstv' },
+    { value: 'ssdv', labelKey: 'decoder_type_ssdv' },
 ];
 
 const SSTV_DEFAULT_BANDWIDTH = 12500;
@@ -819,6 +820,9 @@ const ObservationFormDialog = () => {
                 if (params.bpsk_baudrate) paramSummary.push(t('scheduler_dialogs.shared.baud_suffix', { value: params.bpsk_baudrate }));
                 if (params.bpsk_differential) paramSummary.push('DBPSK');
                 if (params.bpsk_framing) paramSummary.push(params.bpsk_framing.toUpperCase());
+            } else if (task.config.decoder_type === 'ssdv') {
+                if (params.ssdv_baudrate) paramSummary.push(t('scheduler_dialogs.shared.baud_suffix', { value: params.ssdv_baudrate }));
+                if (params.ssdv_differential) paramSummary.push('DBPSK');
             } else if (task.config.decoder_type === 'aprs') {
                 if (params.aprs_baudrate) paramSummary.push(t('scheduler_dialogs.shared.baud_suffix', { value: params.aprs_baudrate }));
                 if (params.aprs_af_carrier) paramSummary.push(t('scheduler_dialogs.shared.carrier_hz_suffix', { value: params.aprs_af_carrier }));

@@ -767,9 +767,9 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
                     }
                     store.dispatch(decoderOutputReceived(data));
 
-                    // Show toast notification only for SSTV (image output)
+                    // Show toast notification for image outputs.
                     // Morse and other text-based decoders are too frequent for toasts
-                    if (data.decoder_type === 'sstv' && data.output.image_data) {
+                    if (['sstv', 'ssdv'].includes(data.decoder_type) && data.output.image_data) {
                         const outputType = data.output.format;
                         const fileName = data.output.filename;
                         const imageData = data.output.image_data;

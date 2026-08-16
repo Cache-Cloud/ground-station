@@ -54,6 +54,11 @@ except Exception:
     SSTVDecoder = None
 
 try:
+    from demodulators.ssdvdecoder import SSDVDecoder
+except Exception:
+    SSDVDecoder = None
+
+try:
     from demodulators.gnsssdrdecoder import GNSSSdrDecoder
 except Exception:
     GNSSSdrDecoder = None
@@ -131,6 +136,19 @@ class DecoderRegistry:
                 supports_transmitter_config=True,  # SSTV now accepts satellite/transmitter metadata
                 restart_on_params=[],
                 description="Slow-scan television image decoder (process-based with integrated FM demod)",
+            )
+
+        if SSDVDecoder is not None:
+            self._decoders["ssdv"] = DecoderCapabilities(
+                name="ssdv",
+                decoder_class=SSDVDecoder,
+                needs_raw_iq=True,
+                required_demodulator=None,
+                demodulator_mode=None,
+                default_bandwidth=20_000,
+                supports_transmitter_config=True,
+                restart_on_params=["baudrate", "differential"],
+                description="Packetised SSDV JPEG image decoder over BPSK",
             )
 
         if MorseDecoder is not None:

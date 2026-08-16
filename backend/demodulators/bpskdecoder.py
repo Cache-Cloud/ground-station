@@ -156,7 +156,7 @@ class BPSKMessageHandler(gr.basic_block):
                 self.packets_decoded += 1
                 callsigns = None
 
-                # AX.25/USP callsign parsing and HDLC flag wrapping only when AX.25 framing
+                # AX.25 callsign parsing and HDLC flag wrapping only when AX.25 framing.
                 if self.framing == FramingType.AX25:
                     try:
                         if len(packet_data) >= 14:
@@ -181,6 +181,10 @@ class BPSKMessageHandler(gr.basic_block):
                 if self.framing == FramingType.AX25:
                     # Add HDLC flags for compatibility with AX.25 parsers
                     out_bytes = bytes([0x7E]) + packet_data + bytes([0x7E])
+                elif self.framing == FramingType.SSDV:
+                    # The fixed-length SSDV deframer consumes its 0x55 sync
+                    # byte. Restore it so the packet is valid for libssdv.
+                    out_bytes = bytes([0x55]) + packet_data
 
                 if self.callback:
                     self.callback(out_bytes, callsigns)
@@ -735,7 +739,7 @@ class BPSKDecoder(BaseDecoderProcess):
         msg = {
             "type": "decoder-status",
             "status": status.value,
-            "decoder_type": "bpsk",
+            "decoder_type": self._get_decoder_type(),
             "decoder_id": self.decoder_id,
             "session_id": self.session_id,
             "vfo": self.vfo,
@@ -827,7 +831,7 @@ class BPSKDecoder(BaseDecoderProcess):
 
         msg = {
             "type": "decoder-stats",
-            "decoder_type": "bpsk",
+            "decoder_type": self._get_decoder_type(),
             "session_id": self.session_id,
             "vfo": self.vfo,
             "timestamp": time.time(),
@@ -1148,7 +1152,7 @@ class BPSKDecoder(BaseDecoderProcess):
         msg = {
             "type": "decoder-status",
             "status": "closed",
-            "decoder_type": "bpsk",
+            "decoder_type": self._get_decoder_type(),
             "decoder_id": self.decoder_id,
             "session_id": self.session_id,
             "vfo": self.vfo,

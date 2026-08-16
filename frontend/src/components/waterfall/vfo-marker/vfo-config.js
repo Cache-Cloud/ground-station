@@ -160,6 +160,22 @@ export const DECODERS = {
         bandwidthLabel: (bw) => `±${(bw / 2000).toFixed(1)}kHz`,
         lockedBandwidth: false, // allows demodulator's lock setting to apply
     },
+    ssdv: {
+        internalName: 'ssdv',
+        displayName: 'SSDV',
+        description: 'Packetised digital image decoder (BPSK)',
+        hasStatusDisplay: true,
+        hasProgressDisplay: false,
+        hasTextOutput: false,
+        hasModeDisplay: true,
+        defaultBandwidth: 20000,
+        bandwidthType: 'double-sided',
+        showBothEdges: true,
+        allowLeftEdgeDrag: true,
+        allowRightEdgeDrag: true,
+        bandwidthLabel: (bw) => `±${(bw / 2000).toFixed(1)}kHz`,
+        lockedBandwidth: false,
+    },
     morse: {
         internalName: 'morse',
         displayName: 'Morse',

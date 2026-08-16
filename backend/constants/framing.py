@@ -20,6 +20,7 @@ class FramingType:
     AX100_RS = "ax100_rs"
     AO40_FEC = "ao40_fec"
     AO40_FEC_SHORT = "ao40_fec_short"
+    SSDV = "ssdv"
 
 
 # APRS uses AX.25 UI frames, but its 1200-baud Bell 202 modem does not use
@@ -28,6 +29,7 @@ AX25_FRAMINGS = {FramingType.AX25, FramingType.APRS, FramingType.USP}
 CSP_FRAMINGS = {FramingType.AX100_ASM, FramingType.AX100_RS}
 CCSDS_FRAMINGS = {FramingType.DOKA}
 PROPRIETARY_FRAMINGS = {FramingType.GEOSCAN}
+IMAGE_FRAMINGS = {FramingType.SSDV}
 
 
 GR_SATELLITES_FRAMING_MAP = {
@@ -56,4 +58,6 @@ def payload_protocol_from_framing(framing: Optional[str], default: str = "ax25")
         return "csp"
     if framing in PROPRIETARY_FRAMINGS:
         return "proprietary"
+    if framing in IMAGE_FRAMINGS:
+        return "ssdv"
     return default

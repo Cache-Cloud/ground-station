@@ -49,6 +49,7 @@ _BACKEND_OVERRIDE_KEYS = {
     "gnss_enable_glonass",
     "gnss_enable_beidou",
     "gnss_enable_qzss",
+    "packet_size",
 }
 
 
@@ -71,6 +72,11 @@ def map_scheduler_decoder_parameters(decoder_type: str, parameters: Any) -> Dict
             "bpsk_baudrate": "baudrate",
             "bpsk_framing": "framing",
             "bpsk_differential": "differential",
+        }
+    elif decoder_type == "ssdv":
+        frontend_to_backend = {
+            "ssdv_baudrate": "baudrate",
+            "ssdv_differential": "differential",
         }
     elif decoder_type == "aprs":
         frontend_to_backend = {

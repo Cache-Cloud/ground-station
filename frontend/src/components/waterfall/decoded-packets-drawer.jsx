@@ -85,18 +85,19 @@ export const mapOutputsToRows = (outputs, rowLimit = DEFAULT_DRAWER_ROW_LIMIT) =
         .slice(0, rowLimit)
         .map(output => {
             const isSstv = output.decoder_type === 'sstv';
+            const isImage = isSstv || output.decoder_type === 'ssdv';
             const isLora = output.decoder_type === ModulationType.LORA;
 
             // For SSTV and LoRa: use different display logic
-            const fromCallsign = (isSstv || isLora) ? '-' : (output.output.callsigns?.from || '-');
-            const toCallsign = (isSstv || isLora) ? '-' : (output.output.callsigns?.to || '-');
+            const fromCallsign = (isImage || isLora) ? '-' : (output.output.callsigns?.from || '-');
+            const toCallsign = (isImage || isLora) ? '-' : (output.output.callsigns?.to || '-');
 
             // Use identified NORAD ID from backend lookup, then configured satellite
             const noradId = output.output.callsigns?.identified_norad_id || output.output.satellite?.norad_id;
             const satelliteName = output.output.callsigns?.identified_satellite || output.output.satellite?.name || '-';
 
             // For SSTV, use mode as parameters, for others use existing parameters
-            const parameters = isSstv ? output.output.mode : output.output.parameters;
+            const parameters = isImage ? output.output.mode : output.output.parameters;
 
             // File size from output
             const fileSize = output.output.filesize || output.output.packet_length;
@@ -197,24 +198,23 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
         try {
             console.log('Opening telemetry for row:', row);
 
-            // For SSTV images, metadata is already in the output
+            // Image decoder metadata is already in the output.
             const isSstv = row.decoderType === 'sstv';
+            const isImage = isSstv || row.decoderType === 'ssdv';
 
-            if (isSstv) {
-                // SSTV images have inline base64 image data and metadata filepath
-                // Ensure we get the JSON metadata filename, not the PNG
+            if (isImage) {
+                // Image decoders have inline base64 data and metadata filepath.
                 let metadataFilename = row.output?.metadata_filename;
 
-                // If metadata_filename is not set or is the PNG file, derive it from filename
-                if (!metadataFilename || (typeof metadataFilename === 'string' && metadataFilename.endsWith('.png'))) {
-                    const pngFilename = row.filename || row.output?.filename;
-                    console.log('Deriving metadata filename from PNG:', pngFilename);
+                if (!metadataFilename) {
+                    const imageFilename = row.filename || row.output?.filename;
+                    console.log('Deriving metadata filename from image:', imageFilename);
 
-                    if (!pngFilename || typeof pngFilename !== 'string') {
-                        console.error('Invalid filename:', pngFilename);
+                    if (!imageFilename || typeof imageFilename !== 'string') {
+                        console.error('Invalid filename:', imageFilename);
                         throw new Error('Filename not found in output or invalid');
                     }
-                    metadataFilename = pngFilename.replace('.png', '.json');
+                    metadataFilename = imageFilename.replace(/\.(png|jpe?g)$/i, '.json');
                 }
 
                 console.log('Fetching metadata from:', metadataFilename);
@@ -232,6 +232,7 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
                 setSstvImage({
                     filename: row.filename || row.output?.filename,
                     imageData: row.output?.image_data,
+                    format: row.output?.format || 'image/png',
                 });
                 setSstvMetadata(metadata);
                 setSstvDialogOpen(true);
@@ -823,7 +824,7 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
             >
                 <DialogTitle>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="h6">SSTV Image</Typography>
+                        <Typography variant="h6">Decoded Image</Typography>
                         {sstvMetadata?.decoder?.mode && (
                             <Chip
                                 label={sstvMetadata.decoder.mode}
@@ -843,7 +844,7 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
                             {/* Image */}
                             <Box sx={{ textAlign: 'center', mb: 3 }}>
                                 <img
-                                    src={`data:image/png;base64,${sstvImage.imageData}`}
+                                    src={`data:${sstvImage.format};base64,${sstvImage.imageData}`}
                                     alt={sstvImage.filename}
                                     style={{ maxWidth: '100%', height: 'auto' }}
                                 />

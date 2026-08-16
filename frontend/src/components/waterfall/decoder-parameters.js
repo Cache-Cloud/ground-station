@@ -313,6 +313,31 @@ export const BPSK_PARAMETERS = {
 };
 
 /**
+ * SSDV is a packetised JPEG format. The first supported RF profile is the
+ * 9600-baud BPSK downlink used by OBJECT AY.
+ */
+export const SSDV_PARAMETERS = {
+    ssdv_baudrate: {
+        label: 'Baud Rate',
+        description: 'BPSK symbol rate for the SSDV downlink',
+        type: 'select',
+        default: 9600,
+        options: [
+            { value: 1200, label: '1200 baud' },
+            { value: 4800, label: '4800 baud' },
+            { value: 9600, label: '9600 baud (OBJECT AY)' },
+            { value: 19200, label: '19200 baud' }
+        ]
+    },
+    ssdv_differential: {
+        label: 'Differential Mode (DBPSK)',
+        description: 'Enable only for SSDV transmitters using DBPSK',
+        type: 'switch',
+        default: false
+    }
+};
+
+/**
  * APRS Decoder Parameters
  * The decoder consumes raw IQ and performs NBFM and Bell 202 demodulation internally.
  */
@@ -472,6 +497,7 @@ export const GNSS_PARAMETERS = {
  */
 export const DECODER_SUPPORT = {
     sstv: true,
+    ssdv: true,
     fsk: true,
     gmsk: true,
     gfsk: true,
@@ -517,6 +543,7 @@ export const DECODER_PARAMETERS = {
     ...GMSK_PARAMETERS,
     ...GFSK_PARAMETERS,
     ...BPSK_PARAMETERS,
+    ...SSDV_PARAMETERS,
     ...APRS_PARAMETERS,
     ...GNSS_PARAMETERS,
     ...SSTV_PARAMETERS
@@ -524,7 +551,7 @@ export const DECODER_PARAMETERS = {
 
 /**
  * Get parameter definitions for a specific decoder
- * @param {string} decoder - Decoder name (e.g., 'lora', 'fsk', 'gmsk', 'gfsk', 'bpsk', 'sstv')
+ * @param {string} decoder - Decoder name (e.g., 'lora', 'fsk', 'gmsk', 'gfsk', 'bpsk', 'ssdv', 'sstv')
  * @returns {Object} Parameter definitions for this decoder
  */
 export function getDecoderParameters(decoder) {
@@ -595,6 +622,13 @@ export function mapParametersToBackend(decoder, parameters) {
             baudrate: parameters.bpsk_baudrate,
             framing: parameters.bpsk_framing,
             differential: parameters.bpsk_differential
+        };
+    }
+
+    if (decoder === 'ssdv') {
+        return {
+            baudrate: parameters.ssdv_baudrate,
+            differential: parameters.ssdv_differential
         };
     }
 
