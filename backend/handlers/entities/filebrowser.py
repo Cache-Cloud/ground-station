@@ -1056,18 +1056,20 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
             )
 
         elif cmd == "list-recordings":
-            # DEPRECATED: Use 'list-files' command instead
-            # Legacy command kept for backward compatibility
-            logger.warning("list-recordings is deprecated, use list-files instead")
+            # SigMF playback uses a dedicated, unfiltered recording response.
+            logger.debug("Listing recordings for SigMF playback")
 
             recordings = []
 
             # Ensure directory exists
             if not recordings_dir.exists():
-                return {
-                    "success": True,
-                    "data": {"items": []},
-                }
+                await emit_file_browser_state(
+                    sio,
+                    {"action": "list-recordings", "items": []},
+                    logger,
+                    room=sid,
+                )
+                return
 
             # Find all .sigmf-meta files
             meta_files = list(recordings_dir.glob("*.sigmf-meta"))
@@ -1095,6 +1097,7 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                 snapshot_info = build_recording_snapshot_info(snapshot_file)
 
                 recording = {
+                    "type": "recording",
                     "name": base_name,
                     "data_file": data_file.name,
                     "meta_file": meta_file.name,
@@ -1113,6 +1116,16 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                     },
                 }
                 recordings.append(recording)
+
+            # This is intentionally separate from list-files: SigMF playback
+            # needs an unfiltered recording inventory even when the File
+            # Browser currently hides recordings.
+            await emit_file_browser_state(
+                sio,
+                {"action": "list-recordings", "items": recordings},
+                logger,
+                room=sid,
+            )
 
         elif cmd == "get-recording-details":
             logger.info(f"Getting recording details for: {data}")

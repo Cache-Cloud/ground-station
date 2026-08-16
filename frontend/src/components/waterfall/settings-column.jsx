@@ -101,7 +101,7 @@ import RecordingAccordion from "./settings-recording.jsx";
 import PlaybackAccordion from "./settings-playback.jsx";
 import { useTranslation } from 'react-i18next';
 import { selectRunningRigTransmitters } from "../target/transmitter-selectors.js";
-import { fetchFiles } from "../filebrowser/filebrowser-slice.jsx";
+import { fetchPlaybackRecordings } from "../filebrowser/filebrowser-slice.jsx";
 import { useSdrTakeoverDialog } from './use-sdr-takeover-dialog.jsx';
 
 const PLAYBACK_DEFAULT_FFT_OVERLAP_PERCENT = 50;
@@ -242,9 +242,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
     );
     const currentSessionId = useSelector((state) => state.decoders?.currentSessionId);
     const {
-        files: filebrowserFiles,
-        filesLoading: filebrowserLoading,
-        filters: filebrowserFilters,
+        playbackRecordings: availablePlaybackRecordings,
+        playbackRecordingsLoading,
     } = useSelector((state) => state.filebrowser, shallowEqual);
 
     const {
@@ -323,15 +322,10 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
     const [localColorMap, setLocalColorMap] = useState(colorMap);
     const [localAutoDBRange, setLocalAutoDBRange] = useState(autoDBRange);
     const hasInitializedRef = useRef(false);
-    const showSnapshotsFilter = filebrowserFilters?.showSnapshots ?? true;
-    const showDecodedFilter = filebrowserFilters?.showDecoded ?? true;
-    const showAudioFilter = filebrowserFilters?.showAudio ?? true;
-    const showTranscriptionsFilter = filebrowserFilters?.showTranscriptions ?? true;
-
     const {socket} = useSocket();
 
     const playbackRecordings = useMemo(() => {
-        const recordings = (filebrowserFiles || []).filter((file) => file.type === 'recording');
+        const recordings = availablePlaybackRecordings || [];
         const toTimestamp = (recording) => {
             const raw = recording?.modified || recording?.created || null;
             if (!raw) {
@@ -348,7 +342,7 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
             }
             return String(a?.name || '').localeCompare(String(b?.name || ''));
         });
-    }, [filebrowserFiles]);
+    }, [availablePlaybackRecordings]);
 
     useEffect(() => {
         setLocalCenterFrequency(centerFrequency);
@@ -384,22 +378,11 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         if (!socket || selectedSDRId !== 'sigmf-playback') {
             return;
         }
-        dispatch(fetchFiles({
-            socket,
-            showRecordings: true,
-            showSnapshots: showSnapshotsFilter,
-            showDecoded: showDecodedFilter,
-            showAudio: showAudioFilter,
-            showTranscriptions: showTranscriptionsFilter,
-        }));
+        dispatch(fetchPlaybackRecordings({ socket }));
     }, [
         dispatch,
         socket,
         selectedSDRId,
-        showSnapshotsFilter,
-        showDecodedFilter,
-        showAudioFilter,
-        showTranscriptionsFilter,
     ]);
 
     const getDefaultFFTOverlapPercentForSDR = useCallback(() => 50, []);
@@ -1504,7 +1487,7 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     isRecording={isRecording}
                     startStreamValidationErrors={startStreamValidationErrors}
                     playbackRecordings={playbackRecordings}
-                    playbackRecordingsLoading={filebrowserLoading}
+                    playbackRecordingsLoading={playbackRecordingsLoading}
                     selectedPlaybackRecordingName={selectedPlaybackRecording?.name || playbackRecordingPath || 'none'}
                     onPlaybackRecordingChange={handlePlaybackRecordingDropdownChange}
                 />

@@ -67,7 +67,7 @@ import {
     updateGnssFixLifecycleFromOutput,
 } from '../components/waterfall/gnss-slice.jsx';
 import { updateAllVFOStates, setVFOProperty } from '../components/waterfall/vfo-marker/vfo-slice.jsx';
-import { fetchFiles } from '../components/filebrowser/filebrowser-slice.jsx';
+import { fetchFiles, setPlaybackRecordings } from '../components/filebrowser/filebrowser-slice.jsx';
 import {
     setConnected,
     setConnecting,
@@ -326,6 +326,12 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
                             pending: false,
                         },
                     });
+                    break;
+
+                case 'list-recordings':
+                    // SigMF playback owns an unfiltered recording list. Do not
+                    // let File Browser filter changes empty the SDR selector.
+                    store.dispatch(setPlaybackRecordings(state.items || []));
                     break;
 
                 case 'delete-recording':

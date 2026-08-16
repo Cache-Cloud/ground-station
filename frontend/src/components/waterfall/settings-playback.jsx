@@ -51,10 +51,9 @@ import StopIcon from '@mui/icons-material/Stop';
 import InfoIcon from '@mui/icons-material/Info';
 import { useTranslation } from 'react-i18next';
 import { useSocket } from '../common/socket.jsx';
-import { fetchFiles, setPage } from '../filebrowser/filebrowser-slice.jsx';
+import { fetchPlaybackRecordings, setPage } from '../filebrowser/filebrowser-slice.jsx';
 import { fetchSDRs } from '../hardware/sdr-slice.jsx';
 import RecordingDialog from '../filebrowser/recording-dialog.jsx';
-import { store } from '../common/store.jsx';
 
 const PLAYBACK_COUNTDOWN_UPDATE_MS = 250;
 
@@ -113,12 +112,11 @@ const PlaybackAccordion = ({
     const { socket } = useSocket();
 
     const {
-        files,
-        filesLoading,
-        filesError,
+        playbackRecordings: files,
+        playbackRecordingsLoading: filesLoading,
+        playbackRecordingsError: filesError,
         page,
         pageSize,
-        total,
     } = useSelector((state) => state.filebrowser);
 
     // Local state for sort options
@@ -132,16 +130,7 @@ const PlaybackAccordion = ({
     const [playbackCountdown, setPlaybackCountdown] = useState(0);
 
     const getPlaybackFilesRequest = useCallback(() => {
-        const currentFilters = store.getState().filebrowser.filters || {};
-        return {
-            socket,
-            // Always include recordings for SigMF playback dropdown/options.
-            showRecordings: true,
-            showSnapshots: currentFilters.showSnapshots ?? true,
-            showDecoded: currentFilters.showDecoded ?? true,
-            showAudio: currentFilters.showAudio ?? true,
-            showTranscriptions: currentFilters.showTranscriptions ?? true,
-        };
+        return { socket };
     }, [socket]);
 
     useEffect(() => {
@@ -223,7 +212,7 @@ const PlaybackAccordion = ({
             // Refresh SDRs to ensure SigMF Playback SDR is available
             dispatch(fetchSDRs({ socket }));
 
-            dispatch(fetchFiles(getPlaybackFilesRequest()));
+            dispatch(fetchPlaybackRecordings(getPlaybackFilesRequest()));
         }
     }, [socket, dispatch, expanded, getPlaybackFilesRequest]);
 
@@ -237,7 +226,7 @@ const PlaybackAccordion = ({
             const action = state?.action;
             if (action && action !== 'list-files') {
                 // Refresh files when recording starts/stops/deleted to show changes immediately.
-                dispatch(fetchFiles(getPlaybackFilesRequest()));
+                dispatch(fetchPlaybackRecordings(getPlaybackFilesRequest()));
             }
         };
 
@@ -250,7 +239,7 @@ const PlaybackAccordion = ({
 
     const handleRefresh = () => {
         if (socket) {
-            dispatch(fetchFiles(getPlaybackFilesRequest()));
+            dispatch(fetchPlaybackRecordings(getPlaybackFilesRequest()));
         }
     };
 

@@ -47,6 +47,23 @@ export const fetchFiles = createAsyncThunk(
     }
 );
 
+// SigMF playback must not depend on the File Browser's currently enabled
+// filters. It has its own complete recording inventory for the SDR selector.
+export const fetchPlaybackRecordings = createAsyncThunk(
+    'filebrowser/fetchPlaybackRecordings',
+    async ({ socket }, { rejectWithValue }) => {
+        try {
+            socket.emit("api.call", {
+  cmd: "filebrowser.list-recordings",
+  data: {}
+});
+            return { pending: true };
+        } catch (error) {
+            return rejectWithValue(error.message || 'Failed to fetch playback recordings');
+        }
+    }
+);
+
 // Async thunk to delete a recording
 // Note: This now uses pub/sub model - response comes via 'file_browser_state' event
 export const deleteRecording = createAsyncThunk(
@@ -231,6 +248,9 @@ const initialState = {
     files: [],
     filesLoading: false,
     filesError: null,
+    playbackRecordings: [],
+    playbackRecordingsLoading: false,
+    playbackRecordingsError: null,
     page: 1,
     pageSize: 10,
     total: 0,
@@ -324,6 +344,11 @@ const fileBrowserSlice = createSlice({
         setViewMode: (state, action) => {
             state.viewMode = action.payload;
         },
+        setPlaybackRecordings: (state, action) => {
+            state.playbackRecordings = action.payload || [];
+            state.playbackRecordingsLoading = false;
+            state.playbackRecordingsError = null;
+        },
     },
     extraReducers: (builder) => {
         // Unified fetchFiles
@@ -359,6 +384,14 @@ const fileBrowserSlice = createSlice({
         builder.addCase(fetchFiles.rejected, (state, action) => {
             state.filesLoading = false;
             state.filesError = action.payload || 'Failed to fetch files';
+        });
+        builder.addCase(fetchPlaybackRecordings.pending, (state) => {
+            state.playbackRecordingsLoading = true;
+            state.playbackRecordingsError = null;
+        });
+        builder.addCase(fetchPlaybackRecordings.rejected, (state, action) => {
+            state.playbackRecordingsLoading = false;
+            state.playbackRecordingsError = action.payload || 'Failed to fetch playback recordings';
         });
 
         // Delete recording - optimistic update
@@ -456,6 +489,7 @@ export const {
     markFileBrowserVisited,
     setHasNewFiles,
     setViewMode,
+    setPlaybackRecordings,
 } = fileBrowserSlice.actions;
 
 export default fileBrowserSlice.reducer;
