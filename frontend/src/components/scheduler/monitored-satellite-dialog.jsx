@@ -74,9 +74,11 @@ const DECODER_TYPES = [
     { value: 'bpsk', labelKey: 'decoder_type_bpsk' },
     { value: 'aprs', labelKey: 'decoder_type_aprs' },
     { value: 'sstv', labelKey: 'decoder_type_sstv' },
+    { value: 'ssdv', labelKey: 'decoder_type_ssdv' },
 ];
 
 const SSTV_DEFAULT_BANDWIDTH = 12500;
+const SSDV_DEFAULT_BANDWIDTH = 20000;
 
 const DEMODULATOR_TYPES = [
     { value: 'fm', labelKey: 'demodulator_fm' },
@@ -663,7 +665,9 @@ export default function MonitoredSatelliteDialog() {
             if (field === 'decoder_type' && currentTask.type === 'decoder') {
                 const nextBandwidth = value === 'sstv'
                     ? (currentTask.config.bandwidth ?? SSTV_DEFAULT_BANDWIDTH)
-                    : undefined;
+                    : value === 'ssdv'
+                        ? (currentTask.config.bandwidth ?? SSDV_DEFAULT_BANDWIDTH)
+                        : undefined;
                 newTasks[index] = {
                     ...currentTask,
                     config: {
@@ -1925,6 +1929,11 @@ export default function MonitoredSatelliteDialog() {
                                                                             // Apply framing-specific parameters (e.g., GEOSCAN frame_size)
                                                                             if (config.framing === 'geoscan' && config.framing_params?.frame_size) {
                                                                                 newParams.bpsk_geoscan_frame_size = config.framing_params.frame_size;
+                                                                            }
+                                                                        } else if (decoderType === 'ssdv') {
+                                                                            if (config.baudrate) newParams.ssdv_baudrate = config.baudrate;
+                                                                            if (config.differential !== null && config.differential !== undefined) {
+                                                                                newParams.ssdv_differential = config.differential;
                                                                             }
                                                                         } else if (decoderType === 'aprs') {
                                                                             if (config.baudrate) newParams.aprs_baudrate = config.baudrate;
