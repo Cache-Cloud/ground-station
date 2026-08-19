@@ -15,7 +15,6 @@ import {
     ListItemIcon,
     ListItemText,
     Paper,
-    Stack,
     Tooltip,
     Typography,
 } from '@mui/material';
@@ -159,20 +158,10 @@ export default function ObservationFolderDialog({ open, onClose, folder, onOpenA
                 pt: '32px !important',
                 pb: 3,
             }}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ sm: 'center' }} sx={{ mt: 1, mb: 2 }}>
-                    <Box>
-                        <Typography variant="subtitle1" fontWeight={700}>Observation artifacts</Typography>
-                        <Typography variant="body2" color="text.secondary">Select an item to open it in its dedicated viewer.</Typography>
-                    </Box>
-                    <Button
-                        variant="outlined"
-                        color="inherit"
-                        startIcon={<DownloadIcon />}
-                        onClick={() => window.open(folder.download_url, '_blank', 'noopener,noreferrer')}
-                    >
-                        Download ZIP
-                    </Button>
-                </Stack>
+                <Box sx={{ mt: 1, mb: 2 }}>
+                    <Typography variant="subtitle1" fontWeight={700}>Observation artifacts</Typography>
+                    <Typography variant="body2" color="text.secondary">Select an item to open it in its dedicated viewer.</Typography>
+                </Box>
                 {recordings.length > 0 && (
                     <>
                         <Typography variant="subtitle2" sx={{ mb: 1.25 }}>IQ recordings</Typography>
