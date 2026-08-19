@@ -170,7 +170,15 @@
       "title": "Synchronisatie van baangegevens",
       "subtitle": "Baangegevens ophalen van satellietbronnen",
       "button": "SYNCHRONISEREN",
+      "cancel_button": "ANNULEREN",
       "last_update": "Laatste update: {{date}}"
+    },
+    "cancel_dialog": {
+      "title": "Synchronisatie annuleren?",
+      "message": "De synchronisatie stopt zodra de huidige bewerking een veilig punt bereikt.",
+      "impact": "Reeds opgeslagen wijzigingen blijven behouden. Start de synchronisatie opnieuw om de catalogus volledig bij te werken.",
+      "keep_syncing": "Doorgaan met synchroniseren",
+      "confirm": "Synchronisatie annuleren"
     },
     "progress": {
       "title": "Synchronisatievoortgang"

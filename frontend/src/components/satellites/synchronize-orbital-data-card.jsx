@@ -1,26 +1,53 @@
 import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Paper } from '@mui/material';
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { useSocket } from '../common/socket.jsx';
 import {
     startSatelliteSync,
     fetchSyncState,
 } from './synchronize-slice.jsx';
+import { stopBackgroundTask } from '../tasks/tasks-slice.jsx';
 import SyncCardHeader from './synchronize-header.jsx';
 import SyncProgressBar from './synchronize-progress.jsx';
 import SyncTerminal from './synchronize-terminal.jsx';
 import ErrorSection from './synchronize-error.jsx';
 import SyncResultsTable from './synchronize-results.jsx';
+import { useTranslation } from 'react-i18next';
 
 const SynchronizeOrbitalDataCard = function () {
     const dispatch = useDispatch();
     const { socket } = useSocket();
-    const { syncState } = useSelector((state) => state.syncSatellite);
+    const { t } = useTranslation('satellites');
+    const { syncState, syncTaskId } = useSelector((state) => state.syncSatellite);
+    const { tasks, runningTaskIds } = useSelector((state) => state.backgroundTasks);
     const [showErrors, setShowErrors] = useState(false);
+    const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+    const [cancelling, setCancelling] = useState(false);
+
+    // The task event can arrive before the start-command acknowledgement. This fallback also
+    // lets the card stop an in-progress orbital sync after the page is reopened.
+    const runningOrbitalSyncTaskId = runningTaskIds.find((taskId) => {
+        const task = tasks[taskId];
+        const taskLabel = `${task?.name || ''} ${task?.command || ''}`.toLowerCase();
+        return taskLabel.includes('orbital') && taskLabel.includes('sync');
+    });
+    const cancellableTaskId = syncTaskId || runningOrbitalSyncTaskId;
 
     const handleSynchronizeSatellites = async () => {
         dispatch(startSatelliteSync({ socket }));
+    };
+
+    const handleConfirmCancel = async () => {
+        if (!cancellableTaskId || cancelling) return;
+
+        setCancelling(true);
+        try {
+            await dispatch(stopBackgroundTask({ socket, task_id: cancellableTaskId })).unwrap();
+            setCancelDialogOpen(false);
+        } finally {
+            setCancelling(false);
+        }
     };
 
     useEffect(() => {
@@ -73,6 +100,8 @@ const SynchronizeOrbitalDataCard = function () {
                 <SyncCardHeader
                     syncState={syncState}
                     onSynchronize={handleSynchronizeSatellites}
+                    onCancel={() => setCancelDialogOpen(true)}
+                    canCancel={Boolean(cancellableTaskId) && !cancelling}
                 />
             </Box>
 
@@ -102,6 +131,34 @@ const SynchronizeOrbitalDataCard = function () {
                     syncState={syncState}
                 />
             </Box>
+
+            <Dialog
+                open={cancelDialogOpen}
+                onClose={() => !cancelling && setCancelDialogOpen(false)}
+                fullWidth
+                maxWidth="xs"
+            >
+                <DialogTitle>{t('synchronize.cancel_dialog.title')}</DialogTitle>
+                <DialogContent>
+                    <Typography>{t('synchronize.cancel_dialog.message')}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+                        {t('synchronize.cancel_dialog.impact')}
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button disabled={cancelling} onClick={() => setCancelDialogOpen(false)}>
+                        {t('synchronize.cancel_dialog.keep_syncing')}
+                    </Button>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        disabled={cancelling || !cancellableTaskId}
+                        onClick={handleConfirmCancel}
+                    >
+                        {t('synchronize.cancel_dialog.confirm')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Paper>
     );
 };

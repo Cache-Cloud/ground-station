@@ -3,6 +3,7 @@ import { Box, Typography, Button, Chip, Stack } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import SyncIcon from '@mui/icons-material/Sync';
+import StopIcon from '@mui/icons-material/Stop';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { humanizeDate, humanizeFutureDateInMinutes } from '../common/common.jsx';
@@ -11,7 +12,7 @@ import { formatDateTime } from '../../utils/date-time.js';
 import PropTypes from 'prop-types';
 import { useTranslation } from 'react-i18next';
 
-const SyncCardHeader = ({ syncState, onSynchronize }) => {
+const SyncCardHeader = ({ syncState, onSynchronize, onCancel, canCancel }) => {
     const { t } = useTranslation('satellites');
     const { timezone, locale } = useUserTimeSettings();
     const normalizedStatus = String(syncState?.status || '').toLowerCase();
@@ -83,16 +84,16 @@ const SyncCardHeader = ({ syncState, onSynchronize }) => {
                 </Stack>
 
                 <Button
-                    disabled={isSyncing}
-                    variant="contained"
-                    color="primary"
-                    onClick={onSynchronize}
+                    disabled={isSyncing ? !canCancel : false}
+                    variant={isSyncing ? "outlined" : "contained"}
+                    color={isSyncing ? "error" : "primary"}
+                    onClick={isSyncing ? onCancel : onSynchronize}
                     size="small"
-                    startIcon={<SyncIcon fontSize="small" />}
+                    startIcon={isSyncing ? <StopIcon fontSize="small" /> : <SyncIcon fontSize="small" />}
                     sx={{ flexShrink: 0 }}
                 >
                     {isSyncing
-                        ? t('synchronize.header.syncing_button', { defaultValue: 'Synchronizing...' })
+                        ? t('synchronize.header.cancel_button')
                         : t('synchronize.header.button')}
                 </Button>
             </Box>
@@ -167,6 +168,8 @@ const SyncCardHeader = ({ syncState, onSynchronize }) => {
 SyncCardHeader.propTypes = {
     syncState: PropTypes.object.isRequired,
     onSynchronize: PropTypes.func.isRequired,
+    onCancel: PropTypes.func.isRequired,
+    canCancel: PropTypes.bool.isRequired,
 };
 
 export default SyncCardHeader;

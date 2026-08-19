@@ -170,7 +170,15 @@
       "title": "Sincronizzazione dati orbitali",
       "subtitle": "Recupera dati orbitali dalle fonti satellitari",
       "button": "Sincronizza",
+      "cancel_button": "ANNULLA",
       "last_update": "Ultimo aggiornamento: {{date}}"
+    },
+    "cancel_dialog": {
+      "title": "Annullare la sincronizzazione?",
+      "message": "La sincronizzazione verrà interrotta quando l'operazione corrente raggiungerà un punto sicuro.",
+      "impact": "Le modifiche già salvate verranno mantenute. Esegui nuovamente la sincronizzazione per completare l'aggiornamento del catalogo.",
+      "keep_syncing": "Continua la sincronizzazione",
+      "confirm": "Annulla sincronizzazione"
     },
     "progress": {
       "title": "Progresso Sincronizzazione"

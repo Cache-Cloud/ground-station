@@ -35,7 +35,8 @@ export const startSatelliteSync = createAsyncThunk(
   data: null
 }, response => {
   if (response.success === true) {
-    resolve('Satellite data synchronization initiated');
+    // Preserve the task ID so the synchronization card can stop this exact run.
+    resolve(response);
   } else {
     reject(response.error);
   }
@@ -78,6 +79,7 @@ const syncSatelliteSlice = createSlice({
         error: null,
         loading: false,
         synchronizing: false,
+        syncTaskId: null,
         syncState: {
             progress: -1,
             newly_added: 0,
@@ -104,6 +106,7 @@ const syncSatelliteSlice = createSlice({
             .addCase(startSatelliteSync.pending, (state) => {
                 state.status = 'loading';
                 state.synchronizing = true;
+                state.syncTaskId = null;
                 state.error = null;
                 // Immediately reflect a running sync in the UI, even before the first backend progress event arrives.
                 state.syncState = {
@@ -116,6 +119,7 @@ const syncSatelliteSlice = createSlice({
             })
             .addCase(startSatelliteSync.fulfilled, (state, action) => {
                 state.status = 'succeeded';
+                state.syncTaskId = action.payload?.task_id || null;
             })
             .addCase(startSatelliteSync.rejected, (state, action) => {
                 state.status = 'failed';

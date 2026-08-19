@@ -170,7 +170,15 @@
       "title": "Orbitdaten-Synchronisation",
       "subtitle": "Bahndaten von Satellitenquellen abrufen",
       "button": "SYNCHRONISIEREN",
+      "cancel_button": "ABBRECHEN",
       "last_update": "Letzte Aktualisierung: {{date}}"
+    },
+    "cancel_dialog": {
+      "title": "Synchronisierung abbrechen?",
+      "message": "Die Synchronisierung wird beendet, sobald der aktuelle Vorgang einen sicheren Punkt erreicht.",
+      "impact": "Bereits gespeicherte Änderungen bleiben erhalten. Starten Sie die Synchronisierung erneut, um die Aktualisierung des Katalogs abzuschließen.",
+      "keep_syncing": "Weiter synchronisieren",
+      "confirm": "Synchronisierung abbrechen"
     },
     "progress": {
       "title": "Synchronisationsfortschritt"

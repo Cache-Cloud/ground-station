@@ -232,7 +232,15 @@
       "title": "Orbital Data Sync",
       "subtitle": "Fetch orbital data from satellite sources",
       "button": "Synchronize",
+      "cancel_button": "Cancel",
       "last_update": "Last update: {{date}}"
+    },
+    "cancel_dialog": {
+      "title": "Cancel synchronization?",
+      "message": "The synchronization will stop as soon as the current operation reaches a safe point.",
+      "impact": "Changes that have already been saved will be kept. Run synchronization again to finish updating the catalogue.",
+      "keep_syncing": "Keep synchronizing",
+      "confirm": "Cancel synchronization"
     },
     "progress": {
       "title": "Synchronization Progress"
