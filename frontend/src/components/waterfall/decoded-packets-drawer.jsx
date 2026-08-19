@@ -85,7 +85,7 @@ export const mapOutputsToRows = (outputs, rowLimit = DEFAULT_DRAWER_ROW_LIMIT) =
         .slice(0, rowLimit)
         .map(output => {
             const isSstv = output.decoder_type === 'sstv';
-            const isImage = isSstv || output.decoder_type === 'ssdv';
+            const isImage = isSstv || output.decoder_type === 'geoscanimage';
             const isLora = output.decoder_type === ModulationType.LORA;
 
             // For SSTV and LoRa: use different display logic
@@ -200,7 +200,7 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
 
             // Image decoder metadata is already in the output.
             const isSstv = row.decoderType === 'sstv';
-            const isImage = isSstv || row.decoderType === 'ssdv';
+            const isImage = isSstv || row.decoderType === 'geoscanimage';
 
             if (isImage) {
                 // Image decoders have inline base64 data and metadata filepath.

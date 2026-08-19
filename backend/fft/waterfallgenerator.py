@@ -17,11 +17,14 @@
 
 import json
 import logging
+import warnings
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Tuple
 
 import numpy as np
 from PIL import Image
+
+from common.imageguard import is_thumbnail_source_within_pixel_limit
 
 logger = logging.getLogger("waterfall-generator")
 
@@ -829,6 +832,15 @@ class WaterfallGenerator:
         """
         Generate a thumbnail from the full waterfall image.
         """
-        with Image.open(source_path) as img:
-            img.thumbnail(self.config.thumbnail_size, Image.Resampling.LANCZOS)
-            img.save(thumbnail_path, "PNG", optimize=True)
+        # The full waterfall may exceed Pillow's default warning threshold.
+        # Inspect its header first and avoid decoding inputs over the explicit
+        # thumbnail-worker limit.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(source_path) as img:
+                if not is_thumbnail_source_within_pixel_limit(img):
+                    logger.warning("Skipped oversized waterfall thumbnail source: %s", source_path)
+                    return
+
+                img.thumbnail(self.config.thumbnail_size, Image.Resampling.LANCZOS)
+                img.save(thumbnail_path, "PNG", optimize=True)

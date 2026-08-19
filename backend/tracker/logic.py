@@ -175,6 +175,13 @@ class SatelliteTracker:
             "target_el": None,
             "last_command_ts": 0.0,
             "settle_hits": 0,
+            # Kept independently from live command state so expensive 0_450 pass
+            # planning is performed per pass, not per tracking update.
+            "overlap_lane": None,
+            "overlap_plan_signature": None,
+            "overlap_plan_lane": None,
+            "overlap_plan_pass_end": None,
+            "overlap_plan_retry_at": 0.0,
         }
         self.rotator_retarget_threshold_deg = 2.0
         self.rotator_command_refresh_sec = 6.0

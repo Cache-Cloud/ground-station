@@ -42,6 +42,11 @@ class _DummyTracker:
             "target_el": None,
             "last_command_ts": 0.0,
             "settle_hits": 0,
+            "overlap_lane": None,
+            "overlap_plan_signature": None,
+            "overlap_plan_lane": None,
+            "overlap_plan_pass_end": None,
+            "overlap_plan_retry_at": 0.0,
         }
         self.nudge_offset = {"az": 0, "el": 0}
         self.az_tolerance = 2.0
@@ -169,7 +174,7 @@ def test_overlap_mode_does_not_plan_high_lane_when_preposition_is_impossible():
     assert tracker.rotator_command_state["overlap_lane"] is None
 
 
-def test_overlap_mode_plans_once_from_the_predicted_current_pass(monkeypatch):
+def test_overlap_mode_plans_once_from_the_predicted_pass(monkeypatch):
     tracker = _DummyTracker("0_450")
     tracker.current_norad_id = 12345
     handler = RotatorHandler(tracker)
@@ -193,11 +198,150 @@ def test_overlap_mode_plans_once_from_the_predicted_current_pass(monkeypatch):
 
     monkeypatch.setattr("tracker.rotatorhandler.calculate_next_events", _predicted_passes)
 
-    handler.plan_overlap_lane({"norad_id": 12345}, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
-    handler.plan_overlap_lane({"norad_id": 12345}, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+    satellite = {
+        "norad_id": 12345,
+        "tle1": "1 12345U 00000A",
+        "tle2": "2 12345  90.0000",
+    }
+    handler.plan_overlap_lane(satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+    handler.plan_overlap_lane(satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
 
     assert len(calls) == 1
     assert tracker.rotator_command_state["overlap_lane"] == 1
+
+
+def test_overlap_mode_replans_when_tle_changes(monkeypatch):
+    tracker = _DummyTracker("0_450")
+    tracker.current_norad_id = 12345
+    handler = RotatorHandler(tracker)
+    calls = []
+    now = datetime.now(timezone.utc)
+
+    def _predicted_passes(**kwargs):
+        calls.append(kwargs)
+        return {
+            "success": True,
+            "data": [
+                {
+                    "event_start": (now - timedelta(minutes=1)).isoformat(),
+                    "event_end": (now + timedelta(minutes=4)).isoformat(),
+                    "crosses_north": False,
+                    "start_azimuth": 50.0,
+                    "end_azimuth": 355.0,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("tracker.rotatorhandler.calculate_next_events", _predicted_passes)
+
+    initial_satellite = {
+        "norad_id": 12345,
+        "tle1": "1 12345U 00000A",
+        "tle2": "2 12345  90.0000",
+    }
+    updated_satellite = {**initial_satellite, "tle1": "1 12345U 00000B"}
+
+    handler.plan_overlap_lane(initial_satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+    handler.plan_overlap_lane(updated_satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+
+    assert len(calls) == 2
+
+
+def test_overlap_mode_throttles_retry_when_no_pass_is_forecast(monkeypatch):
+    tracker = _DummyTracker("0_450")
+    tracker.current_norad_id = 12345
+    handler = RotatorHandler(tracker)
+    calls = []
+
+    def _predicted_passes(**kwargs):
+        calls.append(kwargs)
+        return {"success": True, "data": []}
+
+    monkeypatch.setattr("tracker.rotatorhandler.calculate_next_events", _predicted_passes)
+    satellite = {
+        "norad_id": 12345,
+        "tle1": "1 12345U 00000A",
+        "tle2": "2 12345  90.0000",
+    }
+
+    handler.plan_overlap_lane(satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+    handler.plan_overlap_lane(satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+
+    assert len(calls) == 1
+    assert tracker.rotator_command_state["overlap_plan_retry_at"] > time.time()
+
+
+def test_overlap_mode_retains_plan_across_rotator_state_transition(monkeypatch):
+    tracker = _DummyTracker("0_450")
+    tracker.current_norad_id = 12345
+    handler = RotatorHandler(tracker)
+    calls = []
+    now = datetime.now(timezone.utc)
+
+    def _predicted_passes(**kwargs):
+        calls.append(kwargs)
+        return {
+            "success": True,
+            "data": [
+                {
+                    "event_start": (now - timedelta(minutes=1)).isoformat(),
+                    "event_end": (now + timedelta(minutes=4)).isoformat(),
+                    "crosses_north": True,
+                    "start_azimuth": 50.0,
+                    "end_azimuth": 355.0,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("tracker.rotatorhandler.calculate_next_events", _predicted_passes)
+    satellite = {
+        "norad_id": 12345,
+        "tle1": "1 12345U 00000A",
+        "tle2": "2 12345  90.0000",
+    }
+
+    handler.plan_overlap_lane(satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+    handler._clear_overlap_lane_state()
+    handler.plan_overlap_lane(satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+
+    assert len(calls) == 1
+    assert tracker.rotator_command_state["overlap_lane"] == 1
+
+
+def test_overlap_mode_replans_after_planned_pass_ends(monkeypatch):
+    tracker = _DummyTracker("0_450")
+    tracker.current_norad_id = 12345
+    handler = RotatorHandler(tracker)
+    calls = []
+    now = datetime.now(timezone.utc)
+
+    def _predicted_passes(**kwargs):
+        calls.append(kwargs)
+        return {
+            "success": True,
+            "data": [
+                {
+                    "event_start": (now - timedelta(minutes=1)).isoformat(),
+                    "event_end": (now + timedelta(minutes=4)).isoformat(),
+                    "crosses_north": False,
+                    "start_azimuth": 50.0,
+                    "end_azimuth": 355.0,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("tracker.rotatorhandler.calculate_next_events", _predicted_passes)
+    satellite = {
+        "norad_id": 12345,
+        "tle1": "1 12345U 00000A",
+        "tle2": "2 12345  90.0000",
+    }
+
+    handler.plan_overlap_lane(satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+    tracker.rotator_command_state["overlap_plan_pass_end"] = time.time() - 1.0
+    handler.plan_overlap_lane(satellite, {"lat": 52.0, "lon": 13.0}, (50.0, 5.0))
+
+    assert len(calls) == 2
 
 
 @pytest.mark.asyncio

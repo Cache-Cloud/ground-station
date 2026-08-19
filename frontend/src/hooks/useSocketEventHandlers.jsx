@@ -775,7 +775,7 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
 
                     // Show toast notification for image outputs.
                     // Morse and other text-based decoders are too frequent for toasts
-                    if (['sstv', 'ssdv'].includes(data.decoder_type) && data.output.image_data) {
+                    if (['sstv', 'geoscanimage'].includes(data.decoder_type) && data.output.image_data) {
                         const outputType = data.output.format;
                         const fileName = data.output.filename;
                         const imageData = data.output.image_data;

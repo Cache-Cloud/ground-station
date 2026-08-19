@@ -54,9 +54,9 @@ except Exception:
     SSTVDecoder = None
 
 try:
-    from demodulators.ssdvdecoder import SSDVDecoder
+    from demodulators.geoscanimage import GeoscanImageDecoder
 except Exception:
-    SSDVDecoder = None
+    GeoscanImageDecoder = None
 
 try:
     from demodulators.gnsssdrdecoder import GNSSSdrDecoder
@@ -138,17 +138,19 @@ class DecoderRegistry:
                 description="Slow-scan television image decoder (process-based with integrated FM demod)",
             )
 
-        if SSDVDecoder is not None:
-            self._decoders["ssdv"] = DecoderCapabilities(
-                name="ssdv",
-                decoder_class=SSDVDecoder,
+        if GeoscanImageDecoder is not None:
+            self._decoders["geoscanimage"] = DecoderCapabilities(
+                name="geoscanimage",
+                decoder_class=GeoscanImageDecoder,
                 needs_raw_iq=True,
                 required_demodulator=None,
                 demodulator_mode=None,
                 default_bandwidth=20_000,
-                supports_transmitter_config=True,
-                restart_on_params=["baudrate", "differential"],
-                description="Packetised SSDV JPEG image decoder over BPSK",
+                # Its PHY/framing parameters are explicit user choices.  A
+                # transmitter may select a frequency, never a receiver profile.
+                supports_transmitter_config=False,
+                restart_on_params=["baudrate", "deviation", "framing_params"],
+                description="Geoscan/Alferov JPEG image decoder over raw-IQ FSK",
             )
 
         if MorseDecoder is not None:

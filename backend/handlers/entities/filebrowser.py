@@ -130,20 +130,29 @@ def build_recording_snapshot_info(snapshot_file: Path) -> Optional[Dict[str, Any
         return None
 
     width, height = get_image_dimensions(str(snapshot_file))
-    thumbnail_url = get_image_thumbnail_url(snapshot_file, "/recordings")
-    thumbnail_info = None
-
-    if thumbnail_url:
+    # WaterfallGenerator creates this lightweight PNG beside the full-resolution
+    # waterfall. Prefer it for cards instead of deriving another thumbnail from
+    # the full image on every first browser visit.
+    waterfall_thumbnail_path = snapshot_file.with_name(f"{snapshot_file.stem}_waterfall_thumb.png")
+    if waterfall_thumbnail_path.exists() and waterfall_thumbnail_path.is_file():
+        thumbnail_path = waterfall_thumbnail_path
+        thumbnail_url = f"/recordings/{thumbnail_path.name}?v={int(thumbnail_path.stat().st_mtime)}"
+    else:
+        # Recordings created before waterfall thumbnails were introduced retain
+        # the generated JPEG fallback rather than losing their card preview.
         thumbnail_path = get_image_thumbnail_path(snapshot_file)
-        if thumbnail_path.exists() and thumbnail_path.is_file():
-            thumbnail_width, thumbnail_height = get_image_dimensions(str(thumbnail_path))
-            thumbnail_info = {
-                "filename": thumbnail_path.name,
-                "url": thumbnail_url,
-                "size": thumbnail_path.stat().st_size,
-                "width": thumbnail_width,
-                "height": thumbnail_height,
-            }
+        thumbnail_url = get_image_thumbnail_url(snapshot_file, "/recordings")
+
+    thumbnail_info = None
+    if thumbnail_url and thumbnail_path.exists() and thumbnail_path.is_file():
+        thumbnail_width, thumbnail_height = get_image_dimensions(str(thumbnail_path))
+        thumbnail_info = {
+            "filename": thumbnail_path.name,
+            "url": thumbnail_url,
+            "size": thumbnail_path.stat().st_size,
+            "width": thumbnail_width,
+            "height": thumbnail_height,
+        }
 
     return {
         "filename": snapshot_file.name,
@@ -446,6 +455,15 @@ def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
     stat = bundle_dir.stat()
     satellite_data = manifest.get("satellite")
     satellite: Dict[str, Any] = satellite_data if isinstance(satellite_data, dict) else {}
+    # rglob() sorts the full waterfall before its ``_waterfall_thumb`` sibling.
+    # Explicitly choose the generator output so observation-folder cards do not
+    # download a multi-megabyte waterfall merely to render a preview.
+    waterfall_thumbnails = [
+        image
+        for image in images
+        if image["path"].startswith("recordings/")
+        and image["name"].endswith("_waterfall_thumb.png")
+    ]
     return {
         # Reuse the established folder-card/table presentation, while folder_kind
         # selects the generic observation dialog instead of a SatDump dialog.
@@ -458,7 +476,11 @@ def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
         "modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
         "url": f"/observations/{quote(bundle_dir.name)}",
         "download_url": f"/api/observations/{quote(bundle_dir.name)}/download",
-        "thumbnail_url": images[0]["url"] if images else None,
+        "thumbnail_url": (
+            waterfall_thumbnails[0]["url"]
+            if waterfall_thumbnails
+            else images[0]["url"] if images else None
+        ),
         "satellite_name": satellite.get("name", "Unknown"),
         "satellite_id": satellite.get("norad_id"),
         "image_count": len(images),

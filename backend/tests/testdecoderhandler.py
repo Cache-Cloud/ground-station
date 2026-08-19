@@ -19,10 +19,21 @@ def test_maps_aprs_scheduler_parameters_to_decoder_overrides():
     }
 
 
-def test_maps_ssdv_scheduler_parameters_to_decoder_overrides():
+def test_maps_geoscan_image_scheduler_parameters_to_decoder_overrides():
     assert map_scheduler_decoder_parameters(
-        "ssdv", {"ssdv_baudrate": 9600, "ssdv_differential": True}
-    ) == {"baudrate": 9600, "differential": True}
+        "geoscanimage",
+        {
+            "geoscanimage_baudrate": 9600,
+            "geoscanimage_deviation": 5000,
+            "geoscanimage_frame_size": 74,
+            "geoscanimage_syncword_threshold": 4,
+            "geoscanimage_satellite_id": 9,
+        },
+    ) == {
+        "baudrate": 9600,
+        "deviation": 5000,
+        "framing_params": {"frame_size": 74, "syncword_threshold": 4, "satellite_id": 9},
+    }
 
 
 def test_preserves_false_values_and_accepts_normalized_parameters():

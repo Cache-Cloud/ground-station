@@ -2,11 +2,14 @@
 Shared thumbnail helpers for SatDump decoded folders.
 """
 
+import warnings
 from multiprocessing import Queue
 from pathlib import Path
 from typing import Optional
 
 from PIL import Image
+
+from common.imageguard import is_thumbnail_source_within_pixel_limit
 
 THUMBNAIL_FILENAME = "thumbnail.jpg"
 
@@ -86,15 +89,31 @@ def generate_decoded_thumbnail(
 
     tmp_thumb_path = decoded_folder / f".{THUMBNAIL_FILENAME}.tmp"
     try:
-        with Image.open(source) as image:
-            target_w, target_h = 960, 540
-            rgb = image.convert("RGB")
-            rgb.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
-            canvas = Image.new("RGB", (target_w, target_h), color=(10, 10, 10))
-            x_offset = (target_w - rgb.width) // 2
-            y_offset = (target_h - rgb.height) // 2
-            canvas.paste(rgb, (x_offset, y_offset))
-            canvas.save(tmp_thumb_path, format="JPEG", quality=88, optimize=True)
+        # Pillow warns above 89 MP before exposing the header dimensions.  This
+        # local suppression lets our explicit 140 MP policy decide
+        # whether decoding the source is permitted.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(source) as image:
+                if not is_thumbnail_source_within_pixel_limit(image):
+                    if progress_queue:
+                        progress_queue.put(
+                            {
+                                "type": "output",
+                                "output": f"Skipped oversized thumbnail source: {source.name}",
+                                "stream": "stderr",
+                            }
+                        )
+                    return None
+
+                target_w, target_h = 960, 540
+                rgb = image.convert("RGB")
+                rgb.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+                canvas = Image.new("RGB", (target_w, target_h), color=(10, 10, 10))
+                x_offset = (target_w - rgb.width) // 2
+                y_offset = (target_h - rgb.height) // 2
+                canvas.paste(rgb, (x_offset, y_offset))
+                canvas.save(tmp_thumb_path, format="JPEG", quality=88, optimize=True)
 
         # Atomic replace keeps lazy generation safe if multiple listings run concurrently.
         tmp_thumb_path.replace(thumb_path)

@@ -106,7 +106,7 @@
     "decoders_modes": {
       "none": "None",
       "sstv": "SSTV",
-      "ssdv": "SSDV",
+      "geoscanimage": "Geoscan Image",
       "morse": "Morse",
       "lora": "LoRa",
       "aprs": "APRS",

@@ -33,6 +33,11 @@ logger = logging.getLogger("tracker-worker")
 class RotatorHandler:
     """Handles all rotator-related operations for satellite tracking."""
 
+    # A pass prediction is relatively expensive. If no pass is inside the forecast
+    # window (or a prediction temporarily fails), retry at a bounded cadence rather
+    # than once per tracker tick.
+    OVERLAP_PLAN_RETRY_SECONDS = 300.0
+
     def __init__(self, tracker):
         """
         Initialize the rotator handler.
@@ -61,13 +66,20 @@ class RotatorHandler:
         self.tracker.rotator_data["slewing"] = False
 
     def _clear_overlap_lane_state(self):
-        """Clear the per-pass 0_450 overlap plan when tracking context changes."""
+        """Clear only the live lane command during a rotator state transition."""
         self.tracker.rotator_command_state["overlap_lane"] = None
-        self.tracker.rotator_command_state["overlap_plan_target"] = None
 
     def reset_overlap_lane_plan(self):
-        """Discard a planned lane when the tracked target changes."""
-        self._clear_overlap_lane_state()
+        """Discard a plan when its target context, rather than hardware state, changes."""
+        self.tracker.rotator_command_state.update(
+            {
+                "overlap_lane": None,
+                "overlap_plan_signature": None,
+                "overlap_plan_lane": None,
+                "overlap_plan_pass_end": None,
+                "overlap_plan_retry_at": 0.0,
+            }
+        )
 
     @staticmethod
     def _parse_event_time(value):
@@ -88,6 +100,32 @@ class RotatorHandler:
             if start is not None and end is not None and start <= now <= end:
                 return event
         return None
+
+    def _find_current_or_upcoming_pass(self, events):
+        """Return the active pass, or the next one, from a forecast response."""
+        current_pass = self._find_current_pass(events)
+        if current_pass is not None:
+            return current_pass
+
+        now = datetime.now(timezone.utc)
+        upcoming_passes = []
+        for event in events:
+            start = self._parse_event_time(event.get("event_start"))
+            end = self._parse_event_time(event.get("event_end"))
+            if start is not None and end is not None and end > now:
+                upcoming_passes.append((start, event))
+
+        return min(upcoming_passes, default=(None, None), key=lambda item: item[0])[1]
+
+    def _overlap_plan_signature(self, satellite):
+        """Identify the target and hardware inputs that make a lane plan valid."""
+        return (
+            str(getattr(self.tracker, "current_norad_id", "")),
+            str(satellite.get("tle1") or "").strip(),
+            str(satellite.get("tle2") or "").strip(),
+            self._get_azimuth_mode(),
+            tuple(float(limit) for limit in self.tracker.azimuth_limits),
+        )
 
     def _plan_overlap_lane_for_pass(self, pass_data, current_bearing_az, current_elevation):
         """Lock the high lane only when it can be selected before a north crossing."""
@@ -123,18 +161,46 @@ class RotatorHandler:
     def plan_overlap_lane(self, satellite, location, skypoint):
         """Build one 0_450 lane plan per tracked satellite pass.
 
-        This deliberately predicts the entire pass once instead of changing lanes
-        from a few live azimuth samples. A lane change after tracking has begun is
-        mechanically expensive and can lose most of a pass.
+        The tracker calls this on every position update, so the prediction lifecycle
+        lives here rather than in the hot tracking path: a plan remains valid for its
+        target/TLE/rotator signature through LOS, then the next call plans the next
+        pass. A lane change after tracking has begun is mechanically expensive and
+        can lose most of a pass.
         """
         if self._get_azimuth_mode() != "0_450":
             return
 
         state = self.tracker.rotator_command_state
-        target_key = str(getattr(self.tracker, "current_norad_id", ""))
-        if state.get("overlap_plan_target") == target_key:
+        now_epoch = time.time()
+        signature = self._overlap_plan_signature(satellite)
+        planned_pass_end = state.get("overlap_plan_pass_end")
+        try:
+            plan_is_current = (
+                state.get("overlap_plan_signature") == signature
+                and float(planned_pass_end) > now_epoch
+            )
+        except (TypeError, ValueError):
+            plan_is_current = False
+
+        if plan_is_current:
+            # A rotator connection/tracking transition clears the live command lane,
+            # but it must not discard a still-valid pass prediction.
+            state["overlap_lane"] = state.get("overlap_plan_lane")
             return
-        state["overlap_plan_target"] = target_key
+
+        # A missing upcoming pass must not turn into a costly prediction every two
+        # seconds while the tracker remains enabled between passes.
+        if state.get("overlap_plan_signature") == signature and now_epoch < float(
+            state.get("overlap_plan_retry_at") or 0.0
+        ):
+            return
+
+        # Record the attempt before doing the blocking propagation. If propagation
+        # fails, normal low-lane tracking continues and the bounded retry applies.
+        state["overlap_plan_signature"] = signature
+        state["overlap_plan_lane"] = None
+        state["overlap_plan_pass_end"] = None
+        state["overlap_plan_retry_at"] = now_epoch + self.OVERLAP_PLAN_RETRY_SECONDS
         state["overlap_lane"] = None
 
         try:
@@ -145,8 +211,20 @@ class RotatorHandler:
                 above_el=0,
             )
             events = result.get("data") if result.get("success") else []
-            current_pass = self._find_current_pass(events or [])
-            self._plan_overlap_lane_for_pass(current_pass, skypoint[0], skypoint[1])
+            planned_pass = self._find_current_or_upcoming_pass(events or [])
+            if planned_pass is None:
+                return
+
+            planned_pass_end = self._parse_event_time(planned_pass.get("event_end"))
+            if planned_pass_end is None:
+                return
+
+            # Retain the plan through LOS. The following tracking tick then creates
+            # a new plan for the next pass without repeatedly propagating this one.
+            state["overlap_plan_pass_end"] = planned_pass_end.timestamp()
+            state["overlap_plan_retry_at"] = 0.0
+            self._plan_overlap_lane_for_pass(planned_pass, skypoint[0], skypoint[1])
+            state["overlap_plan_lane"] = state.get("overlap_lane")
         except Exception as error:
             # Prediction must never block normal low-lane tracking when ephemeris
             # data are temporarily unavailable.

@@ -30,3 +30,26 @@ describe('APRS decoder parameters', () => {
         });
     });
 });
+
+describe('Geoscan image decoder parameters', () => {
+    it('keeps the receiver profile explicit and maps its Geoscan framing values', () => {
+        const defaults = getDecoderDefaultParameters('geoscanimage');
+
+        expect(defaults).toEqual({
+            geoscanimage_baudrate: 9600,
+            geoscanimage_deviation: 5000,
+            geoscanimage_frame_size: 74,
+            geoscanimage_syncword_threshold: 4,
+            geoscanimage_satellite_id: 9,
+        });
+        expect(mapParametersToBackend('geoscanimage', defaults)).toEqual({
+            baudrate: 9600,
+            deviation: 5000,
+            framing_params: {
+                frame_size: 74,
+                syncword_threshold: 4,
+                satellite_id: 9,
+            },
+        });
+    });
+});

@@ -65,7 +65,7 @@ class DecoderConfigService:
         Resolve decoder configuration from multiple sources.
 
         Args:
-            decoder_type: Decoder type ('gmsk', 'bpsk', 'aprs', 'gfsk', 'fsk', 'ssdv', 'gnss')
+            decoder_type: Decoder type ('gmsk', 'bpsk', 'aprs', 'gfsk', 'fsk', 'geoscanimage', 'gnss')
             satellite: Satellite dict with 'norad_id', 'name', etc.
             transmitter: Transmitter dict with 'baud', 'deviation', 'mode', 'description', etc.
             overrides: Manual parameter overrides (highest priority)
@@ -117,30 +117,51 @@ class DecoderConfigService:
             config.transmitter = transmitter if transmitter else None
             return config
 
-        # SSDV is a packetised JPEG format.  The initial receiver profile is
-        # BPSK and uses SSDV's own fixed 256-byte framing, never AX.25.
-        if decoder_type == "ssdv":
-            baudrate = self._resolve_baudrate(transmitter, overrides)
+        # Alferov/Geoscan image traffic is deliberately configured without
+        # SatNOGS/gr-satellites inference.  Those data sources have previously
+        # described this downlink inconsistently; only the user's parameters
+        # control this isolated receiver.
+        if decoder_type == "geoscanimage":
             config = DecoderConfig(
-                baudrate=baudrate,
-                framing=FramingType.SSDV,
-                config_source=(
-                    "transmitter_metadata"
-                    if (transmitter.get("mode") or transmitter.get("description"))
-                    else "smart_default"
-                ),
-                differential=(
-                    "DBPSK" in str(transmitter.get("mode", "")).upper()
-                    or "DBPSK" in str(transmitter.get("description", "")).upper()
-                ),
-                packet_size=256,
+                baudrate=9600,
+                deviation=5000,
+                framing=FramingType.GEOSCAN,
+                config_source="geoscan_image_defaults",
+                framing_params={
+                    "frame_size": 74,
+                    "syncword_threshold": 4,
+                    "satellite_id": 9,
+                },
             )
             if overrides:
                 config = self._apply_overrides(config, overrides)
-            # Do not allow a generic UI framing override to put an SSDV
-            # decoder back onto AX.25 after its packet-sync flowgraph starts.
-            config.framing = FramingType.SSDV
-            config.packet_size = 256
+            try:
+                config.baudrate = max(1, int(config.baudrate))
+            except (TypeError, ValueError):
+                config.baudrate = 9600
+            try:
+                config.deviation = max(1, int(config.deviation))
+            except (TypeError, ValueError):
+                config.deviation = 5000
+            params = config.framing_params or {}
+            try:
+                frame_size = max(16, min(512, int(params.get("frame_size", 74))))
+            except (TypeError, ValueError):
+                frame_size = 74
+            try:
+                syncword_threshold = max(0, min(32, int(params.get("syncword_threshold", 4))))
+            except (TypeError, ValueError):
+                syncword_threshold = 4
+            try:
+                satellite_id = max(0, min(255, int(params.get("satellite_id", 9))))
+            except (TypeError, ValueError):
+                satellite_id = 9
+            config.framing_params = {
+                "frame_size": frame_size,
+                "syncword_threshold": syncword_threshold,
+                "satellite_id": satellite_id,
+            }
+            config.framing = FramingType.GEOSCAN
             config.satellite = satellite if satellite else None
             config.transmitter = transmitter if transmitter else None
             return config

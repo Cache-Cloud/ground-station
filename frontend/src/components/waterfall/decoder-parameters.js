@@ -313,27 +313,67 @@ export const BPSK_PARAMETERS = {
 };
 
 /**
- * SSDV is a packetised JPEG format. The first supported RF profile is the
- * 9600-baud BPSK downlink used by OBJECT AY.
+ * Geoscan/Alferov images use FSK plus a Geoscan packet layer.
+ * Keep every receiver choice explicit; future satellite profiles may populate
+ * these fields as UI presets but must not change the decoder implementation.
  */
-export const SSDV_PARAMETERS = {
-    ssdv_baudrate: {
+export const GEOSCANIMAGE_PARAMETERS = {
+    geoscanimage_baudrate: {
         label: 'Baud Rate',
-        description: 'BPSK symbol rate for the SSDV downlink',
+        description: 'FSK symbol rate',
         type: 'select',
         default: 9600,
         options: [
-            { value: 1200, label: '1200 baud' },
             { value: 4800, label: '4800 baud' },
-            { value: 9600, label: '9600 baud (OBJECT AY)' },
+            { value: 9600, label: '9600 baud' },
             { value: 19200, label: '19200 baud' }
         ]
     },
-    ssdv_differential: {
-        label: 'Differential Mode (DBPSK)',
-        description: 'Enable only for SSDV transmitters using DBPSK',
-        type: 'switch',
-        default: false
+    geoscanimage_deviation: {
+        label: 'Frequency Deviation',
+        description: 'FSK deviation in Hz',
+        type: 'select',
+        default: 5000,
+        options: [
+            { value: 2400, label: '2.4 kHz' },
+            { value: 4800, label: '4.8 kHz' },
+            { value: 5000, label: '5 kHz' },
+            { value: 7500, label: '7.5 kHz' },
+            { value: 10000, label: '10 kHz' }
+        ]
+    },
+    geoscanimage_frame_size: {
+        label: 'Geoscan Frame Size',
+        description: 'On-air frame length, including the CC11xx CRC',
+        type: 'select',
+        default: 74,
+        options: [
+            { value: 66, label: '66 bytes' },
+            { value: 74, label: '74 bytes (Alferov)' }
+        ]
+    },
+    geoscanimage_syncword_threshold: {
+        label: 'Sync Word Errors',
+        description: 'Maximum bit errors accepted in the 32-bit Geoscan sync word',
+        type: 'select',
+        default: 4,
+        options: [
+            { value: 0, label: '0 (exact)' },
+            { value: 2, label: '2' },
+            { value: 4, label: '4 (default)' },
+            { value: 6, label: '6' }
+        ]
+    },
+    geoscanimage_satellite_id: {
+        label: 'Satellite ID',
+        description: 'Geoscan satellite byte; 9 is 239 Alferov',
+        type: 'select',
+        default: 9,
+        options: [
+            { value: 9, label: '9 (239 Alferov)' },
+            { value: 10, label: '10' },
+            { value: 12, label: '12' }
+        ]
     }
 };
 
@@ -497,7 +537,7 @@ export const GNSS_PARAMETERS = {
  */
 export const DECODER_SUPPORT = {
     sstv: true,
-    ssdv: true,
+    geoscanimage: true,
     fsk: true,
     gmsk: true,
     gfsk: true,
@@ -543,7 +583,7 @@ export const DECODER_PARAMETERS = {
     ...GMSK_PARAMETERS,
     ...GFSK_PARAMETERS,
     ...BPSK_PARAMETERS,
-    ...SSDV_PARAMETERS,
+    ...GEOSCANIMAGE_PARAMETERS,
     ...APRS_PARAMETERS,
     ...GNSS_PARAMETERS,
     ...SSTV_PARAMETERS
@@ -551,7 +591,7 @@ export const DECODER_PARAMETERS = {
 
 /**
  * Get parameter definitions for a specific decoder
- * @param {string} decoder - Decoder name (e.g., 'lora', 'fsk', 'gmsk', 'gfsk', 'bpsk', 'ssdv', 'sstv')
+ * @param {string} decoder - Decoder name (e.g., 'lora', 'fsk', 'gmsk', 'gfsk', 'bpsk', 'geoscanimage', 'sstv')
  * @returns {Object} Parameter definitions for this decoder
  */
 export function getDecoderParameters(decoder) {
@@ -625,10 +665,15 @@ export function mapParametersToBackend(decoder, parameters) {
         };
     }
 
-    if (decoder === 'ssdv') {
+    if (decoder === 'geoscanimage') {
         return {
-            baudrate: parameters.ssdv_baudrate,
-            differential: parameters.ssdv_differential
+            baudrate: parameters.geoscanimage_baudrate,
+            deviation: parameters.geoscanimage_deviation,
+            framing_params: {
+                frame_size: parameters.geoscanimage_frame_size,
+                syncword_threshold: parameters.geoscanimage_syncword_threshold,
+                satellite_id: parameters.geoscanimage_satellite_id
+            }
         };
     }
 

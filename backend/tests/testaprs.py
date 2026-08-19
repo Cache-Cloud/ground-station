@@ -48,16 +48,3 @@ def test_aprs_ignores_malformed_transmitter_baud_metadata():
     )
 
     assert config.baudrate == 1200
-
-
-def test_ssdv_uses_its_fixed_packet_framing():
-    config = DecoderConfigService().get_config(
-        decoder_type="ssdv",
-        transmitter={"mode": "BPSK", "description": "Mode U - SSDV", "baud": 9600},
-        overrides={"differential": False},
-    )
-
-    assert config.framing == FramingType.SSDV
-    assert config.packet_size == 256
-    assert config.baudrate == 9600
-    assert config.differential is False

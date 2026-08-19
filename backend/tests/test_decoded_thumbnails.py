@@ -10,7 +10,10 @@ from common.decoded_thumbnails import (
     select_decoded_thumbnail_source,
 )
 from common.thumbnails import get_image_thumbnail_path
-from handlers.entities.filebrowser import build_recording_snapshot_info
+from handlers.entities.filebrowser import (
+    build_observation_bundle_item,
+    build_recording_snapshot_info,
+)
 
 
 def _write_png(path: Path, size=(1200, 700), color=(12, 34, 56)):
@@ -86,3 +89,33 @@ def test_build_recording_snapshot_info_includes_thumbnail_file_metadata(tmp_path
     assert snapshot_info["thumbnail"]["size"] == get_image_thumbnail_path(source).stat().st_size
     assert snapshot_info["thumbnail"]["width"] == 640
     assert snapshot_info["thumbnail"]["height"] == 360
+
+
+@pytest.mark.unit
+def test_build_recording_snapshot_info_prefers_waterfall_generator_thumbnail(tmp_path):
+    source = tmp_path / "recording.png"
+    generated_thumbnail = tmp_path / "recording_waterfall_thumb.png"
+    _write_png(source, size=(1600, 4000))
+    _write_png(generated_thumbnail, size=(512, 256))
+
+    snapshot_info = build_recording_snapshot_info(source)
+
+    assert snapshot_info is not None
+    assert snapshot_info["thumbnail_url"].startswith("/recordings/recording_waterfall_thumb.png?v=")
+    assert snapshot_info["thumbnail"]["filename"] == generated_thumbnail.name
+    assert snapshot_info["thumbnail"]["width"] == 512
+    assert snapshot_info["thumbnail"]["height"] == 256
+
+
+@pytest.mark.unit
+def test_observation_card_prefers_generated_waterfall_thumbnail(tmp_path):
+    bundle = tmp_path / "ALFEROV_20260816_121242.gsobs"
+    _write_png(bundle / "recordings" / "capture.png", size=(1600, 4000))
+    thumbnail = bundle / "recordings" / "capture_waterfall_thumb.png"
+    _write_png(thumbnail, size=(512, 256))
+
+    item = build_observation_bundle_item(bundle)
+
+    assert item["thumbnail_url"].endswith(
+        "/ALFEROV_20260816_121242.gsobs/recordings/capture_waterfall_thumb.png"
+    )

@@ -2,10 +2,13 @@
 Shared image thumbnail helpers for file-browser previews.
 """
 
+import warnings
 from pathlib import Path
 from typing import Optional, Tuple
 
 from PIL import Image
+
+from common.imageguard import is_thumbnail_source_within_pixel_limit
 
 THUMBNAIL_DIRECTORY = "thumbnails"
 THUMBNAIL_EXTENSION = ".jpg"
@@ -40,20 +43,28 @@ def generate_image_thumbnail(
     tmp_thumb_path = thumb_path.with_name(f".{thumb_path.name}.tmp")
 
     try:
-        with Image.open(source_path) as image:
-            target_w, target_h = target_size
-            rgb = image.convert("RGB")
-            rgb.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
-            canvas = Image.new("RGB", (target_w, target_h), color=(10, 10, 10))
-            x_offset = (target_w - rgb.width) // 2
-            y_offset = (target_h - rgb.height) // 2
-            canvas.paste(rgb, (x_offset, y_offset))
-            canvas.save(
-                tmp_thumb_path,
-                format="JPEG",
-                quality=quality,
-                optimize=True,
-            )
+        # Pillow warns above 89 MP before exposing the header dimensions.  This
+        # local suppression lets our explicit 140 MP policy decide
+        # whether decoding the source is permitted.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(source_path) as image:
+                if not is_thumbnail_source_within_pixel_limit(image):
+                    return None
+
+                target_w, target_h = target_size
+                rgb = image.convert("RGB")
+                rgb.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+                canvas = Image.new("RGB", (target_w, target_h), color=(10, 10, 10))
+                x_offset = (target_w - rgb.width) // 2
+                y_offset = (target_h - rgb.height) // 2
+                canvas.paste(rgb, (x_offset, y_offset))
+                canvas.save(
+                    tmp_thumb_path,
+                    format="JPEG",
+                    quality=quality,
+                    optimize=True,
+                )
 
         # Atomic replace keeps concurrent lazy generation from serving partial files.
         tmp_thumb_path.replace(thumb_path)

@@ -190,13 +190,6 @@ def get_library_versions(use_cache: bool = True) -> Dict[str, Any]:
             "category": "scheduling",
             "description": "Task scheduling",
         },
-        # Error correction
-        "reedsolo": {
-            "name": "reedsolo",
-            "version": get_package_version("reedsolo"),
-            "category": "encoding",
-            "description": "Reed-Solomon error correction",
-        },
         # HTTP client
         "requests": {
             "name": "Requests",

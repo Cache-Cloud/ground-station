@@ -181,11 +181,6 @@ class BPSKMessageHandler(gr.basic_block):
                 if self.framing == FramingType.AX25:
                     # Add HDLC flags for compatibility with AX.25 parsers
                     out_bytes = bytes([0x7E]) + packet_data + bytes([0x7E])
-                elif self.framing == FramingType.SSDV:
-                    # The fixed-length SSDV deframer consumes its 0x55 sync
-                    # byte. Restore it so the packet is valid for libssdv.
-                    out_bytes = bytes([0x55]) + packet_data
-
                 if self.callback:
                     self.callback(out_bytes, callsigns)
             else:

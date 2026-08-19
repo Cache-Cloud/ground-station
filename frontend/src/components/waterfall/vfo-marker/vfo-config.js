@@ -160,10 +160,10 @@ export const DECODERS = {
         bandwidthLabel: (bw) => `±${(bw / 2000).toFixed(1)}kHz`,
         lockedBandwidth: false, // allows demodulator's lock setting to apply
     },
-    ssdv: {
-        internalName: 'ssdv',
-        displayName: 'SSDV',
-        description: 'Packetised digital image decoder (BPSK)',
+    geoscanimage: {
+        internalName: 'geoscanimage',
+        displayName: 'Geoscan Image',
+        description: 'Geoscan/Alferov packetised JPEG image decoder (FSK)',
         hasStatusDisplay: true,
         hasProgressDisplay: false,
         hasTextOutput: false,

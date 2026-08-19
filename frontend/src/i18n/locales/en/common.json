@@ -217,7 +217,7 @@
       "decoder_type_bpsk": "BPSK",
       "decoder_type_aprs": "APRS",
       "decoder_type_sstv": "SSTV",
-      "decoder_type_ssdv": "SSDV",
+      "decoder_type_geoscanimage": "Geoscan Image",
       "decoder_parameters_label": "Decoder Parameters",
       "demodulator_label": "Demodulator",
       "demodulator_fm": "FM (Frequency Modulation)",

@@ -73,10 +73,10 @@ def map_scheduler_decoder_parameters(decoder_type: str, parameters: Any) -> Dict
             "bpsk_framing": "framing",
             "bpsk_differential": "differential",
         }
-    elif decoder_type == "ssdv":
+    elif decoder_type == "geoscanimage":
         frontend_to_backend = {
-            "ssdv_baudrate": "baudrate",
-            "ssdv_differential": "differential",
+            "geoscanimage_baudrate": "baudrate",
+            "geoscanimage_deviation": "deviation",
         }
     elif decoder_type == "aprs":
         frontend_to_backend = {
@@ -113,6 +113,19 @@ def map_scheduler_decoder_parameters(decoder_type: str, parameters: Any) -> Dict
         and geoscan_frame_size_key in parameters
     ):
         overrides["framing_params"] = {"frame_size": parameters[geoscan_frame_size_key]}
+
+    if decoder_type == "geoscanimage":
+        framing_params = {
+            backend_key: parameters[frontend_key]
+            for frontend_key, backend_key in {
+                "geoscanimage_frame_size": "frame_size",
+                "geoscanimage_syncword_threshold": "syncword_threshold",
+                "geoscanimage_satellite_id": "satellite_id",
+            }.items()
+            if frontend_key in parameters
+        }
+        if framing_params:
+            overrides["framing_params"] = framing_params
 
     return overrides
 
