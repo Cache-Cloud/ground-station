@@ -690,6 +690,14 @@ export default function FileBrowserMain() {
     };
 
     const handleObservationArtifact = async (artifact) => {
+        // Grouped IQ captures already arrive as complete recording payloads, so
+        // they open the standalone Recording Details dialog as-is.
+        if (artifact.type === 'recording') {
+            setSelectedItem({ ...artifact, displayName: artifact.name });
+            setDetailsOpen(true);
+            return;
+        }
+
         const fileType = String(artifact.file_type || '').toLowerCase();
         const path = String(artifact.path || '');
         const baseItem = {
@@ -702,6 +710,8 @@ export default function FileBrowserMain() {
 
         // The bundle is only a container: once an artifact is selected it must
         // continue into the same specialised viewer used by standalone files.
+        // Grouping covers captures under recordings/, so this only handles a
+        // stray SigMF pair stored elsewhere in the bundle.
         if (fileType === '.sigmf-data') {
             let metadata = {};
             const metaUrl = artifact.url.replace(/\.sigmf-data$/, '.sigmf-meta');

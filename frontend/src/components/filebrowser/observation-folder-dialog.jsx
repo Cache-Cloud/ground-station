@@ -26,6 +26,8 @@ import ImageIcon from '@mui/icons-material/Image';
 import RadioIcon from '@mui/icons-material/Radio';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 
+const IMAGE_FILE_TYPES = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'];
+
 function formatBytes(bytes) {
     if (!bytes) return '0 Bytes';
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
@@ -33,8 +35,34 @@ function formatBytes(bytes) {
     return `${Math.round((bytes / 1024 ** index) * 100) / 100} ${sizes[index]}`;
 }
 
+function formatFrequency(frequencyHz) {
+    if (!Number.isFinite(frequencyHz)) return null;
+    if (frequencyHz >= 1e9) return `${(frequencyHz / 1e9).toFixed(3)} GHz`;
+    if (frequencyHz >= 1e6) return `${(frequencyHz / 1e6).toFixed(3)} MHz`;
+    if (frequencyHz >= 1e3) return `${(frequencyHz / 1e3).toFixed(1)} kHz`;
+    return `${frequencyHz} Hz`;
+}
+
+function formatSampleRate(sampleRateHz) {
+    if (!Number.isFinite(sampleRateHz)) return null;
+    return sampleRateHz >= 1e6
+        ? `${Math.round((sampleRateHz / 1e6) * 100) / 100} Msps`
+        : `${Math.round(sampleRateHz / 1e3)} ksps`;
+}
+
+/** Summary line for a grouped recording card: size, frequency and sample rate. */
+function recordingSummary(recording) {
+    return [
+        formatBytes(recording.data_size),
+        formatFrequency(recording.metadata?.center_frequency),
+        formatSampleRate(recording.metadata?.sample_rate),
+    ]
+        .filter(Boolean)
+        .join(' · ');
+}
+
 function artifactIcon(artifact) {
-    if (['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'].includes(artifact.file_type)) {
+    if (IMAGE_FILE_TYPES.includes(artifact.file_type)) {
         return <ImageIcon color="success" />;
     }
     if (artifact.kind === 'audio') return <AudioFileIcon color="info" />;
@@ -43,7 +71,7 @@ function artifactIcon(artifact) {
 }
 
 function artifactLabel(artifact) {
-    if (['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'].includes(artifact.file_type)) return 'Image';
+    if (IMAGE_FILE_TYPES.includes(artifact.file_type)) return 'Image';
     if (artifact.file_type === '.sigmf-data') return 'IQ recording';
     if (artifact.kind === 'audio') return 'Audio recording';
     if (artifact.kind === 'transcription') return 'Transcript';
@@ -55,16 +83,23 @@ export default function ObservationFolderDialog({ open, onClose, folder, onOpenA
     if (!folder) return null;
 
     const artifacts = folder.artifacts || [];
-    const images = folder.images || [];
+    const recordings = folder.recordings || [];
+    // An IQ capture owns several files (SigMF pair, waterfall, thumbnail). The
+    // backend tags them with the owning recording so each capture appears once,
+    // as a single card, instead of once per file.
+    const images = (folder.images || []).filter((image) => !image.recording_name);
     const nonImageArtifacts = artifacts.filter(
-        (artifact) => !['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'].includes(artifact.file_type)
+        (artifact) => !artifact.recording_name && !IMAGE_FILE_TYPES.includes(artifact.file_type)
     );
+    const hasSupportingFiles = nonImageArtifacts.length > 0;
     const openArtifact = (artifact) => {
         if (onOpenArtifact) {
             onOpenArtifact(artifact);
             return;
         }
-        window.open(artifact.url, '_blank', 'noopener,noreferrer');
+        // Grouped recordings carry download URLs instead of a single file URL.
+        const fallbackUrl = artifact.url || artifact.download_urls?.data;
+        if (fallbackUrl) window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
     };
 
     return (
@@ -103,6 +138,14 @@ export default function ObservationFolderDialog({ open, onClose, folder, onOpenA
                         {folder.observation_in_progress && (
                             <Chip label="In progress" size="small" color="warning" />
                         )}
+                        {recordings.length > 0 && (
+                            <Chip
+                                label={`${recordings.length} ${recordings.length === 1 ? 'recording' : 'recordings'}`}
+                                size="small"
+                                color="error"
+                                variant="outlined"
+                            />
+                        )}
                         <Chip label={`${folder.artifact_count || 0} files`} size="small" color="info" />
                         <Chip label={formatBytes(folder.size)} size="small" variant="outlined" />
                     </Box>
@@ -130,6 +173,52 @@ export default function ObservationFolderDialog({ open, onClose, folder, onOpenA
                         Download ZIP
                     </Button>
                 </Stack>
+                {recordings.length > 0 && (
+                    <>
+                        <Typography variant="subtitle2" sx={{ mb: 1.25 }}>IQ recordings</Typography>
+                        <Grid container spacing={1.5} sx={{ mb: 3 }}>
+                            {recordings.map((recording) => {
+                                const previewUrl = recording.snapshot?.thumbnail_url || recording.snapshot?.url;
+                                return (
+                                    <Grid item xs={12} sm={6} md={4} key={recording.name}>
+                                        <Paper
+                                            elevation={0}
+                                            onClick={() => openArtifact(recording)}
+                                            data-testid="observation-recording-card"
+                                            sx={{ cursor: 'pointer', border: 1, borderColor: 'divider', borderRadius: 2, overflow: 'hidden', transition: 'all 160ms ease', '&:hover': { borderColor: 'primary.main', transform: 'translateY(-2px)', boxShadow: 3 } }}
+                                        >
+                                            <Box sx={{ position: 'relative', height: 164, bgcolor: 'grey.900', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                {previewUrl ? (
+                                                    <Box component="img" src={previewUrl} alt={recording.name} loading="lazy" sx={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                ) : (
+                                                    <RadioIcon sx={{ fontSize: 48, color: 'grey.600' }} />
+                                                )}
+                                                <Chip
+                                                    label={recording.recording_in_progress ? 'Recording' : 'IQ recording'}
+                                                    size="small"
+                                                    color={recording.recording_in_progress ? 'warning' : 'error'}
+                                                    sx={{ position: 'absolute', top: 8, left: 8 }}
+                                                />
+                                            </Box>
+                                            <Box sx={{ p: 1.25 }}>
+                                                <Tooltip title={recording.name}>
+                                                    <Typography variant="body2" noWrap fontWeight={600}>{recording.name}</Typography>
+                                                </Tooltip>
+                                                <Typography variant="caption" color="text.secondary" noWrap component="div">
+                                                    {recordingSummary(recording)}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary" noWrap component="div">
+                                                    Open recording details
+                                                </Typography>
+                                            </Box>
+                                        </Paper>
+                                    </Grid>
+                                );
+                            })}
+                        </Grid>
+                        <Divider sx={{ mb: 2 }} />
+                    </>
+                )}
                 {images.length > 0 && (
                     <>
                         <Typography variant="subtitle2" sx={{ mb: 1.25 }}>Image products</Typography>
@@ -153,7 +242,9 @@ export default function ObservationFolderDialog({ open, onClose, folder, onOpenA
                         <Divider sx={{ mb: 2 }} />
                     </>
                 )}
-                <Typography variant="subtitle2" sx={{ mb: 1.25 }}>Supporting files</Typography>
+                {hasSupportingFiles && (
+                    <Typography variant="subtitle2" sx={{ mb: 1.25 }}>Supporting files</Typography>
+                )}
                 <List disablePadding sx={{ display: 'grid', gap: 1 }}>
                     {nonImageArtifacts.map((artifact) => (
                         <Paper
@@ -176,7 +267,6 @@ export default function ObservationFolderDialog({ open, onClose, folder, onOpenA
                         </Paper>
                     ))}
                     {artifacts.length === 0 && <Typography color="text.secondary">No files were produced by this observation.</Typography>}
-                    {artifacts.length > 0 && nonImageArtifacts.length === 0 && <Typography color="text.secondary">This observation only produced image products.</Typography>}
                 </List>
             </DialogContent>
             <DialogActions disableSpacing sx={{

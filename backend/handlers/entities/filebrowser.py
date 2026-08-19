@@ -32,6 +32,7 @@ from PIL import Image
 
 from common.decoded_thumbnails import get_decoded_thumbnail_url
 from common.thumbnails import (
+    THUMBNAIL_DIRECTORY,
     delete_image_thumbnail,
     get_image_thumbnail_path,
     get_image_thumbnail_url,
@@ -124,11 +125,18 @@ def get_image_dimensions(image_path: str) -> Tuple[Any, ...]:
         return (None, None)
 
 
-def build_recording_snapshot_info(snapshot_file: Path) -> Optional[Dict[str, Any]]:
-    """Build snapshot and generated-thumbnail metadata for a recording."""
+def build_recording_snapshot_info(
+    snapshot_file: Path, url_prefix: str = "/recordings"
+) -> Optional[Dict[str, Any]]:
+    """Build snapshot and generated-thumbnail metadata for a recording.
+
+    ``url_prefix`` is the static mount the snapshot is served from, so captures
+    nested in an observation bundle can reuse this builder unchanged.
+    """
     if not snapshot_file.exists() or not snapshot_file.is_file():
         return None
 
+    mount_path = url_prefix.rstrip("/")
     width, height = get_image_dimensions(str(snapshot_file))
     # WaterfallGenerator creates this lightweight PNG beside the full-resolution
     # waterfall. Prefer it for cards instead of deriving another thumbnail from
@@ -136,12 +144,13 @@ def build_recording_snapshot_info(snapshot_file: Path) -> Optional[Dict[str, Any
     waterfall_thumbnail_path = snapshot_file.with_name(f"{snapshot_file.stem}_waterfall_thumb.png")
     if waterfall_thumbnail_path.exists() and waterfall_thumbnail_path.is_file():
         thumbnail_path = waterfall_thumbnail_path
-        thumbnail_url = f"/recordings/{thumbnail_path.name}?v={int(thumbnail_path.stat().st_mtime)}"
+        thumbnail_version = int(thumbnail_path.stat().st_mtime)
+        thumbnail_url = f"{mount_path}/{quote(thumbnail_path.name)}?v={thumbnail_version}"
     else:
         # Recordings created before waterfall thumbnails were introduced retain
         # the generated JPEG fallback rather than losing their card preview.
         thumbnail_path = get_image_thumbnail_path(snapshot_file)
-        thumbnail_url = get_image_thumbnail_url(snapshot_file, "/recordings")
+        thumbnail_url = get_image_thumbnail_url(snapshot_file, mount_path)
 
     thumbnail_info = None
     if thumbnail_url and thumbnail_path.exists() and thumbnail_path.is_file():
@@ -156,7 +165,7 @@ def build_recording_snapshot_info(snapshot_file: Path) -> Optional[Dict[str, Any
 
     return {
         "filename": snapshot_file.name,
-        "url": f"/recordings/{snapshot_file.name}",
+        "url": f"{mount_path}/{quote(snapshot_file.name)}",
         "thumbnail_url": thumbnail_url,
         "thumbnail": thumbnail_info,
         "size": snapshot_file.stat().st_size,
@@ -401,6 +410,75 @@ def delete_observation_bundle(observations_dir: Path, foldername: str, logger) -
         return False
 
 
+def build_observation_bundle_recordings(
+    bundle_dir: Path,
+) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+    """Collapse the IQ captures of a .gsobs bundle into recording payloads.
+
+    A single capture produces several files on disk (SigMF data/meta plus the
+    waterfall and its thumbnail). The observation dialog must present each
+    capture as one card, so this returns the recording payloads in the same
+    shape the File Browser uses for standalone captures, alongside a map of
+    bundle-relative path -> owning recording name that lets callers hide the
+    individual member files.
+    """
+    recordings: List[Dict[str, Any]] = []
+    owner_by_path: Dict[str, str] = {}
+
+    recordings_dir = bundle_dir / "recordings"
+    if not recordings_dir.is_dir():
+        return recordings, owner_by_path
+
+    # Bundle files are served from the observations mount, not /recordings.
+    url_prefix = f"/observations/{quote(bundle_dir.name)}/recordings"
+
+    for meta_file in sorted(recordings_dir.glob("*.sigmf-meta")):
+        base_name = meta_file.stem
+        data_file = recordings_dir / f"{base_name}.sigmf-data"
+        if not data_file.exists():
+            continue
+
+        metadata = parse_sigmf_metadata(str(meta_file))
+        snapshot_file = recordings_dir / f"{base_name}.png"
+        data_stat = data_file.stat()
+        meta_stat = meta_file.stat()
+
+        # Everything the capture owns folds into its single card.
+        member_files = (
+            data_file,
+            meta_file,
+            snapshot_file,
+            recordings_dir / f"{base_name}_waterfall_thumb.png",
+        )
+        for member_file in member_files:
+            if member_file.is_file():
+                owner_by_path[member_file.relative_to(bundle_dir).as_posix()] = base_name
+
+        recordings.append(
+            {
+                "type": "recording",
+                "name": base_name,
+                "observation_bundle": bundle_dir.name,
+                "data_file": data_file.name,
+                "meta_file": meta_file.name,
+                "data_size": data_stat.st_size,
+                "meta_size": meta_stat.st_size,
+                "created": datetime.fromtimestamp(data_stat.st_ctime, timezone.utc).isoformat(),
+                "modified": datetime.fromtimestamp(data_stat.st_mtime, timezone.utc).isoformat(),
+                "metadata": metadata,
+                "session_id": metadata.get("session_id"),
+                "snapshot": build_recording_snapshot_info(snapshot_file, url_prefix),
+                "recording_in_progress": metadata.get("recording_in_progress", False),
+                "download_urls": {
+                    "data": f"{url_prefix}/{quote(data_file.name)}",
+                    "meta": f"{url_prefix}/{quote(meta_file.name)}",
+                },
+            }
+        )
+
+    return recordings, owner_by_path
+
+
 def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
     """Build the compact folder-card payload for one .gsobs directory."""
     manifest: Dict[str, Any] = {}
@@ -426,6 +504,9 @@ def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
         "transcriptions": "transcription",
         "snapshots": "snapshot",
     }
+    # Captures are exposed as grouped recordings; their member files stay in
+    # ``artifacts`` (tagged with the owner) so downloads and counts stay complete.
+    bundle_recordings, recording_owner_by_path = build_observation_bundle_recordings(bundle_dir)
     for file_path in sorted(bundle_dir.rglob("*")):
         # JSON files are internal sidecars (manifest, decoder/audio metadata) that
         # power the dedicated viewers and are not user-facing observation artifacts.
@@ -436,6 +517,9 @@ def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
         ):
             continue
         relative_path = file_path.relative_to(bundle_dir)
+        # Generated preview caches are an implementation detail of the viewers.
+        if THUMBNAIL_DIRECTORY in relative_path.parent.parts:
+            continue
         artifact_kind = kind_by_directory.get(relative_path.parts[0], "file")
         url = f"/observations/{quote(bundle_dir.name)}/{quote(relative_path.as_posix())}"
         file_size = file_path.stat().st_size
@@ -446,6 +530,9 @@ def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
             "size": file_size,
             "kind": artifact_kind,
             "file_type": file_path.suffix.lower(),
+            # Set when the file is already represented by a grouped recording
+            # card, so the dialog does not list it a second time on its own.
+            "recording_name": recording_owner_by_path.get(relative_path.as_posix()),
         }
         artifacts.append(artifact)
         total_size += file_size
@@ -485,8 +572,12 @@ def build_observation_bundle_item(bundle_dir: Path) -> Dict[str, Any]:
         "satellite_id": satellite.get("norad_id"),
         "image_count": len(images),
         "artifact_count": len(artifacts),
+        "recording_count": len(bundle_recordings),
         "images": images,
         "artifacts": artifacts,
+        # One entry per IQ capture, ready for the standalone Recording Details
+        # dialog without the frontend having to re-fetch SigMF metadata.
+        "recordings": bundle_recordings,
         # Keep the lifecycle state easy for cards and tables to consume without
         # every frontend caller needing to inspect the complete manifest.
         "observation_status": manifest.get("status", "unknown"),
@@ -1121,6 +1212,14 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                     metadata = parse_sigmf_metadata(str(meta_file))
                     snapshot_file = source_dir / f"{base_name}.png"
 
+                    # Bundle files live under the observations mount, so their
+                    # snapshot and download URLs cannot use /recordings.
+                    url_prefix = (
+                        "/recordings"
+                        if recording_bundle_dir is None
+                        else f"/observations/{quote(recording_bundle_dir.name)}/recordings"
+                    )
+
                     if recording_bundle_dir is None:
                         playback_path = base_name
                         display_name = base_name
@@ -1157,11 +1256,11 @@ async def filebrowser_request_routing(sio, cmd, data, logger, sid):
                                 data_stat.st_mtime, timezone.utc
                             ).isoformat(),
                             "metadata": metadata,
-                            "snapshot": build_recording_snapshot_info(snapshot_file),
+                            "snapshot": build_recording_snapshot_info(snapshot_file, url_prefix),
                             "recording_in_progress": metadata.get("recording_in_progress", False),
                             "download_urls": {
-                                "data": f"/recordings/{data_file.name}",
-                                "meta": f"/recordings/{meta_file.name}",
+                                "data": f"{url_prefix}/{quote(data_file.name)}",
+                                "meta": f"{url_prefix}/{quote(meta_file.name)}",
                             },
                         }
                     )
