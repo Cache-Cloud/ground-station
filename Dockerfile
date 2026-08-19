@@ -229,30 +229,45 @@ RUN git clone --depth=1 https://github.com/hydrasdr/SoapyHydraSDR.git && \
     sudo make install -j$(nproc) && \
     sudo ldconfig
 
-# Install SDRplay API (prerequisite for SoapySDRPlay3)
+# Install SDRplay RSP API v3.15 (required by SoapySDRPlay3).
+#
+# SDRplay removed its legacy .run installer in favor of SDRconnect.  SDRconnect
+# does not provide the API-v3 ABI used by SoapySDRPlay3, so use a pinned archive
+# containing the original v3.15 headers, service, and architecture-specific
+# libraries instead.  The checksum makes a changed or substituted archive fail
+# the build before any proprietary binary is installed.
+ARG SDRPLAY_API_ARCHIVE_COMMIT=4d83f831669d4b1c8c2cdde4d84c3f358e281828
+ARG SDRPLAY_API_ARCHIVE_SHA256=0b97e26a69d56a033adbe2a42c49bc02cb9e534db3b5dc5609556cef8d6dae2c
 WORKDIR /src
-RUN wget https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run && \
-    chmod +x SDRplay_RSP_API-Linux-3.15.2.run && \
-    ./SDRplay_RSP_API-Linux-3.15.2.run --tar -xvf && \
+RUN wget -q -O /tmp/sdrplay-api-v3.15.tar.gz \
+        "https://codeload.github.com/srcejon/sdrplayapi/tar.gz/${SDRPLAY_API_ARCHIVE_COMMIT}" && \
+    echo "${SDRPLAY_API_ARCHIVE_SHA256}  /tmp/sdrplay-api-v3.15.tar.gz" | sha256sum -c - && \
+    mkdir -p /tmp/sdrplay-api && \
+    tar -xzf /tmp/sdrplay-api-v3.15.tar.gz -C /tmp/sdrplay-api --strip-components=1 && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then SDRPLAY_ARCH="amd64"; \
     elif [ "$ARCH" = "aarch64" ]; then SDRPLAY_ARCH="arm64"; \
-    else SDRPLAY_ARCH="$ARCH"; fi && \
+    else echo "Unsupported SDRplay architecture: $ARCH" >&2; exit 1; fi && \
     echo "Detected architecture: $ARCH, using SDRplay folder: $SDRPLAY_ARCH" && \
-    cp $SDRPLAY_ARCH/libsdrplay_api.so.3.15 /usr/local/lib/ && \
-    cd /usr/local/lib && \
-    ln -s libsdrplay_api.so.3.15 libsdrplay_api.so.3 && \
-    ln -s libsdrplay_api.so.3 libsdrplay_api.so && \
-    cp -r /src/inc/* /usr/local/include/ && \
-    mkdir -p /opt/sdrplay_api && \
-    cp /src/$SDRPLAY_ARCH/sdrplay_apiService /opt/sdrplay_api/ && \
-    chmod +x /opt/sdrplay_api/sdrplay_apiService && \
+    test -f "/tmp/sdrplay-api/$SDRPLAY_ARCH/libsdrplay_api.so.3.15" && \
+    test -f "/tmp/sdrplay-api/$SDRPLAY_ARCH/sdrplay_apiService" && \
+    test -f /tmp/sdrplay-api/inc/sdrplay_api.h && \
+    grep -F 'SDRPLAY_API_VERSION                   (float)(3.15)' /tmp/sdrplay-api/inc/sdrplay_api.h && \
+    install -m 644 "/tmp/sdrplay-api/$SDRPLAY_ARCH/libsdrplay_api.so.3.15" /usr/local/lib/ && \
+    ln -sf libsdrplay_api.so.3.15 /usr/local/lib/libsdrplay_api.so.3 && \
+    ln -sf libsdrplay_api.so.3 /usr/local/lib/libsdrplay_api.so && \
+    install -m 644 /tmp/sdrplay-api/inc/* /usr/local/include/ && \
+    install -D -m 755 "/tmp/sdrplay-api/$SDRPLAY_ARCH/sdrplay_apiService" \
+        /opt/sdrplay_api/sdrplay_apiService && \
     ldconfig
 
-# compile SoapySDRPlay3
+# Compile SoapySDRPlay3 against the API-v3.15 ABI installed above.
+ARG SOAPY_SDRPLAY3_COMMIT=6cc31316b730503cee3e30906ff1975175a16400
 WORKDIR /src
-RUN git clone --depth=1 https://github.com/pothosware/SoapySDRPlay3.git && \
+RUN git clone https://github.com/pothosware/SoapySDRPlay3.git && \
     cd SoapySDRPlay3 && \
+    git fetch --depth=1 origin ${SOAPY_SDRPLAY3_COMMIT} && \
+    git checkout ${SOAPY_SDRPLAY3_COMMIT} && \
     mkdir build && \
     cd build && \
     cmake .. && \

@@ -518,6 +518,27 @@ docker run --rm -p 7000:7000 --device /dev/bus/usb ground-station
 docker run --rm --network host --device /dev/bus/usb ground-station
 ```
 
+#### SDRplay build dependency
+
+The image includes the legacy SDRplay RSP API v3.15 required by
+`SoapySDRPlay3`; it does not use SDRplay's current SDRconnect installer, which
+has a different API/installation layout. The Dockerfile downloads a pinned
+archive commit and verifies its SHA-256 before installation. The archive
+contains the v3.15 API's `amd64` and `arm64` libraries, so both Docker target
+architectures remain supported.
+
+The API is proprietary SDRplay software. Review and accept its included EULA
+before building or distributing an image that contains it. To update the
+archive deliberately, provide matching values for both arguments; never update
+only the commit or only the checksum:
+
+```bash
+docker build \
+  --build-arg SDRPLAY_API_ARCHIVE_COMMIT=<immutable-commit> \
+  --build-arg SDRPLAY_API_ARCHIVE_SHA256=<sha256-of-the-codeload-tarball> \
+  -t ground-station .
+```
+
 ### Using Pre-built Docker Images
 
 Pre-built multi-architecture Docker images are available for each release. For detailed instructions on using a specific release, see the [Releases page](https://github.com/sgoudelis/ground-station/releases).
