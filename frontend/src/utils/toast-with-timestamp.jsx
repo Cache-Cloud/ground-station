@@ -45,16 +45,9 @@ const wrapWithTimestamp = (message, disableTimestamp) => {
     }
     const timestamp = formatTimestamp();
     return (
-        <div style={{ width: '100%' }}>
-            <div style={{
-                fontSize: '9px',
-                opacity: 0.6,
-                marginBottom: '4px',
-                fontFamily: 'monospace'
-            }}>
-                {timestamp}
-            </div>
-            <div>{message}</div>
+        <div style={{ width: '100%', minWidth: 0 }}>
+            <div className="gs-toast__meta">{timestamp}</div>
+            <div className="gs-toast__message">{message}</div>
         </div>
     );
 };

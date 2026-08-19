@@ -197,7 +197,11 @@ export default function App() {
                     <Outlet/>
                 </ReactRouterAppProvider>
             </WaterfallEngineProvider>
-            <ToastContainerWithStyles />
+            {/* Sibling of ReactRouterAppProvider, so it needs the dashboard theme
+                supplied explicitly — otherwise it renders under MUI's defaults. */}
+            <ThemeProvider theme={dashboardTheme}>
+                <ToastContainerWithStyles />
+            </ThemeProvider>
         </AudioProvider>
     );
 }

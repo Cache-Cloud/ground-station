@@ -19,10 +19,11 @@
 
 import React from 'react';
 import { ToastContainer, Slide } from 'react-toastify';
-import { useTheme } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { useSelector } from 'react-redux';
 
 const SHOULD_PAUSE_ON_FOCUS_LOSS = false;
+const SEVERITIES = ['success', 'error', 'warning', 'info'];
 
 export const ToastContainerWithStyles = () => {
     const theme = useTheme();
@@ -33,10 +34,55 @@ export const ToastContainerWithStyles = () => {
     const position = toastPositionPreference ? toastPositionPreference.value : 'top-right';
     const pauseOnFocusLoss = SHOULD_PAUSE_ON_FOCUS_LOSS;
 
+    const isDark = theme.palette.mode === 'dark';
+    // surface/border are ground-station semantic tokens, so fall back to the stock
+    // MUI equivalents if this ever renders outside the app's ThemeProvider — a
+    // toast stylesheet should degrade, not take the whole app down.
+    const surface = theme.palette.surface?.raised ?? theme.palette.background.paper;
+    const borderColor = theme.palette.border?.main ?? theme.palette.divider;
+    const cardShadow = isDark
+        ? '0 6px 16px rgba(0, 0, 0, 0.32)'
+        : '0 2px 8px rgba(16, 24, 40, 0.1)';
+
+    // Neutral card surface with a faint severity tint laid over it. The severity
+    // reads from the icon and the progress bar rather than from a saturated
+    // background, so the toast sits on the same visual plane as dialogs/menus.
+    // The tint is deliberately lighter than palette.statusSurface (0.2/0.12),
+    // which is tuned for filled status chips and reads too saturated here.
+    const severityRules = SEVERITIES.map((severity) => {
+        const tint = alpha(theme.palette[severity].main, isDark ? 0.1 : 0.055);
+        return `
+                .Toastify__toast--${severity} {
+                    background-color: ${surface} !important;
+                    background-image: linear-gradient(${tint}, ${tint}) !important;
+                    color: ${theme.palette.text.primary} !important;
+                }
+
+                .Toastify__toast--${severity} .Toastify__toast-icon {
+                    color: ${theme.palette[severity].main} !important;
+                }
+            `;
+    }).join('');
+
     return (
         <>
             <style>{`
                 .Toastify__toast-container {
+                    /* Card geometry: wider and tighter than the react-toastify default. */
+                    --toastify-toast-width: 420px;
+                    --toastify-toast-bd-radius: 10px;
+                    --toastify-toast-min-height: 0px;
+                    --toastify-toast-padding: 10px 32px 12px 12px;
+                    --toastify-color-progress-bgo: ${isDark ? 0.28 : 0.18};
+                    --toastify-color-progress-success: ${theme.palette.success.main};
+                    --toastify-color-progress-error: ${theme.palette.error.main};
+                    --toastify-color-progress-warning: ${theme.palette.warning.main};
+                    --toastify-color-progress-info: ${theme.palette.info.main};
+                    --toastify-icon-color-success: ${theme.palette.success.main};
+                    --toastify-icon-color-error: ${theme.palette.error.main};
+                    --toastify-icon-color-warning: ${theme.palette.warning.main};
+                    --toastify-icon-color-info: ${theme.palette.info.main};
+
                     z-index: 1299 !important;
                     box-sizing: border-box;
                 }
@@ -77,7 +123,7 @@ export const ToastContainerWithStyles = () => {
                     min-width: 0 !important;
                     max-width: 90vw !important;
                 }
-                
+
                 @media (max-width: 600px) {
                     .Toastify__toast-container {
                         padding: 0 12px;
@@ -89,83 +135,83 @@ export const ToastContainerWithStyles = () => {
                 .Toastify__toast-body,
                 .Toastify__toast-body > div {
                     font-family: 'Roboto', sans-serif !important;
-                    font-size: 13px !important;
                 }
 
                 .Toastify__toast {
-                    border-radius: 8px !important;
-                    box-shadow: ${theme.palette.mode === 'dark'
-                        ? '0 6px 18px rgba(0, 0, 0, 0.4)'
-                        : '0 6px 18px rgba(15, 23, 42, 0.18)'} !important;
-                    padding: 12px !important;
-                    min-height: 64px !important;
-                    backdrop-filter: blur(10px);
+                    /* Content is top-aligned so the icon lines up with the first
+                       text row instead of floating in the vertical centre. */
+                    align-items: flex-start !important;
+                    border: 1px solid ${borderColor} !important;
+                    box-shadow: ${cardShadow} !important;
+                    margin-bottom: 10px !important;
+                    overflow: hidden !important;
                 }
 
-                .Toastify__toast--success {
-                    background: ${theme.palette.mode === 'dark'
-                        ? 'rgba(27, 94, 32, 0.9)'
-                        : 'rgba(46, 125, 50, 0.95)'} !important;
-                    border-left: 4px solid ${theme.palette.success.main} !important;
-                    color: #ffffff !important;
+                ${severityRules}
+
+                .Toastify__toast-icon {
+                    width: 20px !important;
+                    margin-top: 1px !important;
+                    margin-inline-end: 10px !important;
                 }
 
-                .Toastify__toast--error {
-                    background: ${theme.palette.mode === 'dark'
-                        ? 'rgba(183, 28, 28, 0.9)'
-                        : 'rgba(198, 40, 40, 0.95)'} !important;
-                    border-left: 4px solid ${theme.palette.error.main} !important;
-                    color: #ffffff !important;
-                }
-
-                .Toastify__toast--warning {
-                    background: ${theme.palette.mode === 'dark'
-                        ? 'rgba(230, 81, 0, 0.9)'
-                        : 'rgba(237, 108, 2, 0.95)'} !important;
-                    border-left: 4px solid ${theme.palette.warning.main} !important;
-                    color: #ffffff !important;
-                }
-
-                .Toastify__toast--info {
-                    background: ${theme.palette.mode === 'dark'
-                        ? 'rgba(13, 71, 161, 0.9)'
-                        : 'rgba(21, 101, 192, 0.95)'} !important;
-                    border-left: 4px solid ${theme.palette.info.main} !important;
-                    color: #ffffff !important;
-                }
-
-                .Toastify__progress-bar--success {
-                    background: ${theme.palette.success.contrastText} !important;
-                }
-
-                .Toastify__progress-bar--error {
-                    background: ${theme.palette.error.contrastText} !important;
-                }
-
-                .Toastify__progress-bar--warning {
-                    background: ${theme.palette.warning.contrastText} !important;
-                }
-
-                .Toastify__progress-bar--info {
-                    background: ${theme.palette.info.contrastText} !important;
-                }
-
-                .Toastify__progress-bar {
-                    height: 3px !important;
-                    opacity: 0.6 !important;
-                }
-
-                .Toastify__close-button {
-                    opacity: 0.7 !important;
-                    color: rgba(255, 255, 255, 0.92) !important;
-                }
-
-                .Toastify__close-button:hover {
-                    opacity: 1 !important;
+                .Toastify__toast-icon svg {
+                    width: 20px;
+                    height: 20px;
+                    fill: currentColor;
                 }
 
                 .Toastify__toast-body {
+                    flex: 1 1 auto !important;
+                    min-width: 0 !important;
+                    align-items: flex-start !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    font-size: 13px !important;
+                    line-height: 1.55 !important;
                     white-space: pre-line !important;
+                }
+
+                .Toastify__close-button {
+                    top: 8px !important;
+                    right: 8px !important;
+                    color: ${theme.palette.text.secondary} !important;
+                    opacity: 0.72 !important;
+                }
+
+                .Toastify__close-button:hover,
+                .Toastify__close-button:focus-visible {
+                    opacity: 1 !important;
+                }
+
+                .Toastify__close-button > svg {
+                    width: 15px;
+                    height: 15px;
+                }
+
+                /* Hairline countdown along the bottom edge of the card. */
+                .Toastify__progress-bar--wrp {
+                    height: 2px !important;
+                }
+
+                .Toastify__progress-bar {
+                    opacity: 1 !important;
+                }
+
+                /* Structured body rows emitted by toast-with-timestamp.jsx. */
+                .gs-toast__meta {
+                    font-size: 10px;
+                    line-height: 1.3;
+                    font-family: 'Roboto Mono', ui-monospace, monospace;
+                    letter-spacing: 0.01em;
+                    color: ${theme.palette.text.secondary};
+                    margin-bottom: 4px;
+                }
+
+                .gs-toast__message {
+                    font-size: 13px;
+                    line-height: 1.55;
+                    color: ${theme.palette.text.primary};
                 }
 
                 .observation-countdown-toast__countdown {
