@@ -34,22 +34,40 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HomeIcon from '@mui/icons-material/Home';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import {
+    buildTargetDiagnostic,
+    diagnosticReportText,
+    sendTargetDiagnostic,
+} from '../target/target-diagnostics.js';
 
-const ErrorPage = () => {
+const ErrorPage = ({targetDiagnostics = false}) => {
     const error = useRouteError();
     const navigate = useNavigate();
     const [showStack, setShowStack] = React.useState(false);
     const [copyState, setCopyState] = React.useState('idle');
     const isDev = import.meta.env.DEV;
+    const showDiagnostics = isDev || targetDiagnostics;
     const status = error?.status || 500;
     const title = status === 404 ? 'Page Not Found' : 'Application Error';
     const subtitle = error?.statusText || 'Something went wrong while loading this page.';
-    const message = isDev
+    const message = showDiagnostics
         ? (error?.message || 'An unexpected error has occurred, please try again later.')
         : 'Please try refreshing the page. If the problem persists, check backend connectivity.';
     const stackText = error?.stack || 'No stack trace available.';
     const stackLines = stackText.split('\n').filter((line) => line.trim().length > 0);
-    const debugDetails = `Message: ${message}\n\nStack trace:\n${stackText}`;
+    const diagnosticReport = React.useMemo(
+        () => targetDiagnostics ? buildTargetDiagnostic(error, 'react-router-boundary') : null,
+        [error, targetDiagnostics],
+    );
+    const debugDetails = diagnosticReport
+        ? diagnosticReportText(diagnosticReport)
+        : `Message: ${message}\n\nStack trace:\n${stackText}`;
+
+    React.useEffect(() => {
+        if (diagnosticReport) {
+            sendTargetDiagnostic(diagnosticReport);
+        }
+    }, [diagnosticReport]);
 
     const handleCopyDetails = React.useCallback(async () => {
         try {
@@ -114,7 +132,7 @@ const ErrorPage = () => {
                         </Button>
                     </Stack>
 
-                    {isDev && (
+                    {showDiagnostics && (
                         <Box>
                             <Button
                                 variant="text"
@@ -122,7 +140,7 @@ const ErrorPage = () => {
                                 onClick={() => setShowStack(prev => !prev)}
                                 sx={{ textTransform: 'none', px: 0 }}
                             >
-                                {showStack ? 'Hide Debug Details' : 'Show Debug Details'}
+                                {showStack ? 'Hide Diagnostic Report' : 'Show Diagnostic Report'}
                             </Button>
                             {showStack && (
                                 <Box
@@ -148,7 +166,7 @@ const ErrorPage = () => {
                                         }}
                                     >
                                         <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                                            Error Details
+                                            {targetDiagnostics ? 'Target Page Diagnostic Report' : 'Error Details'}
                                         </Typography>
                                         <Stack direction="row" spacing={1} alignItems="center">
                                             <Typography variant="caption" color="text.secondary">
