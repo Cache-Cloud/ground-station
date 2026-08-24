@@ -80,8 +80,6 @@ const router = createBrowserRouter([
                     {
                         path: "tracking",
                         Component: TrackingLayout,
-                        // Target diagnostics stay scoped to this unstable long-running view.
-                        errorElement: <ErrorPage targetDiagnostics />,
                     },
                     {
                         // Backward-compatible alias for older links/bookmarks.

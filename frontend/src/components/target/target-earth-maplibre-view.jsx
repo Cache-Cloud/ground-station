@@ -492,13 +492,50 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
 
     useEffect(() => {
         if (!liveMap || typeof liveMap.setProjection !== 'function') {
-            return;
+            return undefined;
         }
-        liveMap.setProjection({type: isGlobeProjection ? MAPLIBRE_PROJECTION_GLOBE : MAPLIBRE_PROJECTION_MERCATOR});
-        if (isGlobeProjection) {
-            liveMap.setPitch?.(0);
-            liveMap.setBearing?.(0);
+
+        let cancelled = false;
+        const waitForStyle = () => {
+            if (!cancelled) {
+                liveMap.once('style.load', applyProjection);
+            }
+        };
+        const applyProjection = () => {
+            // React can mount this view while MapLibre is replacing its style.
+            // setProjection mutates the style and throws until that load completes.
+            if (cancelled || !liveMap.isStyleLoaded?.()) {
+                waitForStyle();
+                return;
+            }
+            try {
+                liveMap.setProjection({type: isGlobeProjection ? MAPLIBRE_PROJECTION_GLOBE : MAPLIBRE_PROJECTION_MERCATOR});
+                if (isGlobeProjection) {
+                    liveMap.setPitch?.(0);
+                    liveMap.setBearing?.(0);
+                }
+            } catch (error) {
+                // A concurrent style replacement can begin after isStyleLoaded().
+                // Retry only this known transient condition; other MapLibre failures
+                // remain visible in the console instead of looping indefinitely.
+                if (error?.message === 'Style is not done loading.') {
+                    waitForStyle();
+                    return;
+                }
+                console.warn('Target map projection update failed:', error);
+            }
+        };
+
+        if (liveMap.isStyleLoaded?.()) {
+            applyProjection();
+        } else {
+            waitForStyle();
         }
+
+        return () => {
+            cancelled = true;
+            liveMap.off('style.load', applyProjection);
+        };
     }, [isGlobeProjection, liveMap]);
 
     useEffect(() => {

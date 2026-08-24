@@ -17,9 +17,8 @@
  *
  */
 
-
 import React from 'react';
-import { useNavigate, useRouteError } from 'react-router-dom';
+import {useNavigate, useRouteError} from 'react-router-dom';
 import {
     Alert,
     Box,
@@ -34,51 +33,65 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HomeIcon from '@mui/icons-material/Home';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import {
-    buildTargetDiagnostic,
-    diagnosticReportText,
-    sendTargetDiagnostic,
-} from '../target/target-diagnostics.js';
+import {store} from './store.jsx';
 
-const ErrorPage = ({targetDiagnostics = false}) => {
+const MAX_ERROR_TEXT_LENGTH = 8000;
+
+const truncate = (value) => {
+    const text = String(value ?? '');
+    return text.length > MAX_ERROR_TEXT_LENGTH ? `${text.slice(0, MAX_ERROR_TEXT_LENGTH)}…` : text;
+};
+
+const normalizeError = (error) => ({
+    name: truncate(error?.name || 'Error'),
+    message: truncate(error?.message || error?.statusText || (typeof error === 'string' ? error : 'No error message was provided.')),
+    stack: truncate(error?.stack || 'No stack trace available.'),
+});
+
+const buildErrorReport = (error, status) => {
+    const version = store.getState()?.version?.data || {};
+    return {
+        reportVersion: 1,
+        occurredAt: new Date().toISOString(),
+        // Avoid copying query strings, which can contain a sensitive shared link.
+        route: window.location.pathname,
+        build: {
+            version: version.version ?? null,
+            buildDate: version.buildDate ?? null,
+            gitCommit: version.gitCommit ?? null,
+        },
+        browser: navigator.userAgent,
+        error: {
+            status,
+            statusText: truncate(error?.statusText || ''),
+            ...normalizeError(error),
+        },
+    };
+};
+
+const ErrorPage = () => {
     const error = useRouteError();
     const navigate = useNavigate();
-    const [showStack, setShowStack] = React.useState(false);
+    const [showReport, setShowReport] = React.useState(false);
     const [copyState, setCopyState] = React.useState('idle');
-    const isDev = import.meta.env.DEV;
-    const showDiagnostics = isDev || targetDiagnostics;
     const status = error?.status || 500;
     const title = status === 404 ? 'Page Not Found' : 'Application Error';
     const subtitle = error?.statusText || 'Something went wrong while loading this page.';
-    const message = showDiagnostics
-        ? (error?.message || 'An unexpected error has occurred, please try again later.')
-        : 'Please try refreshing the page. If the problem persists, check backend connectivity.';
-    const stackText = error?.stack || 'No stack trace available.';
-    const stackLines = stackText.split('\n').filter((line) => line.trim().length > 0);
-    const diagnosticReport = React.useMemo(
-        () => targetDiagnostics ? buildTargetDiagnostic(error, 'react-router-boundary') : null,
-        [error, targetDiagnostics],
+    const reportText = React.useMemo(
+        () => JSON.stringify(buildErrorReport(error, status), null, 2),
+        [error, status],
     );
-    const debugDetails = diagnosticReport
-        ? diagnosticReportText(diagnosticReport)
-        : `Message: ${message}\n\nStack trace:\n${stackText}`;
 
-    React.useEffect(() => {
-        if (diagnosticReport) {
-            sendTargetDiagnostic(diagnosticReport);
-        }
-    }, [diagnosticReport]);
-
-    const handleCopyDetails = React.useCallback(async () => {
+    const handleCopyReport = React.useCallback(async () => {
         try {
-            await navigator.clipboard.writeText(debugDetails);
+            await navigator.clipboard.writeText(reportText);
             setCopyState('copied');
             window.setTimeout(() => setCopyState('idle'), 1500);
         } catch {
             setCopyState('failed');
             window.setTimeout(() => setCopyState('idle'), 2000);
         }
-    }, [debugDetails]);
+    }, [reportText]);
 
     return (
         <Container
@@ -91,12 +104,12 @@ const ErrorPage = ({targetDiagnostics = false}) => {
                 py: 4,
             }}
         >
-            <Paper elevation={4} sx={{ width: '100%', p: { xs: 2.5, sm: 4 }, borderRadius: 2 }}>
+            <Paper elevation={4} sx={{width: '100%', p: {xs: 2.5, sm: 4}, borderRadius: 2}}>
                 <Stack spacing={2.5}>
                     <Stack direction="row" spacing={1.5} alignItems="center">
-                        <ErrorOutlineIcon color="error" sx={{ fontSize: 30 }} />
+                        <ErrorOutlineIcon color="error" sx={{fontSize: 30}}/>
                         <Box>
-                            <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                            <Typography variant="h5" sx={{fontWeight: 700}}>
                                 {title}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
@@ -105,175 +118,90 @@ const ErrorPage = ({targetDiagnostics = false}) => {
                         </Box>
                     </Stack>
 
-                    <Divider />
+                    <Divider/>
 
                     <Alert severity="error" variant="outlined">
                         {subtitle}
                     </Alert>
 
                     <Typography variant="body1" color="text.secondary">
-                        {message}
+                        Please try refreshing the page. If the problem persists, copy the error report and include it in a GitHub issue.
                     </Typography>
 
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                        <Button
-                            variant="contained"
-                            startIcon={<HomeIcon />}
-                            onClick={() => navigate('/')}
-                        >
+                    <Stack direction={{xs: 'column', sm: 'row'}} spacing={1.5}>
+                        <Button variant="contained" startIcon={<HomeIcon/>} onClick={() => navigate('/')}>
                             Back to Home
                         </Button>
-                        <Button
-                            variant="outlined"
-                            startIcon={<RefreshIcon />}
-                            onClick={() => window.location.reload()}
-                        >
+                        <Button variant="outlined" startIcon={<RefreshIcon/>} onClick={() => window.location.reload()}>
                             Reload Page
                         </Button>
                     </Stack>
 
-                    {showDiagnostics && (
-                        <Box>
-                            <Button
-                                variant="text"
-                                size="small"
-                                onClick={() => setShowStack(prev => !prev)}
-                                sx={{ textTransform: 'none', px: 0 }}
+                    <Box>
+                        <Button
+                            variant="text"
+                            size="small"
+                            onClick={() => setShowReport((visible) => !visible)}
+                            sx={{textTransform: 'none', px: 0}}
+                        >
+                            {showReport ? 'Hide Error Report' : 'Show Error Report'}
+                        </Button>
+                        {showReport && (
+                            <Box
+                                sx={{
+                                    mt: 1,
+                                    borderRadius: 1.5,
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    overflow: 'hidden',
+                                    bgcolor: 'background.default',
+                                }}
                             >
-                                {showStack ? 'Hide Diagnostic Report' : 'Show Diagnostic Report'}
-                            </Button>
-                            {showStack && (
                                 <Box
                                     sx={{
-                                        mt: 1,
-                                        borderRadius: 1.5,
-                                        border: '1px solid',
+                                        px: 1.5,
+                                        py: 1,
+                                        borderBottom: '1px solid',
                                         borderColor: 'divider',
-                                        overflow: 'hidden',
-                                        bgcolor: 'background.default',
+                                        bgcolor: 'action.hover',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
                                     }}
                                 >
-                                    <Box
-                                        sx={{
-                                            px: 1.5,
-                                            py: 1,
-                                            borderBottom: '1px solid',
-                                            borderColor: 'divider',
-                                            bgcolor: 'action.hover',
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                        }}
+                                    <Typography variant="caption" sx={{fontWeight: 600}}>
+                                        Error Report
+                                    </Typography>
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        color={copyState === 'failed' ? 'error' : 'primary'}
+                                        startIcon={<ContentCopyIcon/>}
+                                        onClick={handleCopyReport}
+                                        sx={{textTransform: 'none', minWidth: 0, px: 1}}
                                     >
-                                        <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                                            {targetDiagnostics ? 'Target Page Diagnostic Report' : 'Error Details'}
-                                        </Typography>
-                                        <Stack direction="row" spacing={1} alignItems="center">
-                                            <Typography variant="caption" color="text.secondary">
-                                                {stackLines.length} line{stackLines.length === 1 ? '' : 's'}
-                                            </Typography>
-                                            <Button
-                                                size="small"
-                                                variant="outlined"
-                                                color={copyState === 'failed' ? 'error' : 'primary'}
-                                                startIcon={<ContentCopyIcon />}
-                                                onClick={handleCopyDetails}
-                                                sx={{ textTransform: 'none', minWidth: 0, px: 1 }}
-                                            >
-                                                {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy details'}
-                                            </Button>
-                                        </Stack>
-                                    </Box>
-                                    <Box
-                                        sx={{
-                                            overflow: 'auto',
-                                            maxHeight: 320,
-                                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                                            fontSize: 12,
-                                        }}
-                                    >
-                                        <Box
-                                            sx={{
-                                                display: 'grid',
-                                                gridTemplateColumns: '40px 1fr',
-                                                columnGap: 1,
-                                                px: 1.5,
-                                                py: 0.4,
-                                                borderBottom: '1px solid',
-                                                borderColor: 'divider',
-                                                '&:hover': { bgcolor: 'action.hover' },
-                                            }}
-                                        >
-                                            <Typography
-                                                component="span"
-                                                sx={{
-                                                    color: 'text.disabled',
-                                                    textAlign: 'right',
-                                                    userSelect: 'none',
-                                                    fontSize: 12,
-                                                }}
-                                            >
-                                                msg
-                                            </Typography>
-                                            <Typography
-                                                component="pre"
-                                                sx={{
-                                                    m: 0,
-                                                    whiteSpace: 'pre-wrap',
-                                                    wordBreak: 'break-word',
-                                                    color: 'error.main',
-                                                    fontSize: 12,
-                                                    lineHeight: 1.45,
-                                                }}
-                                            >
-                                                {message}
-                                            </Typography>
-                                        </Box>
-                                        {stackLines.map((line, idx) => (
-                                            <Box
-                                                key={`${idx}-${line}`}
-                                                sx={{
-                                                    display: 'grid',
-                                                    gridTemplateColumns: '40px 1fr',
-                                                    columnGap: 1,
-                                                    px: 1.5,
-                                                    py: 0.4,
-                                                    borderBottom: idx === stackLines.length - 1 ? 'none' : '1px solid',
-                                                    borderColor: 'divider',
-                                                    '&:hover': { bgcolor: 'action.hover' },
-                                                }}
-                                            >
-                                                <Typography
-                                                    component="span"
-                                                    sx={{
-                                                        color: 'text.disabled',
-                                                        textAlign: 'right',
-                                                        userSelect: 'none',
-                                                        fontSize: 12,
-                                                    }}
-                                                >
-                                                    {idx + 1}
-                                                </Typography>
-                                                <Typography
-                                                    component="pre"
-                                                    sx={{
-                                                        m: 0,
-                                                        whiteSpace: 'pre-wrap',
-                                                        wordBreak: 'break-word',
-                                                        color: idx === 0 ? 'error.main' : 'text.primary',
-                                                        fontSize: 12,
-                                                        lineHeight: 1.45,
-                                                    }}
-                                                >
-                                                    {line}
-                                                </Typography>
-                                            </Box>
-                                        ))}
-                                    </Box>
+                                        {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy report'}
+                                    </Button>
                                 </Box>
-                            )}
-                        </Box>
-                    )}
+                                <Box
+                                    component="pre"
+                                    sx={{
+                                        m: 0,
+                                        p: 1.5,
+                                        overflow: 'auto',
+                                        maxHeight: 320,
+                                        whiteSpace: 'pre-wrap',
+                                        wordBreak: 'break-word',
+                                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                                        fontSize: 12,
+                                        lineHeight: 1.45,
+                                    }}
+                                >
+                                    {reportText}
+                                </Box>
+                            </Box>
+                        )}
+                    </Box>
                 </Stack>
             </Paper>
         </Container>

@@ -1,6 +1,5 @@
 import asyncio
 import concurrent.futures
-import json
 import os
 import queue
 import tempfile
@@ -678,35 +677,6 @@ async def update_check():
         raise HTTPException(
             status_code=500, detail=f"Failed to retrieve update information: {str(e)}"
         )
-
-
-@app.post("/api/diagnostics/target-error")
-async def log_target_page_diagnostic(request: Request):
-    """Log a bounded client-side Target-page crash report for diagnosis."""
-    auth_context = await _require_request_auth(request, require_auth=True, require_admin=False)
-    try:
-        content_length = int(request.headers.get("content-length") or 0)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid diagnostic report length.")
-    if content_length > 48_000:
-        raise HTTPException(status_code=413, detail="Diagnostic report is too large.")
-
-    try:
-        payload = await request.json()
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        raise HTTPException(status_code=400, detail="Diagnostic report must be valid JSON.")
-
-    if not isinstance(payload, dict) or payload.get("kind") != "target-page-client-error":
-        raise HTTPException(status_code=400, detail="Invalid diagnostic report.")
-
-    # The frontend deliberately sends a small, redacted report. Serialize compactly
-    # so it is easy to locate and copy from ordinary Ground Station server logs.
-    logger.error(
-        "TARGET_PAGE_CLIENT_ERROR user=%s report=%s",
-        auth_context.get("username") if auth_context else "unknown",
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str),
-    )
-    return {"success": True}
 
 
 def _resolve_decoded_folder(decoded_root: Path, foldername: str) -> Path:

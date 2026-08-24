@@ -58,7 +58,6 @@ import SatellitePassTimeline from "./timeline-main.jsx";
 import TargetSelectorBar from "./target-selector-bar.jsx";
 import RotatorControl from "../dashboard/rotator-control.jsx";
 import RigControl from "../dashboard/rig-control.jsx";
-import {recordTargetBreadcrumb, reportTargetDiagnostic} from './target-diagnostics.js';
 
 
 
@@ -642,30 +641,6 @@ const TrackingLayout = React.memo(function TrackingLayout() {
             "resizeHandles": ["s", "sw", "w", "se", "nw", "ne", "e"]
         }]
     };
-
-    useEffect(() => {
-        recordTargetBreadcrumb('tracking-page-mounted');
-
-        const onWindowError = (event) => {
-            recordTargetBreadcrumb('window-error', {message: event.message || null});
-            reportTargetDiagnostic(event.error || event.message, 'window-error');
-        };
-        const onUnhandledRejection = (event) => {
-            recordTargetBreadcrumb('unhandled-rejection');
-            reportTargetDiagnostic(event.reason, 'unhandled-rejection');
-        };
-
-        // Idle crashes often originate in timers, socket callbacks, or renderers,
-        // none of which are guaranteed to reach a React route error boundary.
-        window.addEventListener('error', onWindowError);
-        window.addEventListener('unhandledrejection', onUnhandledRejection);
-
-        return () => {
-            recordTargetBreadcrumb('tracking-page-unmounted');
-            window.removeEventListener('error', onWindowError);
-            window.removeEventListener('unhandledrejection', onUnhandledRejection);
-        };
-    }, []);
 
     useEffect(() => {
         const onSetGridEditable = (event) => {
