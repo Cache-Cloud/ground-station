@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Batch-generate transparent satellite icon masters and 64/128/256 presets."""
+"""Batch-generate 64/128/256 satellite icon presets from transparent masters."""
 
 from __future__ import annotations
 
@@ -337,7 +337,6 @@ def _extract_selected_mask(
 
 def process_satellite_image(
     source_path: Path,
-    source_dir: Path,
     output_dir: Path,
     sizes: list[int],
     padding_ratio: float,
@@ -407,16 +406,20 @@ def process_satellite_image(
 
     trimmed = rgba[top:bottom, left:right].copy()
     trimmed_mask = selected_mask[top:bottom, left:right]
-    trimmed[:, :, 3] = np.where(trimmed_mask, 255, 0).astype(np.uint8)
+    if np.all(source_alpha == 255):
+        trimmed[:, :, 3] = np.where(trimmed_mask, 255, 0).astype(np.uint8)
+    else:
+        # Masters already have an approved alpha mask. Preserve partial-alpha edge pixels
+        # in the resized presets instead of flattening them to opaque pixels.
+        trimmed[:, :, 3] = np.where(trimmed_mask, trimmed[:, :, 3], 0).astype(np.uint8)
     # Keep RGB black where transparent to avoid dark/bright fringes in compositing.
     trimmed[:, :, :3][trimmed[:, :, 3] == 0] = 0
 
     master_image = Image.fromarray(trimmed, mode="RGBA")
-    master_path = source_dir / f"{norad}.png"
+    master_path = source_path
     preset_paths = tuple(output_dir / str(size) / f"{norad}.png" for size in sizes)
 
     if apply_changes:
-        master_image.save(master_path)
         for size, preset_path in zip(sizes, preset_paths, strict=True):
             preset_path.parent.mkdir(parents=True, exist_ok=True)
             _center_fit_square(master_image, size, padding_ratio).save(preset_path)
@@ -445,8 +448,8 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Batch-process NORAD-named satellite source images into transparent masters "
-            "and 64/128/256 icon presets."
+            "Batch-process NORAD-named satellite masters into 64/128/256 icon presets "
+            "without changing the master files."
         )
     )
     parser.add_argument(
@@ -463,7 +466,7 @@ def main() -> None:
         type=Path,
         default=default_output_dir,
         help=(
-            "Directory where the normalized masters and 64/128/256 presets are written "
+            "Directory where the 64/128/256 presets are written "
             "(default: backend/images/satellites)."
         ),
     )
@@ -535,7 +538,6 @@ def main() -> None:
         try:
             result = process_satellite_image(
                 source_path=source,
-                source_dir=source_dir,
                 output_dir=output_dir,
                 sizes=args.sizes,
                 padding_ratio=args.padding_ratio,

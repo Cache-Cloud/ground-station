@@ -12,8 +12,8 @@ Process all provided entries in one batch unless the user explicitly asks otherw
 
 1. Download the source image from the provided URL.
 2. Create a clean transparent icon from the source.
-3. Save/update these files:
-   - `backend/images/satellites/full/{NORAD}.png` (transparent master/fallback)
+3. Save the approved transparent master, then generate these presets:
+   - `backend/images/satellites/full/{NORAD}.png` (transparent master/fallback; never rewritten by the preset processor)
    - `backend/images/satellites/64/{NORAD}.png`
    - `backend/images/satellites/128/{NORAD}.png`
    - `backend/images/satellites/256/{NORAD}.png`
@@ -42,7 +42,8 @@ Process all provided entries in one batch unless the user explicitly asks otherw
 
 ## Batch automation (no LLM calls)
 
-Use `backend/scripts/process_satellite_icons.py` for deterministic batch processing.
+Use `backend/scripts/process_satellite_icons.py` for deterministic preset processing. It
+reads masters from `full/` without changing them, preserving their alpha values.
 
 Dry-run (report only, no writes):
 
