@@ -400,9 +400,12 @@ async def _generate_observations_for_satellite(
     # Process each pass
     for pass_data in valid_passes:
         try:
-            # Add TLE to pass_data for elevation calculations
+            # Carry the canonical orbit into derived pass data. TLE remains an
+            # optional compatibility cache for five-digit catalogue entries.
             pass_data["tle1"] = satellite_propagation_input.tle1
             pass_data["tle2"] = satellite_propagation_input.tle2
+            pass_data["orbit_format"] = satellite_data.get("orbit_format")
+            pass_data["orbit_payload"] = satellite_data.get("orbit_payload")
 
             event_start = datetime.fromisoformat(pass_data["event_start"].replace("Z", "+00:00"))
             event_end = datetime.fromisoformat(pass_data["event_end"].replace("Z", "+00:00"))
@@ -425,13 +428,8 @@ async def _generate_observations_for_satellite(
                 task_end_time = None
 
                 if task_start_elevation > 0:
-                    pass_propagation_input = get_propagation_input(
-                        pass_data, central_body=CentralBody.EARTH
-                    )
-                    satellite_tle = {
-                        "tle1": pass_propagation_input.tle1,
-                        "tle2": pass_propagation_input.tle2,
-                    }
+                    get_propagation_input(pass_data, central_body=CentralBody.EARTH)
+                    satellite_tle = dict(pass_data)
                     location_result = await crud_locations.fetch_all_locations(session)
                     if (
                         location_result
@@ -630,13 +628,8 @@ async def _create_observation(session: AsyncSession, monitored_sat: dict, pass_d
     if task_start_elevation > 0:
         # Get satellite TLE
         try:
-            pass_propagation_input = get_propagation_input(
-                pass_data, central_body=CentralBody.EARTH
-            )
-            satellite_tle = {
-                "tle1": pass_propagation_input.tle1,
-                "tle2": pass_propagation_input.tle2,
-            }
+            get_propagation_input(pass_data, central_body=CentralBody.EARTH)
+            satellite_tle = dict(pass_data)
         except OrbitServiceError as e:
             logger.warning(
                 "Skipping elevation crossing calculation for %s: %s", satellite["name"], e
@@ -733,13 +726,8 @@ async def _update_observation(
     if task_start_elevation > 0:
         # Get satellite TLE
         try:
-            pass_propagation_input = get_propagation_input(
-                pass_data, central_body=CentralBody.EARTH
-            )
-            satellite_tle = {
-                "tle1": pass_propagation_input.tle1,
-                "tle2": pass_propagation_input.tle2,
-            }
+            get_propagation_input(pass_data, central_body=CentralBody.EARTH)
+            satellite_tle = dict(pass_data)
         except OrbitServiceError as e:
             logger.warning(
                 "Skipping elevation crossing calculation for %s: %s", satellite["name"], e

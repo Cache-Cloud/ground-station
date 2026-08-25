@@ -20,10 +20,10 @@ import logging
 from typing import Dict, List, Union
 
 import numpy as np
-from skyfield.api import EarthSatellite, Loader, Topos
+from skyfield.api import Loader, Topos
 
 from common.common import ModelEncoder
-from orbits import CentralBody, OrbitServiceError, get_propagation_input
+from orbits import CentralBody, OrbitServiceError, build_skyfield_satellite, get_propagation_input
 
 logger = logging.getLogger("passes-worker")
 
@@ -293,7 +293,7 @@ def calculate_next_events(
         assert isinstance(tle_groups, list), "tle_groups must be a list of lists"
         assert all(
             len(group) == 3 for group in tle_groups
-        ), "Each TLE group must contain norad_id and 2 TLE lines"
+        ), "Each orbit group must contain a NORAD ID"
         assert isinstance(home_location, dict), "home_location must be a dictionary"
         assert (
             "lat" in home_location and "lon" in home_location
@@ -319,28 +319,36 @@ def calculate_next_events(
             # Check for extreme orbital decay indicators in TLE
             # The First Derivative of Mean Motion (columns 34-43) indicates orbital decay rate
             # High values (>0.01) indicate rapid orbital decay and will cause propagation issues
-            try:
-                # Extract first derivative of mean motion (columns 34-43, 0-indexed: 33-42)
-                # Format: ±.dddddddd (decimal value with explicit decimal point)
-                # Example: " .11903621" = 0.11903621
-                # Example: " .00013419" = 0.00013419 (normal)
-                ndot_str = line1[33:43].strip()
-                if ndot_str:
-                    ndot = float(ndot_str)
-                    ndot_threshold = 0.01
+            if line1:
+                try:
+                    # Extract first derivative of mean motion (columns 34-43, 0-indexed: 33-42)
+                    # Format: ±.dddddddd (decimal value with explicit decimal point)
+                    # Example: " .11903621" = 0.11903621
+                    # Example: " .00013419" = 0.00013419 (normal)
+                    ndot_str = line1[33:43].strip()
+                    if ndot_str:
+                        ndot = float(ndot_str)
+                        ndot_threshold = 0.01
 
-                    if abs(ndot) > ndot_threshold:
-                        logger.error(
-                            f"Satellite {norad_id} skipped: Extreme first derivative of mean motion {ndot:.8f} "
-                            f"(threshold: {ndot_threshold}). This satellite is in rapid orbital decay and "
-                            f"will cause performance issues during propagation."
-                        )
-                        continue  # Skip this satellite
-            except (ValueError, IndexError) as e:
-                logger.warning(f"Failed to parse first derivative for satellite {norad_id}: {e}")
-                # Continue anyway - if we can't parse, let Skyfield try
+                        if abs(ndot) > ndot_threshold:
+                            logger.error(
+                                f"Satellite {norad_id} skipped: Extreme first derivative of mean motion {ndot:.8f} "
+                                f"(threshold: {ndot_threshold}). This satellite is in rapid orbital decay and "
+                                f"will cause performance issues during propagation."
+                            )
+                            continue  # Skip this satellite
+                except (ValueError, IndexError) as e:
+                    logger.warning(
+                        f"Failed to parse first derivative for satellite {norad_id}: {e}"
+                    )
+                    # Continue anyway - if we can't parse, let Skyfield try.
 
-            satellite = EarthSatellite(line1, line2, name=f"satellite_{norad_id}")
+            orbit_record = satellite_info.get(
+                norad_id,
+                {"norad_id": norad_id, "tle1": line1, "tle2": line2},
+            )
+            propagation_input = get_propagation_input(orbit_record, central_body=CentralBody.EARTH)
+            satellite = build_skyfield_satellite(propagation_input, ts)
 
             # Check if it is geostationary or geosynchronous
             satellite_orbit_info = analyze_satellite_orbit(satellite)

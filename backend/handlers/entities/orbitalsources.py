@@ -46,6 +46,7 @@ async def submit_orbital_source(
         return {
             "success": (orbital_sources["success"] & submit_reply["success"]),
             "data": orbital_sources.get("data", []),
+            "error": submit_reply.get("error"),
         }
 
 
@@ -64,6 +65,7 @@ async def edit_orbital_source(
         return {
             "success": (orbital_sources["success"] & edit_reply["success"]),
             "data": orbital_sources.get("data", []),
+            "error": edit_reply.get("error"),
         }
 
 

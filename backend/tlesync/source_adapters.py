@@ -30,6 +30,7 @@ from sgp4 import omm
 from sgp4.api import Satrec
 from sgp4.exporter import export_tle
 
+from tlesync.celestrak import get_celestrak_gp, is_celestrak_url, validate_celestrak_source
 from tlesync.utils import parse_norad_id_from_line1, simple_parse_3le
 
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 20
@@ -41,6 +42,13 @@ DEFAULT_NORAD_BATCH_SIZE = 200
 def fetch_source_orbit_records(source: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Fetch and normalize orbit records from one configured source."""
     adapter = str(source.get("adapter") or "http_3le").strip().lower()
+    if is_celestrak_url(source.get("url")):
+        # CelesTrak has a stricter machine-to-machine contract than generic HTTP
+        # providers. Validate it before opening a connection so legacy user URLs
+        # cannot create another policy-violating request.
+        validate_celestrak_source(
+            str(source.get("url") or ""), str(source.get("format") or ""), adapter
+        )
     if adapter == "http_3le":
         return _fetch_http_3le(source)
     if adapter == "http_omm":
@@ -91,15 +99,23 @@ def build_group_norad_source_batches(
 
 
 def _fetch_http_3le(source: Dict[str, Any]) -> List[Dict[str, Any]]:
-    response = requests.get(source["url"], timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
+    response = _get_http_response(source["url"])
     response.raise_for_status()
     return _normalize_tle_records(response.text, source=source)
 
 
 def _fetch_http_omm(source: Dict[str, Any]) -> List[Dict[str, Any]]:
-    response = requests.get(source["url"], timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
+    response = _get_http_response(source["url"])
     response.raise_for_status()
     return _normalize_omm_records(response.text, source=source)
+
+
+def _get_http_response(url: str) -> requests.Response:
+    """Fetch a configured source while enforcing CelesTrak's exact-200 policy."""
+    if is_celestrak_url(url):
+        response: requests.Response = get_celestrak_gp(url)
+        return response
+    return requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
 
 
 def _fetch_space_track_gp(source: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -270,11 +286,17 @@ def _normalize_omm_records(content: str, source: Dict[str, Any]) -> List[Dict[st
     normalized: List[Dict[str, Any]] = []
     for row in omm_rows:
         fields = _normalize_omm_fields(row)
-        satrec = Satrec()
-        omm.initialize(satrec, fields)
-        tle1, tle2 = export_tle(satrec)
 
         norad_id = int(fields["NORAD_CAT_ID"])
+        tle1 = None
+        tle2 = None
+        if norad_id <= 99999:
+            # TLE remains a compatibility cache for consumers such as SatDump.
+            # Never attempt this conversion for six-digit catalogue numbers:
+            # their five-character TLE field would be lossy or invalid.
+            satrec = Satrec()
+            omm.initialize(satrec, fields)
+            tle1, tle2 = (line.strip() for line in export_tle(satrec))
         epoch = _parse_epoch_datetime(fields.get("EPOCH"))
         name = (
             _clean_optional_text(fields.get("OBJECT_NAME"))
@@ -286,8 +308,9 @@ def _normalize_omm_records(content: str, source: Dict[str, Any]) -> List[Dict[st
             {
                 "name": name,
                 "norad_id": norad_id,
-                "line1": tle1.strip(),
-                "line2": tle2.strip(),
+                # OMM is canonical. TLE is only an optional compatibility cache.
+                "line1": tle1,
+                "line2": tle2,
                 "model_kind": "omm",
                 "orbit_payload": dict(row),
                 "orbit_epoch": epoch,

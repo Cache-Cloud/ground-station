@@ -20,6 +20,8 @@ from typing import Dict, List, Tuple
 
 from skyfield.api import EarthSatellite, load, wgs84
 
+from orbits import PropagationInput, build_skyfield_satellite
+
 
 def get_satellite_az_el(
     home_lat: float,
@@ -59,6 +61,20 @@ def get_satellite_az_el(
     # Get the altitude (elevation) and azimuth in degrees
     alt, az, _ = difference.at(t).altaz()
 
+    return round(az.degrees, 4), round(alt.degrees, 4)
+
+
+def get_satellite_az_el_from_propagation(
+    home_lat: float,
+    home_lon: float,
+    propagation_input: PropagationInput,
+    observation_time: datetime,
+) -> Tuple[float, float]:
+    """Return azimuth/elevation from either canonical OMM or legacy TLE data."""
+    ts = load.timescale()
+    observer = wgs84.latlon(home_lat, home_lon)
+    satellite = build_skyfield_satellite(propagation_input, ts)
+    alt, az, _ = (satellite - observer).at(ts.from_datetime(observation_time)).altaz()
     return round(az.degrees, 4), round(alt.degrees, 4)
 
 
@@ -108,6 +124,20 @@ def get_satellite_position_from_tle(tle_lines):
         "lon": float(lon_degrees),
         "alt": float(altitude_m),
         "vel": float(velocity_km_s),
+    }
+
+
+def get_satellite_position_from_propagation(propagation_input: PropagationInput):
+    """Return current position and velocity from canonical OMM or legacy TLE data."""
+    ts = load.timescale()
+    geocentric = build_skyfield_satellite(propagation_input, ts).at(ts.now())
+    subpoint = geocentric.subpoint()
+    vx, vy, vz = geocentric.velocity.km_per_s
+    return {
+        "lat": float(subpoint.latitude.degrees),
+        "lon": float(subpoint.longitude.degrees),
+        "alt": float(subpoint.elevation.m),
+        "vel": float(math.sqrt(vx * vx + vy * vy + vz * vz)),
     }
 
 
@@ -204,6 +234,43 @@ def get_satellite_path(
 
         return {"past": past_segments, "future": future_segments}
 
+    except Exception as e:
+        print(f"Error computing satellite paths: {str(e)}")
+        return {"past": [], "future": []}
+
+
+def get_satellite_path_from_propagation(
+    propagation_input: PropagationInput,
+    duration_minutes: float,
+    step_minutes: float = 1.0,
+) -> Dict[str, List[List[Dict[str, float]]]]:
+    """Compute paths from canonical OMM or legacy TLE data."""
+    try:
+        ts = load.timescale()
+        satellite = build_skyfield_satellite(propagation_input, ts)
+        now = datetime.now(timezone.utc)
+        step_td = timedelta(minutes=step_minutes)
+
+        def _points(start: datetime, end: datetime) -> List[Dict[str, float]]:
+            points = []
+            current = start
+            while current <= end:
+                geocentric = satellite.at(ts.from_datetime(current))
+                subpoint = wgs84.subpoint(geocentric)
+                points.append(
+                    {
+                        "lat": float(subpoint.latitude.degrees),
+                        "lon": normalize_longitude(float(subpoint.longitude.degrees)),
+                        "alt": float(subpoint.elevation.m),
+                    }
+                )
+                current += step_td
+            return points
+
+        return {
+            "past": split_at_dateline(_points(now - timedelta(minutes=duration_minutes), now)),
+            "future": split_at_dateline(_points(now, now + timedelta(minutes=duration_minutes))),
+        }
     except Exception as e:
         print(f"Error computing satellite paths: {str(e)}")
         return {"past": [], "future": []}

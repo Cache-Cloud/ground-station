@@ -149,8 +149,10 @@ class Satellites(Base):
     alternative_name = Column(String, nullable=True)
     image = Column(String, nullable=True)
     sat_id = Column(String, nullable=True)
-    tle1 = Column(String, nullable=False)
-    tle2 = Column(String, nullable=False)
+    # Legacy compatibility cache.  Canonical OMM rows, including six-digit
+    # catalogue numbers, intentionally have no representable TLE lines.
+    tle1 = Column(String, nullable=True)
+    tle2 = Column(String, nullable=True)
     status = Column(String, nullable=True)
     decayed = Column(AwareDateTime, nullable=True)
     launched = Column(AwareDateTime, nullable=True)
@@ -452,6 +454,30 @@ class OrbitalSources(Base):
             "query_mode IN ('url', 'group_norad')",
             name="ck_orbital_sources_query_mode",
         ),
+    )
+
+
+class OrbitalSourceSyncState(Base):
+    """Persistent fetch status for all orbital sources and CelesTrak safeguards."""
+
+    __tablename__ = "orbital_source_sync_states"
+    source_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("orbital_sources.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    last_success_at = Column(AwareDateTime, nullable=True)
+    last_attempt_at = Column(AwareDateTime, nullable=True)
+    last_http_status = Column(Integer, nullable=True)
+    last_error = Column(String, nullable=True)
+    suspended_at = Column(AwareDateTime, nullable=True)
+    suspension_reason = Column(String, nullable=True)
+    updated = Column(
+        AwareDateTime,
+        nullable=False,
+        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(timezone.utc),
     )
 
 

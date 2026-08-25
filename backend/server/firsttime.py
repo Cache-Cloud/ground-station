@@ -96,22 +96,22 @@ async def first_time_initialization():
             default_sources = [
                 (
                     "Cubesats",
-                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=cubesat&FORMAT=omm",
+                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=cubesat&FORMAT=CSV",
                     "omm",
                 ),
                 (
                     "Amateur",
-                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=omm",
+                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=CSV",
                     "omm",
                 ),
                 (
                     "Space stations",
-                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=omm",
+                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV",
                     "omm",
                 ),
                 (
                     "Weather",
-                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=omm",
+                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=CSV",
                     "omm",
                 ),
                 (

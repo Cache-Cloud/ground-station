@@ -141,11 +141,6 @@ def _normalize_orbit_payload(
     else:
         if omm_payload is None:
             raise ValueError("Missing required field: orbit.omm_payload")
-        # Current runtime OMM compatibility path still propagates from TLE.
-        if not tle1 or not tle2:
-            raise ValueError(
-                "OMM editing currently requires orbit.tle1 and orbit.tle2 for runtime propagation compatibility"
-            )
 
     return {
         "central_body": central_body,
@@ -499,14 +494,36 @@ async def add_satellite(session: AsyncSession, data: dict) -> dict:
     Create and add a new satellite record.
     """
     try:
+        orbit_payload_raw = data.get("orbit") if isinstance(data, dict) else None
         allowed_fields = {column.name for column in Satellites.__table__.columns}
         data = {key: value for key, value in data.items() if key in allowed_fields}
 
         # Validate required fields
-        required_fields = ["name", "norad_id", "tle1", "tle2"]
+        required_fields = ["name", "norad_id"]
+        if orbit_payload_raw is None:
+            required_fields.extend(["tle1", "tle2"])
         for field in required_fields:
             if field not in data:
                 raise ValueError(f"Missing required field: {field}")
+
+        orbit_payload = _normalize_orbit_payload(
+            orbit_payload_raw
+            or {
+                "central_body": "earth",
+                "model_kind": "tle",
+                "tle1": data.get("tle1"),
+                "tle2": data.get("tle2"),
+                "source_object_id": str(data.get("norad_id") or ""),
+            },
+            satellite_id=int(data["norad_id"]),
+            fallback_tle1=data.get("tle1"),
+            fallback_tle2=data.get("tle2"),
+        )
+        if orbit_payload["central_body"] == "earth":
+            # The legacy columns are a cache only. OMM-only records leave it
+            # empty rather than fabricating a lossy TLE representation.
+            data["tle1"] = orbit_payload["tle1"]
+            data["tle2"] = orbit_payload["tle2"]
 
         now = datetime.now(timezone.utc)
         data["source"] = data.get("source") or "manual"
@@ -515,16 +532,6 @@ async def add_satellite(session: AsyncSession, data: dict) -> dict:
 
         stmt = insert(Satellites).values(**data).returning(Satellites)
         result = await session.execute(stmt)
-        orbit_payload = _normalize_orbit_payload(
-            {
-                "central_body": "earth",
-                "model_kind": "tle",
-                "tle1": data.get("tle1"),
-                "tle2": data.get("tle2"),
-                "source_object_id": str(data.get("norad_id") or ""),
-            },
-            satellite_id=int(data["norad_id"]),
-        )
         await _upsert_satellite_orbit(
             session, satellite_id=int(data["norad_id"]), orbit_payload=orbit_payload, now=now
         )

@@ -1,10 +1,65 @@
 import {describe, expect, it} from 'vitest';
 
-import {toFormValues, validateSourceForm} from '../sources-table.jsx';
+import {getSourceSyncPresentation, toFormValues, validateSourceForm} from '../sources-table.jsx';
 
 const t = (key) => key;
 
 describe('sources-table form helpers', () => {
+    it('presents persisted source failures as attention required', () => {
+        const presentation = getSourceSyncPresentation({
+            enabled: true,
+            sync_state: {
+                suspended_at: '2026-08-25T10:00:00+00:00',
+                suspension_reason: 'Connection timed out before an HTTP response.',
+            },
+        }, t);
+
+        expect(presentation.color).toBe('error');
+        expect(presentation.label).toBe('orbital_sources.sync_status_attention');
+        expect(presentation.description).toBe('Connection timed out before an HTTP response.');
+    });
+
+    it('presents a recent successful CelesTrak request as healthy while deferred', () => {
+        const now = Date.parse('2026-08-25T12:00:00+00:00');
+        const presentation = getSourceSyncPresentation({
+            enabled: true,
+            url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=CSV',
+            sync_state: {last_success_at: '2026-08-25T11:00:00+00:00'},
+        }, t, now);
+
+        expect(presentation.color).toBe('success');
+        expect(presentation.label).toBe('orbital_sources.sync_status_healthy');
+        expect(presentation.description).toBe('orbital_sources.sync_status_healthy_deferred_detail');
+    });
+
+    it('presents a recent successful non-CelesTrak source as healthy', () => {
+        const presentation = getSourceSyncPresentation({
+            enabled: true,
+            url: 'https://www.space-track.org/basicspacedata/query/class/gp',
+            sync_state: {last_success_at: '2026-08-25T11:00:00+00:00'},
+        }, t, Date.parse('2026-08-25T12:00:00+00:00'));
+
+        expect(presentation.color).toBe('success');
+        expect(presentation.label).toBe('orbital_sources.sync_status_healthy');
+    });
+
+    it('presents a persisted non-CelesTrak fetch error as attention required', () => {
+        const presentation = getSourceSyncPresentation({
+            enabled: true,
+            sync_state: {last_error: 'Space-Track login returned HTTP 401.'},
+        }, t);
+
+        expect(presentation.color).toBe('error');
+        expect(presentation.description).toBe('Space-Track login returned HTTP 401.');
+    });
+
+    it('presents an enabled source without sync history as not synced', () => {
+        const presentation = getSourceSyncPresentation({enabled: true}, t);
+
+        expect(presentation.color).toBe('default');
+        expect(presentation.label).toBe('orbital_sources.sync_status_not_synced');
+    });
+
     it('normalizes legacy provider in form values', () => {
         const formValues = toFormValues({
             id: 'source-1',

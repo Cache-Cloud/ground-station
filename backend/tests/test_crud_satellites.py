@@ -574,6 +574,37 @@ class TestSatellitesCRUD:
         assert orbit_row.tle1 == tle1
         assert orbit_row.tle2 == tle2
 
+    async def test_add_satellite_accepts_omm_without_a_lossy_tle_cache(self, db_session):
+        """Six-digit catalogue numbers must be stored as OMM-only records."""
+        norad_id = 100000
+        add_result = await add_satellite(
+            db_session,
+            {
+                "name": "OMM-only satellite",
+                "norad_id": norad_id,
+                "orbit": {
+                    "central_body": "earth",
+                    "model_kind": "omm",
+                    "omm_payload": {"NORAD_CAT_ID": str(norad_id), "OBJECT_ID": "2025-001A"},
+                },
+            },
+        )
+
+        assert add_result["success"] is True
+        assert add_result["data"]["tle1"] is None
+        assert add_result["data"]["tle2"] is None
+        orbit_row = (
+            await db_session.execute(
+                select(SatelliteOrbits).where(
+                    SatelliteOrbits.satellite_norad_id == norad_id,
+                    SatelliteOrbits.central_body == "earth",
+                )
+            )
+        ).scalar_one()
+        assert orbit_row.model_kind == "omm"
+        assert orbit_row.tle1 is None
+        assert orbit_row.tle2 is None
+
     async def test_edit_satellite_updates_canonical_orbit_and_projects_fields(self, db_session):
         """Editing with orbit payload should update canonical orbit and fetch projection."""
         norad_id = 77901

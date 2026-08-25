@@ -5,6 +5,7 @@ import json
 import pytest
 import requests
 
+from tlesync.celestrak import CelestrakRequestError
 from tlesync.source_adapters import (
     build_space_track_norad_source_batches,
     fetch_source_orbit_records,
@@ -86,6 +87,69 @@ def test_fetch_http_omm_adapter(monkeypatch):
     assert records[0]["line2"].startswith("2 25544")
     assert isinstance(records[0]["orbit_payload"], dict)
     assert records[0]["orbit_payload"]["NORAD_CAT_ID"] == "25544"
+
+
+def test_fetch_http_omm_adapter_keeps_six_digit_catalogue_number_as_omm(monkeypatch):
+    row = _sample_omm_row()
+    row["NORAD_CAT_ID"] = "100000"
+    row["OBJECT_ID"] = "2025-001A"
+    monkeypatch.setattr(
+        requests, "get", lambda *_args, **_kwargs: _DummyResponse(json.dumps([row]))
+    )
+
+    records = fetch_source_orbit_records(
+        {
+            "adapter": "http_omm",
+            "format": "omm",
+            "url": "https://example.com/omm.json",
+            "central_body": "earth",
+        }
+    )
+
+    assert records[0]["norad_id"] == 100000
+    assert records[0]["line1"] is None
+    assert records[0]["line2"] is None
+    assert records[0]["orbit_payload"]["NORAD_CAT_ID"] == "100000"
+
+
+def test_celestrak_rejects_redirect_without_following_it(monkeypatch):
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return _DummyResponse("Use the canonical host", status_code=301)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    with pytest.raises(CelestrakRequestError, match="HTTP 301"):
+        fetch_source_orbit_records(
+            {
+                "adapter": "http_omm",
+                "format": "omm",
+                "url": "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV",
+                "central_body": "earth",
+            }
+        )
+
+    assert len(calls) == 1
+    assert calls[0][1]["allow_redirects"] is False
+
+
+def test_celestrak_rejects_legacy_tle_configuration_before_request(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("legacy CelesTrak configuration must not make an HTTP request")
+
+    monkeypatch.setattr(requests, "get", fail_if_called)
+
+    with pytest.raises(ValueError, match="FORMAT=CSV"):
+        fetch_source_orbit_records(
+            {
+                "adapter": "http_3le",
+                "format": "3le",
+                "url": "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=TLE",
+                "central_body": "earth",
+            }
+        )
 
 
 def test_fetch_space_track_adapter_requires_credentials():

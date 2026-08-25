@@ -24,6 +24,7 @@ from orbits import (
     OrbitModelKind,
     OrbitServiceError,
     build_satellite_ephemeris_payload,
+    build_skyfield_satellite,
     get_orbit_state,
     get_propagation_input,
     get_propagation_input_for_object,
@@ -37,6 +38,26 @@ LEGACY_SATELLITE = {
     "tle2": "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.50000000999999",
 }
 
+OMM_PAYLOAD = {
+    "OBJECT_NAME": "ISS (ZARYA)",
+    "OBJECT_ID": "1998-067A",
+    "EPOCH": "2025-01-01T12:00:00.000000",
+    "MEAN_MOTION": "15.50000000",
+    "ECCENTRICITY": "0.0006703",
+    "INCLINATION": "51.6416",
+    "RA_OF_ASC_NODE": "247.4627",
+    "ARG_OF_PERICENTER": "130.5360",
+    "MEAN_ANOMALY": "325.0288",
+    "EPHEMERIS_TYPE": "0",
+    "CLASSIFICATION_TYPE": "U",
+    "NORAD_CAT_ID": "25544",
+    "ELEMENT_SET_NO": "999",
+    "REV_AT_EPOCH": "12345",
+    "BSTAR": "0.00021914",
+    "MEAN_MOTION_DOT": "0.00012345",
+    "MEAN_MOTION_DDOT": "0.0",
+}
+
 
 def test_get_propagation_input_from_legacy_tle_row():
     propagation_input = get_propagation_input(LEGACY_SATELLITE, central_body=CentralBody.EARTH)
@@ -47,17 +68,36 @@ def test_get_propagation_input_from_legacy_tle_row():
     assert propagation_input.tle2.startswith("2 25544")
 
 
-def test_get_propagation_input_from_omm_row_uses_compatibility_path():
+def test_get_propagation_input_from_omm_row_uses_omm_payload():
     omm_row = dict(LEGACY_SATELLITE)
     omm_row["orbit_format"] = "omm"
-    omm_row["orbit_payload"] = {"NORAD_CAT_ID": "25544"}
+    omm_row["orbit_payload"] = OMM_PAYLOAD
 
     propagation_input = get_propagation_input(omm_row, central_body=CentralBody.EARTH)
 
     assert propagation_input.object_id == 25544
     assert propagation_input.model_kind == OrbitModelKind.OMM
-    assert propagation_input.tle1.startswith("1 25544U")
-    assert propagation_input.tle2.startswith("2 25544")
+    assert propagation_input.satrec is not None
+
+
+def test_omm_propagation_handles_six_digit_catalogue_number_without_tle():
+    omm_row = {
+        "norad_id": 100000,
+        "name": "New catalogue object",
+        "orbit_format": "omm",
+        "orbit_payload": {**OMM_PAYLOAD, "NORAD_CAT_ID": "100000", "OBJECT_ID": "2025-001A"},
+    }
+
+    propagation_input = get_propagation_input(omm_row, central_body=CentralBody.EARTH)
+
+    assert propagation_input.tle1 is None
+    assert propagation_input.tle2 is None
+    assert propagation_input.satrec is not None
+
+    from skyfield.api import load
+
+    skyfield_satellite = build_skyfield_satellite(propagation_input, load.timescale())
+    assert skyfield_satellite.model.satnum == 100000
 
 
 def test_get_propagation_input_rejects_missing_tle_lines():
@@ -93,7 +133,7 @@ async def test_get_propagation_input_for_object_reads_canonical_orbit_row(db_ses
             model_kind="omm",
             tle1="1 25544U 98067A   25002.50000000  .00020000  00000-0  30000-3 0  9999",
             tle2="2 25544  51.6416 248.0000 0006703 130.5360 325.0288 15.50010000999999",
-            omm_payload={"NORAD_CAT_ID": "25544", "OBJECT_ID": "1998-067A"},
+            omm_payload=OMM_PAYLOAD,
         )
     )
     await db_session.commit()
@@ -103,8 +143,7 @@ async def test_get_propagation_input_for_object_reads_canonical_orbit_row(db_ses
     )
 
     assert propagation_input.model_kind == OrbitModelKind.OMM
-    assert propagation_input.tle1.startswith("1 25544U")
-    assert propagation_input.tle2.startswith("2 25544")
+    assert propagation_input.satrec is not None
 
 
 @pytest.mark.asyncio

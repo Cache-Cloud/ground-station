@@ -389,7 +389,7 @@ async def query_existing_data(dbsession, logger):
 
 def create_satellite_from_tle_data(sat, norad_id):
     """
-    Create a Satellites object from TLE data.
+    Create a satellite compatibility row from normalized orbit source data.
 
     Args:
         sat (dict): Satellite TLE data
@@ -406,8 +406,10 @@ def create_satellite_from_tle_data(sat, norad_id):
         alternative_name=None,
         image=None,
         sat_id=None,
-        tle1=sat["line1"],
-        tle2=sat["line2"],
+        # OMM is stored in satellite_orbits.  These columns remain an optional
+        # cache for integrations that still consume TLE.
+        tle1=sat.get("line1"),
+        tle2=sat.get("line2"),
         status=None,
         decayed=None,
         launched=None,

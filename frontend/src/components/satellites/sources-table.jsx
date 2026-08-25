@@ -37,26 +37,32 @@ import {
     Accordion,
     AccordionSummary,
     AccordionDetails,
+    Chip,
+    Tooltip,
 } from "@mui/material";
 import { alpha } from '@mui/material/styles';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import { useTranslation } from 'react-i18next';
 import {useDispatch, useSelector} from 'react-redux';
 import {
     submitOrEditOrbitalSource,
     deleteOrbitalSources,
+    setFormValues,
+    setOpenAddDialog,
+    setOpenDeleteConfirm,
+    setPageSize,
+    setSelected,
 } from './sources-slice.jsx';
 import {betterDateTimes} from "../common/common.jsx";
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import {useSocket} from "../common/socket.jsx";
-import {setFormValues, setOpenAddDialog, setOpenDeleteConfirm, setSelected} from "./sources-slice.jsx"
 import SynchronizeOrbitalDataCard from "./synchronize-orbital-data-card.jsx";
 import {toRowSelectionModel, toSelectedIds} from '../../utils/datagrid-selection.js';
 import { AntTab, AntTabs } from '../common/common.jsx';
-
-const paginationModel = {page: 0, pageSize: 10};
 
 const PROVIDER_OPTIONS = ['generic_http', 'space_track'];
 const ADAPTER_OPTIONS = ['http_3le', 'http_omm', 'space_track_gp'];
@@ -64,6 +70,68 @@ const FORMAT_OPTIONS = ['3le', 'omm'];
 const CENTRAL_BODY_OPTIONS = ['earth', 'moon', 'mars'];
 const AUTH_TYPE_OPTIONS = ['none', 'basic', 'token'];
 const SPACE_TRACK_GP_BASE_URL = 'https://www.space-track.org/basicspacedata/query/class/gp';
+const CELESTRAK_SYNC_INTERVAL_MS = 2 * 60 * 60 * 1000;
+
+const isCelestrakSource = (url) => {
+    try {
+        return ['celestrak.org', 'www.celestrak.org', 'celestrak.com', 'www.celestrak.com']
+            .includes(new URL(url).hostname.toLowerCase());
+    } catch {
+        return false;
+    }
+};
+
+export const getSourceSyncPresentation = (source, t, now = Date.now()) => {
+    const state = source?.sync_state;
+    if (state?.suspended_at) {
+        return {
+            color: 'error',
+            label: t('orbital_sources.sync_status_attention'),
+            description: state.suspension_reason || t('orbital_sources.suspended_reason'),
+        };
+    }
+    if (!source?.enabled) {
+        return {
+            color: 'default',
+            label: t('orbital_sources.sync_status_disabled'),
+            description: t('orbital_sources.sync_status_disabled_detail'),
+        };
+    }
+    if (state?.last_error) {
+        return {
+            color: 'error',
+            label: t('orbital_sources.sync_status_attention'),
+            description: state.last_error,
+        };
+    }
+    if (state?.last_success_at) {
+        const nextEligibleAt = new Date(state.last_success_at).getTime() + CELESTRAK_SYNC_INTERVAL_MS;
+        const isCelestrakRequestDeferred = isCelestrakSource(source?.url)
+            && Number.isFinite(nextEligibleAt)
+            && nextEligibleAt > now;
+        return {
+            color: 'success',
+            label: t('orbital_sources.sync_status_healthy'),
+            description: t(
+                isCelestrakRequestDeferred
+                    ? 'orbital_sources.sync_status_healthy_deferred_detail'
+                    : 'orbital_sources.sync_status_healthy_detail'
+            ),
+        };
+    }
+    if (state?.last_attempt_at) {
+        return {
+            color: 'warning',
+            label: t('orbital_sources.sync_status_attempted'),
+            description: t('orbital_sources.sync_status_attempted_detail'),
+        };
+    }
+    return {
+        color: 'default',
+        label: t('orbital_sources.sync_status_not_synced'),
+        description: t('orbital_sources.sync_status_not_synced_detail'),
+    };
+};
 
 const getOrbitalSourcesTabsSx = (theme) => {
     const isDark = theme.palette.mode === 'dark';
@@ -335,9 +403,12 @@ export default function SourcesTable() {
     const dispatch = useDispatch();
     const {socket} = useSocket();
     const { t } = useTranslation('satellites');
-    const {tleSources, loading, formValues, openDeleteConfirm, openAddDialog, selected} = useSelector((state) => state.tleSources);
+    const {tleSources, loading, formValues, openDeleteConfirm, openAddDialog, pageSize, selected} = useSelector((state) => state.tleSources);
     const rowSelectionModel = useMemo(() => toRowSelectionModel(selected), [selected]);
     const [activeTab, setActiveTab] = React.useState('sync_now');
+    const [sourcePage, setSourcePage] = React.useState(0);
+    const [syncStatusSource, setSyncStatusSource] = React.useState(null);
+    const [submitError, setSubmitError] = React.useState(null);
 
     // Get timezone preference
     const timezone = useSelector((state) => {
@@ -355,12 +426,57 @@ export default function SourcesTable() {
             renderCell: (params) => getProviderLabel(params.value, t),
         },
         {field: 'format', headerName: t('orbital_sources.format'), width: 90},
+        {
+            field: 'sync_state',
+            headerName: t('orbital_sources.sync_status', { defaultValue: 'Sync Status' }),
+            width: 145,
+            sortable: false,
+            renderCell: (params) => {
+                const presentation = getSourceSyncPresentation(params.row, t);
+                return (
+                    <Tooltip title={presentation.description}>
+                        <Chip
+                            size="small"
+                            color={presentation.color}
+                            label={presentation.label}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                setSyncStatusSource(params.row);
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                    </Tooltip>
+                );
+            },
+        },
+        {
+            field: 'last_sync',
+            headerName: t('orbital_sources.last_sync'),
+            width: 120,
+            valueGetter: (_value, row) => row.sync_state?.last_success_at || null,
+            renderCell: (params) => betterDateTimes(params.value, timezone),
+        },
         {field: 'auth_type', headerName: t('orbital_sources.auth_type'), width: 110},
         {
             field: 'enabled',
             headerName: t('orbital_sources.enabled'),
-            width: 90,
-            renderCell: (params) => (params.value ? t('orbital_sources.enabled_yes') : t('orbital_sources.enabled_no')),
+            width: 85,
+            align: 'center',
+            headerAlign: 'center',
+            renderCell: (params) => {
+                const label = params.value
+                    ? t('orbital_sources.enabled_yes')
+                    : t('orbital_sources.enabled_no');
+                return (
+                    <Tooltip title={label}>
+                        <span aria-label={label}>
+                            {params.value
+                                ? <CheckCircleOutlineIcon color="success" fontSize="small" />
+                                : <CancelOutlinedIcon color="disabled" fontSize="small" />}
+                        </span>
+                    </Tooltip>
+                );
+            },
         },
         {
             field: 'added',
@@ -399,6 +515,7 @@ export default function SourcesTable() {
                     aria-label={t('orbital_sources.edit')}
                     onClick={(event) => {
                         event.stopPropagation();
+                        setSubmitError(null);
                         dispatch(setFormValues(toFormValues(params.row)));
                         dispatch(setOpenAddDialog(true));
                     }}
@@ -410,15 +527,18 @@ export default function SourcesTable() {
     ];
 
     const handleAddClick = () => {
+        setSubmitError(null);
         dispatch(setFormValues(defaultFormValues));
         dispatch(setOpenAddDialog(true));
     };
 
     const handleClose = () => {
+        setSubmitError(null);
         dispatch(setOpenAddDialog(false));
     };
 
     const handleInputChange = (e) => {
+        setSubmitError(null);
         const {name, value, type, checked} = e.target;
         const nextValue = type === 'checkbox' ? checked : value;
         const nextValues = {...formValues, [name]: nextValue};
@@ -461,6 +581,7 @@ export default function SourcesTable() {
     };
 
     const handleEditClick = () => {
+        setSubmitError(null);
         const singleRowId = selected[0];
         const selectedSource = tleSources.find(r => r.id === singleRowId);
         dispatch(setFormValues(toFormValues(selectedSource)));
@@ -487,31 +608,22 @@ export default function SourcesTable() {
         if (hasValidationErrors) {
             return;
         }
+        setSubmitError(null);
         const submitPayload = validationResult.payload;
-        if (formValues.id === null) {
-            dispatch(submitOrEditOrbitalSource({socket, formValues: submitPayload}))
-                .unwrap()
-                .then(() => {
-                    toast.success(t('orbital_sources.added_success'), {
-                        autoClose: 4000,
-                    })
-                })
-                .catch((error) => {
-                    toast.error(t('orbital_sources.failed_add') + ": " + error)
+        const isEditing = formValues.id !== null;
+        dispatch(submitOrEditOrbitalSource({socket, formValues: submitPayload}))
+            .unwrap()
+            .then(() => {
+                toast.success(t(isEditing ? 'orbital_sources.updated_success' : 'orbital_sources.added_success'), {
+                    autoClose: 4000,
                 });
-        } else {
-            dispatch(submitOrEditOrbitalSource({socket, formValues: submitPayload}))
-                .unwrap()
-                .then(() => {
-                    toast.success(t('orbital_sources.updated_success'), {
-                        autoClose: 4000,
-                    })
-                })
-                .catch((error) => {
-                    toast.error(t('orbital_sources.failed_update') + ": " + error)
-                });
-        }
-        dispatch(setOpenAddDialog(false));
+                dispatch(setOpenAddDialog(false));
+            })
+            .catch((error) => {
+                // Server validation can be more specific than browser-side URL
+                // checks (for example, CelesTrak's canonical HTTPS requirement).
+                setSubmitError(String(error));
+            });
     };
 
     const normalizedFormValues = toFormValues(formValues);
@@ -551,10 +663,15 @@ export default function SourcesTable() {
                     loading={loading}
                     rows={tleSources}
                     columns={columns}
-                    initialState={{pagination: {paginationModel}}}
+                    paginationModel={{page: sourcePage, pageSize}}
+                    onPaginationModelChange={(model) => {
+                        setSourcePage(model.page);
+                        if (model.pageSize !== pageSize) {
+                            dispatch(setPageSize(model.pageSize));
+                        }
+                    }}
                     pageSizeOptions={[5, 10, 25, 50, 100]}
                     checkboxSelection={true}
-                    disableRowSelectionOnClick
                     onRowSelectionModelChange={(selected) => {
                         dispatch(setSelected(toSelectedIds(selected)));
                     }}
@@ -602,6 +719,52 @@ export default function SourcesTable() {
                             onClick={() => dispatch(setOpenDeleteConfirm(true))}>
                         {t('orbital_sources.delete')}
                     </Button>
+                    <Dialog
+                        open={Boolean(syncStatusSource)}
+                        onClose={() => setSyncStatusSource(null)}
+                        fullWidth
+                        maxWidth="sm"
+                    >
+                        <DialogTitle>
+                            {t('orbital_sources.sync_status_dialog_title', {
+                                name: syncStatusSource?.name,
+                            })}
+                        </DialogTitle>
+                        <DialogContent dividers>
+                            {syncStatusSource && (() => {
+                                const syncState = syncStatusSource.sync_state;
+                                const presentation = getSourceSyncPresentation(syncStatusSource, t);
+                                return (
+                                    <Stack spacing={2}>
+                                        <Chip size="small" color={presentation.color} label={presentation.label} sx={{ alignSelf: 'flex-start' }} />
+                                        <Typography variant="body2" color="text.secondary">
+                                            {presentation.description}
+                                        </Typography>
+                                        <Box sx={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 1, columnGap: 2 }}>
+                                            <Typography variant="body2" color="text.secondary">{t('orbital_sources.url')}</Typography>
+                                            <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{syncStatusSource.url}</Typography>
+                                            <Typography variant="body2" color="text.secondary">{t('orbital_sources.last_success')}</Typography>
+                                            <Typography variant="body2">{betterDateTimes(syncState?.last_success_at, timezone)}</Typography>
+                                            <Typography variant="body2" color="text.secondary">{t('orbital_sources.last_attempt')}</Typography>
+                                            <Typography variant="body2">{betterDateTimes(syncState?.last_attempt_at, timezone)}</Typography>
+                                            <Typography variant="body2" color="text.secondary">{t('orbital_sources.http_status')}</Typography>
+                                            <Typography variant="body2">{syncState?.last_http_status ?? '-'}</Typography>
+                                        </Box>
+                                        {(syncState?.last_error || syncState?.suspension_reason) && (
+                                            <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: 'error.light', color: 'error.contrastText' }}>
+                                                <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+                                                    {syncState.last_error || syncState.suspension_reason}
+                                                </Typography>
+                                            </Box>
+                                        )}
+                                    </Stack>
+                                );
+                            })()}
+                        </DialogContent>
+                        <DialogActions>
+                            <Button onClick={() => setSyncStatusSource(null)}>{t('orbital_sources.close')}</Button>
+                        </DialogActions>
+                    </Dialog>
                     <Dialog
                         open={openDeleteConfirm}
                         onClose={() => dispatch(setOpenDeleteConfirm(false))}
@@ -781,6 +944,21 @@ export default function SourcesTable() {
                     </DialogTitle>
                     <DialogContent sx={{ px: 3, py: 3 }}>
                         <Stack spacing={2} sx={{ mt: 3 }}>
+                            {submitError && (
+                                <Box
+                                    role="alert"
+                                    sx={{
+                                        p: 1.5,
+                                        borderRadius: 1,
+                                        bgcolor: 'error.light',
+                                        color: 'error.contrastText',
+                                    }}
+                                >
+                                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+                                        {submitError}
+                                    </Typography>
+                                </Box>
+                            )}
                             <FormControl fullWidth size="small" error={Boolean(validationErrors.provider)}>
                                 <InputLabel id="provider-label">{t('orbital_sources.provider')}</InputLabel>
                                 <Select

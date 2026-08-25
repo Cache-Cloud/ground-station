@@ -9,12 +9,12 @@ from typing import Any, Dict, List, Union
 
 import numpy as np
 import setproctitle
-from skyfield.api import EarthSatellite, Loader, Topos
+from skyfield.api import Loader, Topos
 
 import crud
 from common.common import ModelEncoder
 from db import AsyncSessionLocal
-from orbits import CentralBody, get_propagation_input
+from orbits import CentralBody, build_skyfield_satellite, get_propagation_input
 
 from .passes import calculate_next_events
 
@@ -85,11 +85,7 @@ def _calculate_elevation_curve(
 
         # Create satellite and observer objects
         propagation_input = get_propagation_input(satellite_data, central_body=CentralBody.EARTH)
-        satellite = EarthSatellite(
-            propagation_input.tle1,
-            propagation_input.tle2,
-            name=f"satellite_{satellite_data['norad_id']}",
-        )
+        satellite = build_skyfield_satellite(propagation_input, ts)
         observer = Topos(
             latitude_degrees=float(home_location["lat"]),
             longitude_degrees=float(home_location["lon"]),

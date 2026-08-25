@@ -19,9 +19,9 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import numpy as np
-from skyfield.api import EarthSatellite, Loader, Topos
+from skyfield.api import Loader, Topos
 
-from orbits import CentralBody, OrbitServiceError, get_propagation_input
+from orbits import CentralBody, OrbitServiceError, build_skyfield_satellite, get_propagation_input
 
 logger = logging.getLogger("passes-worker")
 
@@ -80,7 +80,7 @@ def calculate_elevation_crossing_time(
         observer = Topos(latitude_degrees=homelat, longitude_degrees=homelon)
 
         # Create satellite object
-        satellite = EarthSatellite(propagation_input.tle1, propagation_input.tle2, ts=ts)
+        satellite = build_skyfield_satellite(propagation_input, ts)
 
         # Convert datetime objects to Skyfield time
         t_aos = ts.from_datetime(aos_time)

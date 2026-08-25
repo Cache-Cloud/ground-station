@@ -21,6 +21,14 @@ from handlers.entities import orbitalsources
 from tlesync.state import sync_state_manager
 
 
+class _DummySessionContext:
+    async def __aenter__(self):
+        return object()
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
 @pytest.mark.asyncio
 async def test_fetch_sync_state_includes_next_scheduled_sync(monkeypatch):
     """API payload should include runtime scheduler metadata for UI display."""
@@ -73,3 +81,28 @@ async def test_fetch_sync_state_keeps_scheduler_metadata_out_of_runtime_state(mo
     assert response["data"]["next_scheduled_sync_at"] == "2026-06-30T10:00:00+00:00"
     assert "next_scheduled_sync_at" not in sync_state_manager.get_state()
     sync_state_manager.reset()
+
+
+@pytest.mark.asyncio
+async def test_submit_orbital_source_returns_crud_validation_error(monkeypatch):
+    """The socket response must preserve validation text for the edit dialog."""
+    monkeypatch.setattr(orbitalsources, "AsyncSessionLocal", _DummySessionContext)
+
+    async def _add_source(_session, _data):
+        return {"success": False, "error": "CelesTrak sources must use https://celestrak.org"}
+
+    async def _fetch_sources(_session):
+        return {"success": True, "data": []}
+
+    monkeypatch.setattr(orbitalsources.orbital_sources_crud, "add_orbital_source", _add_source)
+    monkeypatch.setattr(orbitalsources.orbital_sources_crud, "fetch_orbital_source", _fetch_sources)
+
+    response = await orbitalsources.submit_orbital_source(
+        sio=None,
+        data={"url": "http://celestrak.org"},
+        logger=logging.getLogger(__name__),
+        sid="test",
+    )
+
+    assert response["success"] is False
+    assert response["error"] == "CelesTrak sources must use https://celestrak.org"

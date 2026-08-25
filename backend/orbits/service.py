@@ -19,10 +19,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Mapping, Optional
 
+from sgp4 import omm
+from sgp4.api import Satrec
 from sqlalchemy import select
 
 import crud
@@ -61,14 +63,20 @@ class OrbitState:
 
 @dataclass(frozen=True)
 class PropagationInput:
-    """Input consumed by current propagation functions."""
+    """Normalized input consumed by propagation functions.
+
+    ``tle1`` and ``tle2`` are deliberately optional.  New GP catalogue entries
+    can have six-digit catalogue numbers, which cannot be represented in TLE.
+    ``satrec`` is initialized directly from OMM in that case.
+    """
 
     object_id: int
     object_name: Optional[str]
     central_body: CentralBody
     model_kind: OrbitModelKind
-    tle1: str
-    tle2: str
+    tle1: Optional[str]
+    tle2: Optional[str]
+    satrec: Optional[Satrec] = None
 
 
 class OrbitServiceError(ValueError):
@@ -112,34 +120,36 @@ class EarthTlePropagator(OrbitPropagator):
             model_kind=orbit_state.model_kind,
             tle1=tle1,
             tle2=tle2,
+            satrec=None,
         )
 
 
-class EarthOmmCompatibilityPropagator(OrbitPropagator):
-    """
-    Transitional Earth/OMM path that still propagates from TLE lines.
-
-    Phase 1 keeps runtime behavior unchanged while allowing OMM-tagged rows
-    to flow through the new abstraction.
-    """
+class EarthOmmPropagator(OrbitPropagator):
+    """Earth OMM propagation path, initialized without a lossy TLE export."""
 
     def supports(self, central_body: CentralBody, model_kind: OrbitModelKind) -> bool:
         return central_body == CentralBody.EARTH and model_kind == OrbitModelKind.OMM
 
     def to_propagation_input(self, orbit_state: OrbitState) -> PropagationInput:
-        tle1 = (orbit_state.tle1 or "").strip()
-        tle2 = (orbit_state.tle2 or "").strip()
-        if not tle1 or not tle2:
+        if not orbit_state.omm_payload:
             raise OrbitServiceError(
-                f"OMM row for object_id={orbit_state.object_id} has no derived TLE lines"
+                f"OMM row for object_id={orbit_state.object_id} has no OMM payload"
             )
+        try:
+            satrec = Satrec()
+            omm.initialize(satrec, _normalize_omm_fields(orbit_state.omm_payload))
+        except (KeyError, TypeError, ValueError) as e:
+            raise OrbitServiceError(
+                f"Invalid OMM data for object_id={orbit_state.object_id}: {e}"
+            ) from e
         return PropagationInput(
             object_id=orbit_state.object_id,
             object_name=orbit_state.object_name,
             central_body=orbit_state.central_body,
             model_kind=orbit_state.model_kind,
-            tle1=tle1,
-            tle2=tle2,
+            tle1=_coerce_optional_string(orbit_state.tle1),
+            tle2=_coerce_optional_string(orbit_state.tle2),
+            satrec=satrec,
         )
 
 
@@ -147,7 +157,7 @@ class OrbitService:
     """Central service for loading orbit state and producing propagation input."""
 
     def __init__(self, propagators: Optional[list[OrbitPropagator]] = None):
-        self._propagators = propagators or [EarthTlePropagator(), EarthOmmCompatibilityPropagator()]
+        self._propagators = propagators or [EarthTlePropagator(), EarthOmmPropagator()]
 
     async def get_orbit_state(
         self, dbsession, object_id: int, central_body: CentralBody
@@ -298,15 +308,43 @@ def build_satellite_ephemeris_payload(
     """
     Build tracker ephemeris payload from normalized propagation input.
 
-    Tracker IPC payload shape is preserved for backward compatibility.
+    TLE fields are retained only for legacy consumers.  OMM-capable consumers
+    receive the canonical payload and must not depend on a TLE being present.
     """
     propagation_input = get_propagation_input(satellite, central_body=central_body)
-    return {
+    payload: Dict[str, Any] = {
         "norad_id": propagation_input.object_id,
         "name": propagation_input.object_name,
         "tle1": propagation_input.tle1,
         "tle2": propagation_input.tle2,
     }
+    if propagation_input.model_kind == OrbitModelKind.OMM:
+        payload["model_kind"] = OrbitModelKind.OMM.value
+        payload["omm_payload"] = orbit_service.get_orbit_state_from_satellite_record(
+            satellite, central_body
+        ).omm_payload
+    return payload
+
+
+def build_skyfield_satellite(propagation_input: PropagationInput, timescale):
+    """Build Skyfield's propagator from canonical OMM or legacy TLE input."""
+    from skyfield.api import EarthSatellite
+
+    if propagation_input.satrec is not None:
+        satellite = EarthSatellite.from_satrec(propagation_input.satrec, timescale)
+        satellite.name = propagation_input.object_name or str(propagation_input.object_id)
+        return satellite
+
+    if not propagation_input.tle1 or not propagation_input.tle2:
+        raise OrbitServiceError(
+            f"No usable propagation data for object_id={propagation_input.object_id}"
+        )
+    return EarthSatellite(
+        propagation_input.tle1,
+        propagation_input.tle2,
+        name=propagation_input.object_name or str(propagation_input.object_id),
+        ts=timescale,
+    )
 
 
 def _resolve_model_kind(raw_orbit_format: Any) -> OrbitModelKind:
@@ -340,3 +378,45 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
         except ValueError:
             return None
     return None
+
+
+def _normalize_omm_fields(raw_fields: Mapping[str, Any]) -> Dict[str, str]:
+    """Prepare persisted OMM fields for sgp4 without changing their meaning."""
+    fields: Dict[str, str] = {}
+    for key, value in raw_fields.items():
+        if key is None or value is None:
+            continue
+        normalized_key = str(key).strip().upper()
+        normalized_value = str(value).strip()
+        if normalized_key and normalized_value:
+            fields[normalized_key] = normalized_value
+
+    required = {
+        "OBJECT_ID",
+        "NORAD_CAT_ID",
+        "EPOCH",
+        "INCLINATION",
+        "RA_OF_ASC_NODE",
+        "ECCENTRICITY",
+        "ARG_OF_PERICENTER",
+        "MEAN_ANOMALY",
+        "MEAN_MOTION",
+    }
+    missing = sorted(required - set(fields))
+    if missing:
+        raise ValueError(f"OMM row missing required fields: {missing}")
+
+    epoch = _coerce_datetime(fields["EPOCH"])
+    if epoch is None:
+        raise ValueError(f"Invalid OMM epoch value: {fields['EPOCH']}")
+    fields["EPOCH"] = (
+        epoch.astimezone(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    )
+    fields.setdefault("CLASSIFICATION_TYPE", "U")
+    fields.setdefault("EPHEMERIS_TYPE", "0")
+    fields.setdefault("ELEMENT_SET_NO", "0")
+    fields.setdefault("REV_AT_EPOCH", "0")
+    fields.setdefault("MEAN_MOTION_DOT", "0.0")
+    fields.setdefault("MEAN_MOTION_DDOT", "0.0")
+    fields.setdefault("BSTAR", "0.0")
+    return fields

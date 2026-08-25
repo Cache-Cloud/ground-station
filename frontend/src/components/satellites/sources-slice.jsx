@@ -128,7 +128,9 @@ export const submitOrEditOrbitalSource = createAsyncThunk(
   if (response.success) {
     resolve(response.data);
   } else {
-    reject(new Error(`Failed to ${action === 'edit-orbital-source' ? 'edit' : 'add'} orbital source`));
+    reject(new Error(
+      response.error || `Failed to ${action === 'edit-orbital-source' ? 'edit' : 'add'} orbital source`
+    ));
   }
 });
             });

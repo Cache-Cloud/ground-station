@@ -6,6 +6,7 @@ import SyncIcon from '@mui/icons-material/Sync';
 import StopIcon from '@mui/icons-material/Stop';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { humanizeDate, humanizeFutureDateInMinutes } from '../common/common.jsx';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
 import { formatDateTime } from '../../utils/date-time.js';
@@ -20,6 +21,7 @@ const SyncCardHeader = ({ syncState, onSynchronize, onCancel, canCancel }) => {
     const isSyncing = ['inprogress', 'in_progress', 'started', 'running'].includes(normalizedStatus)
         || (progress > 0 && progress < 100);
     const isCompleted = normalizedStatus === 'complete' && syncState?.success !== false;
+    const isFailed = normalizedStatus === 'complete' && syncState?.success === false;
     const lastUpdateText = t('synchronize.header.last_update', { date: humanizeDate(syncState.last_update) });
     const nextScheduledSyncRelative = syncState?.next_scheduled_sync_at
         ? humanizeFutureDateInMinutes(syncState.next_scheduled_sync_at)
@@ -115,6 +117,13 @@ const SyncCardHeader = ({ syncState, onSynchronize, onCancel, canCancel }) => {
                         color="success"
                         icon={<CheckCircleOutlineIcon />}
                         label={t('synchronize.header.status_completed', { defaultValue: 'Completed' })}
+                    />
+                ) : isFailed ? (
+                    <Chip
+                        size="small"
+                        color="error"
+                        icon={<ErrorOutlineIcon />}
+                        label={t('synchronize.header.status_failed', { defaultValue: 'Action required' })}
                     />
                 ) : (
                     <Chip

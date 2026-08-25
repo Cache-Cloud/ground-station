@@ -26,7 +26,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.common import logger, serialize_object
 from common.utils import convert_strings_to_uuids
-from db.models import Groups, OrbitalSources, SatelliteOrbits, Satellites, Transmitters
+from db.models import (
+    Groups,
+    OrbitalSources,
+    OrbitalSourceSyncState,
+    SatelliteOrbits,
+    Satellites,
+    Transmitters,
+)
+from tlesync.celestrak import is_celestrak_url, validate_celestrak_source
+from tlesync.sourcestate import clear_source_suspension
 
 SUPPORTED_CENTRAL_BODIES = {"earth", "moon", "mars"}
 SUPPORTED_AUTH_TYPES = {"none", "basic", "token"}
@@ -148,6 +157,11 @@ def _normalize_source_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     normalized["adapter"] = adapter.lower()
 
+    if is_celestrak_url(normalized["url"]):
+        # CelesTrak is intentionally handled as a stricter subset of generic
+        # HTTP sources. Other providers may continue to offer 3LE feeds.
+        validate_celestrak_source(normalized["url"], normalized["format"], normalized["adapter"])
+
     if "enabled" in normalized:
         normalized["enabled"] = _coerce_bool(normalized.get("enabled"))
     else:
@@ -224,6 +238,42 @@ def _normalize_source_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {key: value for key, value in normalized.items() if key in allowed_fields}
 
 
+def _serialize_source_sync_state(state: OrbitalSourceSyncState) -> Dict[str, Any]:
+    """Expose suspension state without leaking source credentials or internals."""
+    return {
+        "last_success_at": state.last_success_at.isoformat() if state.last_success_at else None,
+        "last_attempt_at": state.last_attempt_at.isoformat() if state.last_attempt_at else None,
+        "last_http_status": state.last_http_status,
+        "last_error": state.last_error,
+        "suspended_at": state.suspended_at.isoformat() if state.suspended_at else None,
+        "suspension_reason": state.suspension_reason,
+    }
+
+
+async def _attach_source_sync_state(session: AsyncSession, sources: Any) -> None:
+    """Attach persistent source status to serialized API records in-place."""
+    source_records = sources if isinstance(sources, list) else [sources]
+    source_ids = []
+    for record in source_records:
+        if not isinstance(record, dict) or not record.get("id"):
+            continue
+        try:
+            source_ids.append(uuid.UUID(str(record["id"])))
+        except (TypeError, ValueError):
+            continue
+    if not source_ids:
+        return
+    result = await session.execute(
+        select(OrbitalSourceSyncState).where(OrbitalSourceSyncState.source_id.in_(source_ids))
+    )
+    states = {str(state.source_id): state for state in result.scalars().all()}
+    for record in source_records:
+        if not isinstance(record, dict):
+            continue
+        state = states.get(str(record.get("id")))
+        record["sync_state"] = _serialize_source_sync_state(state) if state else None
+
+
 async def fetch_satellite_tle_source(
     session: AsyncSession, satellite_tle_source_id: Optional[Union[uuid.UUID, str]] = None
 ) -> dict:
@@ -237,6 +287,7 @@ async def fetch_satellite_tle_source(
             sources = result.scalars().all()
             sources = json.loads(json.dumps(sources, default=serialize_object))
             sources = serialize_object(sources)
+            await _attach_source_sync_state(session, sources)
             return {"success": True, "data": sources}
 
         else:
@@ -250,6 +301,7 @@ async def fetch_satellite_tle_source(
             source = result.scalars().first()
             if source:
                 source = serialize_object(source)
+                await _attach_source_sync_state(session, source)
                 return {"success": True, "data": source}
 
             return {"success": False, "error": "Satellite TLE source not found"}
@@ -312,6 +364,7 @@ async def edit_satellite_tle_source(
         if not source:
             return {"success": False, "error": "Satellite TLE source not found"}
 
+        was_enabled = bool(source.enabled)
         merged_payload = {
             column.name: getattr(source, column.name) for column in OrbitalSources.__table__.columns
         }
@@ -326,6 +379,10 @@ async def edit_satellite_tle_source(
 
         await session.commit()
         await session.refresh(source)
+        if not was_enabled and source.enabled:
+            # Re-enabling a source is the user's explicit acknowledgement that
+            # a previously suspended configuration has been corrected.
+            await clear_source_suspension(session, source.id)
         source = serialize_object(source)
         return {"success": True, "data": source}
 

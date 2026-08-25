@@ -327,15 +327,45 @@ class TestTLESourcesCRUD:
             db_session,
             {
                 "name": "Legacy CelesTrak",
-                "url": "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle",
+                "url": "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV",
                 "provider": "celestrak",
-                "format": "3le",
+                "format": "omm",
             },
         )
 
         assert result["success"] is True
         assert result["data"]["provider"] == "generic_http"
-        assert result["data"]["adapter"] == "http_3le"
+        assert result["data"]["adapter"] == "http_omm"
+
+    async def test_add_celestrak_tle_source_is_rejected(self, db_session):
+        """CelesTrak may not be configured with its retired TLE transport."""
+        result = await add_satellite_tle_source(
+            db_session,
+            {
+                "name": "Legacy CelesTrak TLE",
+                "url": "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=TLE",
+                "format": "3le",
+            },
+        )
+
+        assert result["success"] is False
+        assert "FORMAT=CSV" in result["error"]
+
+    async def test_add_celestrak_csv_source_uses_omm_parser(self, db_session):
+        """Documented CelesTrak GP/CSV queries remain valid source settings."""
+        result = await add_satellite_tle_source(
+            db_session,
+            {
+                "name": "CelesTrak Stations",
+                "url": "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV",
+                "format": "omm",
+                "adapter": "http_omm",
+            },
+        )
+
+        assert result["success"] is True
+        assert result["data"]["format"] == "omm"
+        assert result["data"]["adapter"] == "http_omm"
 
     async def test_add_space_track_tle_source_requires_norad_ids(self, db_session):
         """Test Space-Track source creation requires NORAD IDs."""

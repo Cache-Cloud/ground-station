@@ -15,6 +15,7 @@
 
 import asyncio
 import json
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -31,9 +32,20 @@ from handlers.entities.transmitterimport import (
     import_gr_satellites_transmitters,
     import_satdump_transmitters,
 )
+from tlesync.celestrak import celestrak_error_details, is_celestrak_url
 from tlesync.source_adapters import (
     async_fetch_source_orbit_records,
     build_space_track_norad_source_batches,
+)
+from tlesync.sourcestate import (
+    CELESTRAK_RATE_LIMIT_NOOP_MESSAGE,
+    all_enabled_sources_are_rate_limited,
+    get_source_sync_state,
+    is_celestrak_rate_limited,
+    mark_celestrak_success,
+    mark_source_failure,
+    mark_source_success,
+    suspend_celestrak_source,
 )
 from tlesync.state import SatelliteSyncState
 from tlesync.utils import (
@@ -177,6 +189,8 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
         satnogs_transmitter_data: List[Dict[str, Any]] = []
         celestrak_list: List[Dict[str, Any]] = []
         group_assignments: Dict[str, List[int]] = {}
+        rate_limited_celestrak_sources: List[str] = []
+        successful_celestrak_source_ids: List[uuid.UUID] = []
 
         orbital_sources_reply = await fetch_orbital_source(dbsession)
         all_sources = orbital_sources_reply.get("data", [])
@@ -201,16 +215,45 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
             sync_state["last_update"] = datetime.now(timezone.utc).isoformat()
             sync_state_manager.set_state(sync_state)
             await _emit(sync_state)
-            return
+            return False
 
         # Use a single ThreadPoolExecutor for all async_fetch calls
         with ThreadPoolExecutor(max_workers=1) as pool:
+            celestrak_requests_stopped = False
             # Fetch ephemeris from configured orbit sources.
             for i, tle_source in enumerate(sources):
                 tle_source_name = tle_source["name"]
                 tle_source_identifier = tle_source["identifier"]
                 tle_source_url = tle_source["url"]
+                is_celestrak_source = is_celestrak_url(tle_source_url)
+                source_id = uuid.UUID(str(tle_source["id"]))
                 group_assignments[tle_source_identifier] = []
+
+                if is_celestrak_source:
+                    source_state = await get_source_sync_state(dbsession, source_id)
+                    if source_state and source_state.suspended_at:
+                        error_msg = (
+                            f"CelesTrak source '{tle_source_name}' is suspended and requires human "
+                            f"review: {source_state.suspension_reason or 'previous request failed'}"
+                        )
+                        logger.error(error_msg)
+                        sync_state["errors"].append(error_msg)
+                        sync_state["success"] = False
+                        sync_state["message"] = error_msg
+                        sync_state_manager.set_state(sync_state)
+                        await _emit(sync_state)
+                        celestrak_requests_stopped = True
+                        break
+                    if is_celestrak_rate_limited(source_state):
+                        rate_limited_celestrak_sources.append(tle_source_name)
+                        logger.info(
+                            "Skipping CelesTrak source '%s': its successful GP response is less than two hours old.",
+                            tle_source_name,
+                        )
+                        sync_state["completed_sources"].append(
+                            f"{tle_source_name} (cached: GP data is less than two hours old)"
+                        )
+                        continue
 
                 # Update active sources in state and progress
                 progress_state = update_progress(
@@ -239,6 +282,10 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
 
                     celestrak_list = celestrak_list + satellite_data
                     logger.info(f"Fetched {len(satellite_data)} orbits from {tle_source_url}")
+                    if is_celestrak_source:
+                        successful_celestrak_source_ids.append(source_id)
+                    else:
+                        await mark_source_success(dbsession, source_id)
 
                 except SynchronizationErrorMainTLESource as e:
                     error_msg = f'Failed to fetch data from {tle_source["url"]}: {e.message}'
@@ -252,6 +299,11 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                     sync_state_manager.set_state(sync_state)
 
                     await _emit(sync_state)
+                    if is_celestrak_source:
+                        await suspend_celestrak_source(dbsession, source_id, e.message, None)
+                        celestrak_requests_stopped = True
+                        break
+                    await mark_source_failure(dbsession, source_id, e.message, None)
                     continue
 
                 except requests.exceptions.RequestException as e:
@@ -266,6 +318,23 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                     sync_state_manager.set_state(sync_state)
 
                     await _emit(sync_state)
+                    if is_celestrak_source:
+                        details = celestrak_error_details(e)
+                        await suspend_celestrak_source(
+                            dbsession,
+                            source_id,
+                            details["reason"],
+                            details["http_status"],
+                        )
+                        celestrak_requests_stopped = True
+                        break
+                    response = getattr(e, "response", None)
+                    await mark_source_failure(
+                        dbsession,
+                        source_id,
+                        str(e),
+                        getattr(response, "status_code", None),
+                    )
                     continue
                 except Exception as e:
                     error_msg = f'Failed to parse orbit data from {tle_source["url"]}: {e}'
@@ -278,6 +347,13 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                     sync_state_manager.set_state(sync_state)
 
                     await _emit(sync_state)
+                    if is_celestrak_source:
+                        # Invalid CelesTrak source settings are also suspended.
+                        # Retrying them automatically would recreate the same bad request.
+                        await suspend_celestrak_source(dbsession, source_id, str(e), None)
+                        celestrak_requests_stopped = True
+                        break
+                    await mark_source_failure(dbsession, source_id, str(e), None)
                     continue
 
                 # Update progress, completed sources, and emit event
@@ -336,10 +412,40 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                 )
                 await _emit(progress_state)
 
+            if celestrak_requests_stopped:
+                sync_state["status"] = "complete"
+                sync_state["progress"] = 100
+                sync_state["success"] = False
+                sync_state["active_sources"] = []
+                sync_state["message"] = (
+                    "CelesTrak synchronization stopped after an error. "
+                    "The affected source is suspended and requires human review."
+                )
+                sync_state["last_update"] = datetime.now(timezone.utc).isoformat()
+                sync_state_manager.set_state(sync_state)
+                await _emit(sync_state)
+                return False
+
             # Mark orbital sources phase as complete
             completed_phases.add("fetch_orbital_sources")
 
             if not celestrak_list:
+                if all_enabled_sources_are_rate_limited(
+                    len(rate_limited_celestrak_sources), len(sources)
+                ):
+                    message = CELESTRAK_RATE_LIMIT_NOOP_MESSAGE
+                    logger.info(message)
+                    sync_state["status"] = "complete"
+                    sync_state["progress"] = 100
+                    sync_state["success"] = True
+                    sync_state["message"] = message
+                    sync_state["active_sources"] = []
+                    sync_state["last_update"] = datetime.now(timezone.utc).isoformat()
+                    sync_state_manager.set_state(sync_state)
+                    await _emit(sync_state)
+                    await dbsession.close()
+                    return True
+
                 logger.error("No orbit data was fetched from any orbit source, aborting!")
                 # Update state for error
                 sync_state["status"] = "complete"
@@ -351,7 +457,7 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                 sync_state_manager.set_state(sync_state)
 
                 await _emit(sync_state)
-                return
+                return False
 
             # Detect and handle duplicate satellites
             logger.info("Detecting duplicate satellites across orbital sources...")
@@ -776,23 +882,31 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
             satdump_result = await import_satdump_transmitters(session=dbsession)
             logger.info("SatDump transmitter import result: %s", satdump_result)
 
-            # Update final state - always set to 100% when complete
+            # Start the CelesTrak cooldown only after its records are safely persisted.
+            for source_id in successful_celestrak_source_ids:
+                await mark_celestrak_success(dbsession, source_id)
+
+            # A source error must never be rewritten as a successful sync after
+            # database processing has completed.
             sync_state["status"] = "complete"
             sync_state["progress"] = 100
-            sync_state["success"] = True
+            sync_state["success"] = sync_state.get("success") is not False
 
-            # Create a detailed success message
-            success_message = create_final_success_message(
-                count_sats, count_transmitters, sync_state
-            )
-
-            sync_state["message"] = success_message
+            if sync_state["success"]:
+                sync_state["message"] = create_final_success_message(
+                    count_sats, count_transmitters, sync_state
+                )
+            else:
+                sync_state["message"] = (
+                    "Orbital synchronization completed with errors. Human review is required."
+                )
             sync_state["active_sources"] = []
             sync_state["completed_sources"].append("Database Update")
             sync_state["last_update"] = datetime.now(timezone.utc).isoformat()
             sync_state_manager.set_state(sync_state)
 
             await _emit(sync_state)
+            return bool(sync_state["success"])
 
         except Exception as e:
             await dbsession.rollback()  # Rollback in case of error
@@ -809,12 +923,13 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
             sync_state_manager.set_state(sync_state)
 
             await _emit(sync_state)
+            return False
 
         finally:
             # Skip post-sync steps if the sync did not complete successfully.
             if not sync_state.get("success"):
                 await dbsession.close()
-                return
+                return False
             satellite_norad_ids = {
                 sat.get("norad_id") for sat in sync_state.get("modified", {}).get("satellites", [])
             }
@@ -859,3 +974,4 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                 )
             # Always close the session when you're done
             await dbsession.close()
+            return True

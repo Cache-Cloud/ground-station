@@ -23,13 +23,13 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 import crud
 from common.common import is_geostationary, serialize_object
 from db import AsyncSessionLocal
-from orbits import CentralBody, get_propagation_input
+from orbits import CentralBody, PropagationInput, get_propagation_input
 from tracker.contracts import get_tracking_state_name
 from tracking.footprint import get_satellite_coverage_circle
 from tracking.satellite import (
-    get_satellite_az_el,
-    get_satellite_path,
-    get_satellite_position_from_tle,
+    get_satellite_az_el_from_propagation,
+    get_satellite_path_from_propagation,
+    get_satellite_position_from_propagation,
 )
 
 
@@ -162,6 +162,29 @@ cache_manager = CacheManager()
 SATELLITE_PATHS_CACHE_SCHEMA_VERSION = 2
 SATELLITE_PATHS_MIN_FUTURE_BUFFER_SECONDS = 30.0
 SATELLITE_PATHS_MIN_REMAINING_STEPS = 2
+
+
+def _orbit_cache_keys(propagation_input: PropagationInput) -> tuple[str, str]:
+    """Produce stable cache keys without requiring a TLE compatibility cache."""
+    if propagation_input.tle1 and propagation_input.tle2:
+        return propagation_input.tle1, propagation_input.tle2
+    if propagation_input.satrec is None:
+        raise ValueError("Orbit has neither TLE nor initialized OMM propagation data")
+    satrec = propagation_input.satrec
+    return (
+        f"omm:{satrec.satnum}",
+        f"{satrec.jdsatepoch:.12f}:{satrec.jdsatepochF:.12f}:{satrec.no_kozai:.16f}",
+    )
+
+
+def _is_geostationary_orbit(propagation_input: PropagationInput) -> bool:
+    """Classify OMM directly; retain the existing TLE classifier for legacy rows."""
+    if propagation_input.tle1 and propagation_input.tle2:
+        return bool(is_geostationary([propagation_input.tle1, propagation_input.tle2]))
+    if propagation_input.satrec is None:
+        return False
+    mean_motion_rev_per_day = propagation_input.satrec.no_kozai * 1440.0 / (2.0 * 3.141592653589793)
+    return bool(0.99 <= mean_motion_rev_per_day <= 1.01)
 
 
 def _resolve_min_future_buffer_seconds(step_minutes: float) -> float:
@@ -307,9 +330,7 @@ async def compiled_satellite_data(dbsession, norad_id: int) -> Dict[str, Any]:
         satellite_data["details"] = dict(satellite_details)
         satellite_data["details"]["tle1"] = propagation_input.tle1
         satellite_data["details"]["tle2"] = propagation_input.tle2
-        satellite_data["details"]["is_geostationary"] = is_geostationary(
-            [propagation_input.tle1, propagation_input.tle2]
-        )
+        satellite_data["details"]["is_geostationary"] = _is_geostationary_orbit(propagation_input)
 
         # get target map settings
         target_map_settings_reply = await crud.preferences.get_map_settings(
@@ -335,28 +356,20 @@ async def compiled_satellite_data(dbsession, norad_id: int) -> Dict[str, Any]:
         location_data: Dict[str, Any] = location["data"][0]
 
         # get current position
-        position = get_satellite_position_from_tle(
-            [
-                satellite_details["name"],
-                propagation_input.tle1,
-                propagation_input.tle2,
-            ]
-        )
+        position = get_satellite_position_from_propagation(propagation_input)
 
         # get position in the sky
         home_lat = location_data["lat"]
         home_lon = location_data["lon"]
-        sky_point = get_satellite_az_el(
+        sky_point = get_satellite_az_el_from_propagation(
             home_lat,
             home_lon,
-            propagation_input.tle1,
-            propagation_input.tle2,
+            propagation_input,
             datetime.now(timezone.utc),
         )
 
         # calculate paths with caching
-        tle1 = propagation_input.tle1
-        tle2 = propagation_input.tle2
+        tle1, tle2 = _orbit_cache_keys(propagation_input)
         duration_minutes = int(target_map_settings.get("orbitProjectionDuration", 240))
         step_minutes = 0.5
 
@@ -369,8 +382,10 @@ async def compiled_satellite_data(dbsession, norad_id: int) -> Dict[str, Any]:
             satellite_data["paths"] = cached_paths
         else:
             logger.info(f"Computing new satellite paths for NORAD ID: {norad_id}")
-            paths = get_satellite_path(
-                [tle1, tle2], duration_minutes=duration_minutes, step_minutes=step_minutes
+            paths = get_satellite_path_from_propagation(
+                propagation_input,
+                duration_minutes=duration_minutes,
+                step_minutes=step_minutes,
             )
 
             # Cache the computed paths for 30 minutes
@@ -425,27 +440,18 @@ def compiled_satellite_data_from_inputs(
             "tle2": propagation_input.tle2,
             "norad_id": satellite.get("norad_id"),
         }
-        satellite_details["is_geostationary"] = is_geostationary(
-            [propagation_input.tle1, propagation_input.tle2]
-        )
+        satellite_details["is_geostationary"] = _is_geostationary_orbit(propagation_input)
         satellite_data["details"] = satellite_details
 
         # get current position
-        position = get_satellite_position_from_tle(
-            [
-                satellite_details["name"],
-                propagation_input.tle1,
-                propagation_input.tle2,
-            ]
-        )
+        position = get_satellite_position_from_propagation(propagation_input)
 
         home_lat = location["lat"]
         home_lon = location["lon"]
-        sky_point = get_satellite_az_el(
+        sky_point = get_satellite_az_el_from_propagation(
             home_lat,
             home_lon,
-            propagation_input.tle1,
-            propagation_input.tle2,
+            propagation_input,
             datetime.now(timezone.utc),
         )
 
@@ -453,8 +459,7 @@ def compiled_satellite_data_from_inputs(
         duration_minutes = int((map_settings or {}).get("orbitProjectionDuration", 240))
         step_minutes = 0.5
 
-        tle1 = propagation_input.tle1
-        tle2 = propagation_input.tle2
+        tle1, tle2 = _orbit_cache_keys(propagation_input)
 
         cached_paths = get_cached_satellite_paths(
             tle1,
@@ -465,8 +470,8 @@ def compiled_satellite_data_from_inputs(
         if cached_paths is not None:
             satellite_data["paths"] = cached_paths
         else:
-            paths = get_satellite_path(
-                [tle1, tle2],
+            paths = get_satellite_path_from_propagation(
+                propagation_input,
                 duration_minutes=duration_minutes,
                 step_minutes=step_minutes,
             )

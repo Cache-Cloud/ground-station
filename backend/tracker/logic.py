@@ -543,7 +543,13 @@ class SatelliteTracker:
                 logger.warning("Invalid satellite ephemeris payload for tracker loop: %s", e)
                 return None
 
-            satellite_tles = [propagation_input.tle1, propagation_input.tle2]
+            # Hardware Doppler interfaces still consume TLE, so do not pass an
+            # invalid [None, None] placeholder for OMM-only catalogue entries.
+            satellite_tles = (
+                [propagation_input.tle1, propagation_input.tle2]
+                if propagation_input.tle1 and propagation_input.tle2
+                else None
+            )
             satellite_name = str(input_payload.get("name") or norad_id)
             skypoint = (
                 float(satellite_data["position"]["az"]),

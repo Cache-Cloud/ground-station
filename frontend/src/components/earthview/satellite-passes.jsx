@@ -507,6 +507,20 @@ const getPassTagLabel = (tag, t) => {
     return labels[tag] || tag;
 };
 
+const getPassTagColor = (tag) => ({
+    north_crossing: '#1971C2',
+    south_crossing: '#C2255C',
+    direction_cw: '#5F3DC4',
+    direction_ccw: '#0B7285',
+    direction_mixed: '#E67700',
+    direction_e_to_w: '#1C7ED6',
+    direction_w_to_e: '#2B8A3E',
+    elevation_low: '#C92A2A',
+    elevation_medium: '#E67700',
+    elevation_high: '#2B8A3E',
+    elevation_overhead: '#5F3DC4',
+}[tag] || '#495057');
+
 const PassTypesCell = React.memo(function PassTypesCell({tags, t}) {
     const tagList = Array.isArray(tags)
         ? tags.filter(Boolean).filter((tag) => tag !== 'elevation_medium')
@@ -522,30 +536,47 @@ const PassTypesCell = React.memo(function PassTypesCell({tags, t}) {
         <Box
             sx={{
                 display: 'flex',
-                alignItems: 'center',
-                alignContent: 'center',
-                gap: 0.5,
-                flexWrap: 'wrap',
                 width: '100%',
-                minHeight: '100%',
-                py: 0,
+                height: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
             }}
         >
-            {tagList.map((tag) => (
-                <Chip
-                    key={tag}
-                    label={getPassTagLabel(tag, t)}
-                    size="small"
-                    variant="outlined"
-                    sx={{
-                        fontSize: '0.64rem',
-                        height: 20,
-                        '& .MuiChip-label': {
-                            px: 0.7,
-                        },
-                    }}
-                />
-            ))}
+            <Box
+                sx={{
+                    display: 'flex',
+                    width: '100%',
+                    minWidth: 0,
+                    gap: 0.5,
+                    flexWrap: 'nowrap',
+                    justifyContent: 'flex-start',
+                    overflow: 'hidden',
+                    WebkitMaskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
+                    maskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
+                }}
+            >
+                {tagList.map((tag) => (
+                    <Chip
+                        key={tag}
+                        label={getPassTagLabel(tag, t)}
+                        size="small"
+                        variant="filled"
+                        sx={{
+                            fontSize: '0.64rem',
+                            height: 20,
+                            flexShrink: 0,
+                            fontWeight: 700,
+                            backgroundColor: getPassTagColor(tag),
+                            color: 'common.white',
+                            border: '1px solid',
+                            borderColor: getPassTagColor(tag),
+                            '& .MuiChip-label': {
+                                px: 0.7,
+                            },
+                        }}
+                    />
+                ))}
+            </Box>
         </Box>
     );
 });

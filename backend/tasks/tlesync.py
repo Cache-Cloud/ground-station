@@ -120,13 +120,22 @@ def orbital_sync_background_task(_progress_queue: Optional[Queue] = None):
 
                     # Run the synchronization with our callback
                     # Use logger (local) instead of main_logger (from parent process)
-                    await synchronize_satellite_data_internal(session, logger, emit_callback)
+                    return await synchronize_satellite_data_internal(session, logger, emit_callback)
             except Exception as e:
                 logger.error(f"Error in run_sync: {e}", exc_info=True)
                 raise
 
         # Execute the sync
-        loop.run_until_complete(run_sync())
+        sync_succeeded = loop.run_until_complete(run_sync())
+
+        if not sync_succeeded:
+            failure_message = (
+                "Orbital data synchronization stopped with errors; human review is required"
+            )
+            logger.error(failure_message)
+            if _progress_queue:
+                _progress_queue.put({"type": "error", "error": failure_message, "stream": "stderr"})
+            return {"status": "failed", "error": failure_message}
 
         if _progress_queue:
             _progress_queue.put(
