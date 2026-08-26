@@ -102,7 +102,9 @@ const rotatorsPersistConfig = {
 const orbitalSourcesPersistConfig = {
     key: 'tleSources',
     storage,
-    whitelist: []
+    // Retain only the user's table density preference; source data and dialog
+    // state are fetched or initialized for each session.
+    whitelist: ['pageSize']
 };
 
 // Persist configuration for satellites slice
