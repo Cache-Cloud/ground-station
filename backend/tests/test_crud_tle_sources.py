@@ -342,6 +342,22 @@ class TestTLESourcesCRUD:
             "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV"
         )
 
+    async def test_add_celestrak_source_accepts_documented_group(self, db_session):
+        """CelesTrak's complete documented GROUP catalogue is supported."""
+        result = await add_satellite_tle_source(
+            db_session,
+            {
+                "name": "CelesTrak Starlink",
+                "provider": "celestrak",
+                "celestrak_group": "starlink",
+            },
+        )
+
+        assert result["success"] is True
+        assert result["data"]["url"] == (
+            "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=CSV"
+        )
+
     async def test_add_celestrak_tle_source_is_rejected(self, db_session):
         """CelesTrak may not be configured with its retired TLE transport."""
         result = await add_satellite_tle_source(

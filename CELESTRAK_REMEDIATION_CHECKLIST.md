@@ -18,8 +18,10 @@ Ground Station has completed the following remediation work after the April
 - Historical Ground Station CelesTrak feeds are migrated to canonical
   `https://celestrak.org/NORAD/elements/gp.php?GROUP=...&FORMAT=CSV` URLs.
   Unsafe or unknown legacy CelesTrak feeds are disabled for user review.
-- New CelesTrak sources use a guided group selector. The server builds the
-  canonical GP/CSV URL and rejects hand-written CelesTrak queries.
+- New CelesTrak sources use a guided selector containing all 47 `GROUP`
+  categories listed on CelesTrak's Current GP Element Sets page (verified
+  2026-08-26). The server builds the canonical GP/CSV URL; pasted or custom
+  CelesTrak URLs are intentionally unsupported.
 - Every CelesTrak request uses one helper with redirects disabled. Only HTTP
   200 is accepted; any other response records its status and response summary,
   suspends the source, and stops later CelesTrak requests in that sync run.
@@ -63,6 +65,9 @@ consumer that receives exported TLE lines explicitly supports Alpha-5.
 - [x] Show each source's status, error details, and humanized last successful
   sync in the Sources UI. A successful CelesTrak source is shown as Healthy
   even when its next request is deferred by the two-hour interval.
+- [x] Offer every current documented CelesTrak `GROUP` category in the guided
+  source selector. These are choices only: no category is enabled or fetched
+  until a user explicitly creates its source.
 - [x] Refresh the Sources UI after every terminal sync outcome, including a
   failed or partially completed synchronization.
 - [x] Add automated migration, circuit-breaker, HTTP-status, and six-digit
@@ -214,9 +219,10 @@ source editor accepts arbitrary HTTP(S) URLs.
   an in-memory lock.
 - [ ] Prevent the first startup sync and a manual sync from issuing duplicate
   requests for the same query.
-- [x] Add a dedicated CelesTrak source type with a URL builder and allowlisted
-  current groups instead of accepting arbitrary CelesTrak URLs as generic HTTP
-  sources.
+- [x] Add a dedicated CelesTrak source type with a URL builder and all current
+  documented `GROUP` categories instead of accepting arbitrary CelesTrak URLs
+  as generic HTTP sources. `SPECIAL`, `CATNR`, `INTDES`, and `NAME` queries
+  are deliberately outside this group-only selector.
 - [x] Keep a generic HTTP source type for non-CelesTrak providers.
 - [x] Add a user-facing warning when an existing CelesTrak source is disabled
   by migration or by a non-200 response.

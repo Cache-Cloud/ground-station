@@ -14,17 +14,58 @@ CELESTRAK_REQUEST_TIMEOUT_SECONDS = 20
 CELESTRAK_RATE_LIMIT_SECONDS = 2 * 60 * 60
 MAX_ERROR_RESPONSE_CHARS = 500
 
-# Keep the selectable catalogue deliberately small and tied to the feeds Ground
-# Station maintains. New CelesTrak sources are built from these values rather
-# than accepting a hand-written provider URL.
+# CelesTrak's Current GP Element Sets catalogue is intentionally represented
+# here rather than accepting a hand-written provider URL.  This lets users
+# choose every documented GROUP while ensuring the application only constructs
+# canonical GP/CSV requests.  Adding a choice does not enable or download it.
 CELESTRAK_GROUPS = {
     "amateur": "Amateur radio",
+    "active": "Active satellites",
+    "analyst": "Analyst satellites",
+    "argos": "ARGOS Data Collection System",
+    "beidou": "BeiDou",
+    "cosmos-2251-debris": "COSMOS 2251 debris",
     "cubesat": "CubeSats",
+    "dmc": "Disaster Monitoring",
+    "education": "Education",
+    "engineering": "Engineering",
+    "eutelsat": "Eutelsat",
+    "fengyun-1c-debris": "Chinese ASAT Test Debris (FENGYUN 1C)",
+    "galileo": "Galileo",
+    "geodetic": "Geodetic",
+    "geo": "Active geosynchronous",
+    "globalstar": "Globalstar",
+    "glo-ops": "GLONASS operational",
     "gnss": "GNSS",
+    "gps-ops": "GPS operational",
+    "hulianwang": "Hulianwang Digui",
+    "intelsat": "Intelsat",
+    "iridium-33-debris": "IRIDIUM 33 debris",
     "iridium-next": "Iridium NEXT",
+    "kuiper": "Kuiper",
+    "last-30-days": "Last 30 Days' Launches",
+    "military": "Miscellaneous military",
+    "oneweb": "OneWeb",
     "orbcomm": "ORBCOMM",
+    "other-comm": "Other communications",
+    "planet": "Planet",
+    "qianfan": "Qianfan",
+    "radar": "Radar calibration",
+    "resource": "Earth resources",
+    "sar": "Synthetic aperture radar",
+    "satnogs": "SatNOGS",
+    "sarsat": "Search & Rescue (SARSAT)",
+    "sbas": "Satellite-based augmentation system (SBAS)",
+    "science": "Space & Earth science",
+    "ses": "SES",
+    "spire": "Spire",
+    "starlink": "Starlink",
     "stations": "Space stations",
+    "tdrss": "Tracking and Data Relay Satellite System (TDRSS)",
+    "telesat": "Telesat",
+    "visual": "100 (or so) Brightest",
     "weather": "Weather",
+    "x-comm": "Experimental communications",
 }
 
 

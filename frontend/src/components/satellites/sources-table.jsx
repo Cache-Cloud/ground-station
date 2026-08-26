@@ -72,12 +72,52 @@ const SPACE_TRACK_GP_BASE_URL = 'https://www.space-track.org/basicspacedata/quer
 const CELESTRAK_SYNC_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const CELESTRAK_GROUP_OPTIONS = [
     ['amateur', 'Amateur radio'],
+    ['active', 'Active satellites'],
+    ['analyst', 'Analyst satellites'],
+    ['argos', 'ARGOS Data Collection System'],
+    ['beidou', 'BeiDou'],
+    ['cosmos-2251-debris', 'COSMOS 2251 debris'],
     ['cubesat', 'CubeSats'],
+    ['dmc', 'Disaster Monitoring'],
+    ['education', 'Education'],
+    ['engineering', 'Engineering'],
+    ['eutelsat', 'Eutelsat'],
+    ['fengyun-1c-debris', 'Chinese ASAT Test Debris (FENGYUN 1C)'],
+    ['galileo', 'Galileo'],
+    ['geodetic', 'Geodetic'],
+    ['geo', 'Active geosynchronous'],
+    ['globalstar', 'Globalstar'],
+    ['glo-ops', 'GLONASS operational'],
     ['gnss', 'GNSS'],
+    ['gps-ops', 'GPS operational'],
+    ['hulianwang', 'Hulianwang Digui'],
+    ['intelsat', 'Intelsat'],
+    ['iridium-33-debris', 'IRIDIUM 33 debris'],
     ['iridium-next', 'Iridium NEXT'],
+    ['kuiper', 'Kuiper'],
+    ['last-30-days', "Last 30 Days' Launches"],
+    ['military', 'Miscellaneous military'],
+    ['oneweb', 'OneWeb'],
     ['orbcomm', 'ORBCOMM'],
+    ['other-comm', 'Other communications'],
+    ['planet', 'Planet'],
+    ['qianfan', 'Qianfan'],
+    ['radar', 'Radar calibration'],
+    ['resource', 'Earth resources'],
+    ['sar', 'Synthetic aperture radar'],
+    ['satnogs', 'SatNOGS'],
+    ['sarsat', 'Search & Rescue (SARSAT)'],
+    ['sbas', 'Satellite-based augmentation system (SBAS)'],
+    ['science', 'Space & Earth science'],
+    ['ses', 'SES'],
+    ['spire', 'Spire'],
+    ['starlink', 'Starlink'],
     ['stations', 'Space stations'],
+    ['tdrss', 'Tracking and Data Relay Satellite System (TDRSS)'],
+    ['telesat', 'Telesat'],
+    ['visual', '100 (or so) Brightest'],
     ['weather', 'Weather'],
+    ['x-comm', 'Experimental communications'],
 ];
 
 const buildCelestrakUrl = (group) =>
@@ -185,14 +225,17 @@ const getOrbitalSourcesTabsSx = (theme) => {
     };
 };
 
-const normalizeProvider = (provider, url = '') => {
-    const normalized = String(provider || 'generic_http').toLowerCase();
-    // Present canonical legacy CelesTrak URLs as the constrained source type.
+const normalizeProvider = (provider) => String(provider || 'generic_http').toLowerCase();
+
+const inferProviderForExistingSource = (provider, url = '') => {
+    const normalized = normalizeProvider(provider);
+    // Existing legacy rows with a CelesTrak URL must be edited through the
+    // constrained source type. In-progress form selections stay explicit.
     return normalized === 'celestrak' || isCelestrakSource(url) ? 'celestrak' : normalized;
 };
 
 const getProviderLabel = (provider, t, url = '') => {
-    const normalizedProvider = normalizeProvider(provider, url);
+    const normalizedProvider = inferProviderForExistingSource(provider, url);
     return t(`orbital_sources.providers.${normalizedProvider}`, {defaultValue: normalizedProvider});
 };
 
@@ -289,7 +332,7 @@ const defaultFormValues = {
     password: '',
 };
 
-export function toFormValues(source) {
+export function toFormValues(source, inferLegacyCelestrakProvider = false) {
     if (!source) {
         return {...defaultFormValues};
     }
@@ -305,7 +348,9 @@ export function toFormValues(source) {
         norad_ids: Array.isArray(source.norad_ids)
             ? source.norad_ids.join(', ')
             : (typeof source.norad_ids === 'string' ? source.norad_ids : ''),
-        provider: normalizeProvider(source.provider ?? defaultFormValues.provider, source.url),
+        provider: inferLegacyCelestrakProvider
+            ? inferProviderForExistingSource(source.provider ?? defaultFormValues.provider, source.url)
+            : normalizeProvider(source.provider ?? defaultFormValues.provider),
         adapter: String(source.adapter ?? defaultFormValues.adapter).toLowerCase(),
         enabled: source.enabled === undefined ? true : Boolean(source.enabled),
         priority: String(source.priority ?? '100'),
@@ -320,7 +365,7 @@ export function toFormValues(source) {
 export function validateSourceForm(formValues, t) {
     const errors = {};
 
-    const provider = normalizeProvider(String(formValues.provider || '').trim().toLowerCase(), formValues.url);
+    const provider = normalizeProvider(String(formValues.provider || '').trim().toLowerCase());
     const format = String(formValues.format || '').trim().toLowerCase();
     const queryMode = 'url';
     const name = String(formValues.name || '').trim();
@@ -555,7 +600,7 @@ export default function SourcesTable() {
                     onClick={(event) => {
                         event.stopPropagation();
                         setSubmitError(null);
-                        dispatch(setFormValues(toFormValues(params.row)));
+                        dispatch(setFormValues(toFormValues(params.row, true)));
                         dispatch(setOpenAddDialog(true));
                     }}
                 >
@@ -611,6 +656,11 @@ export default function SourcesTable() {
                 nextValues.url = '';
             }
         }
+        if (name === 'provider' && value === 'generic_http' && isCelestrakSource(nextValues.url)) {
+            // A generic source may not retain a CelesTrak URL: the backend
+            // treats it as the constrained provider. Require a new URL.
+            nextValues.url = '';
+        }
         if (name === 'format' && nextValues.provider !== 'space_track') {
             nextValues.adapter = getAdapterForProviderAndFormat(nextValues.provider, value);
         }
@@ -639,7 +689,7 @@ export default function SourcesTable() {
         setSubmitError(null);
         const singleRowId = selected[0];
         const selectedSource = tleSources.find(r => r.id === singleRowId);
-        dispatch(setFormValues(toFormValues(selectedSource)));
+        dispatch(setFormValues(toFormValues(selectedSource, true)));
         dispatch(setOpenAddDialog(true));
     };
 

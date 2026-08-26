@@ -79,6 +79,15 @@ describe('sources-table form helpers', () => {
         expect(formValues.norad_ids).toBe('25544, 43017');
     });
 
+    it('keeps an explicitly selected generic provider while its prior URL is CelesTrak', () => {
+        const formValues = toFormValues({
+            provider: 'generic_http',
+            url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV',
+        });
+
+        expect(formValues.provider).toBe('generic_http');
+    });
+
     it('preserves norad text input in form values when already string', () => {
         const formValues = toFormValues({
             provider: 'space_track',
@@ -118,6 +127,33 @@ describe('sources-table form helpers', () => {
         expect(payload.provider).toBe('celestrak');
         expect(payload.adapter).toBe('http_omm');
         expect(payload.url).toBe('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV');
+    });
+
+    it('accepts a documented CelesTrak group beyond the initial presets', () => {
+        const {errors, payload} = validateSourceForm(
+            {
+                id: null,
+                name: 'CelesTrak Starlink',
+                url: '',
+                celestrak_group: 'starlink',
+                format: 'omm',
+                query_mode: 'url',
+                group_id: '',
+                norad_ids: '',
+                provider: 'celestrak',
+                adapter: 'http_omm',
+                enabled: true,
+                priority: '10',
+                central_body: 'earth',
+                auth_type: 'none',
+                username: '',
+                password: '',
+            },
+            t
+        );
+
+        expect(errors).toEqual({});
+        expect(payload.url).toBe('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=CSV');
     });
 
     it('builds normalized payload for valid basic auth source', () => {
