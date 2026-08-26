@@ -48,6 +48,10 @@
 - Keep comments brief and clear (avoid verbose explanations).
 - Focus comments on intent and non-obvious behavior, not line-by-line narration.
 
+## Import Design
+- Do not use lazy loading or deferred imports to resolve dependency cycles.
+- Resolve cycles through clear dependency direction, extraction of shared code, or package initialization changes instead.
+
 ## Linting / Quality Check Timing
 - Do **not** run linters/formatters/type-checkers on every small iterative change during feature development.
 - Run linting/quality checks once at the end of feature development, or immediately before committing.

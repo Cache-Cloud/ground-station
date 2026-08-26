@@ -17,7 +17,7 @@
  *
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Typography,
     Button,
@@ -38,9 +38,11 @@ import {
     Checkbox,
     Alert,
     Divider,
-    Backdrop
+    Backdrop,
+    LinearProgress
 } from '@mui/material';
 import { Download, Upload, Backup } from '@mui/icons-material';
+import { v4 as uuidv4 } from 'uuid';
 import { useSocket } from '../../common/socket.jsx';
 import { toast } from '../../../utils/toast-with-timestamp.jsx';
 
@@ -58,11 +60,25 @@ const DatabaseBackupCard = () => {
     const [fullRestoreFile, setFullRestoreFile] = useState(null);
     const [dropTables, setDropTables] = useState(true);
     const [showReloadBackdrop, setShowReloadBackdrop] = useState(false);
+    const [fullBackup, setFullBackup] = useState({ isRunning: false, isCancelling: false, progress: null });
+    const backupOperationIdRef = useRef(null);
 
     useEffect(() => {
         if (socket) {
             loadTables();
         }
+    }, [socket]);
+
+    useEffect(() => {
+        if (!socket) return undefined;
+
+        const handleFullBackupProgress = (progress) => {
+            if (progress?.operation_id !== backupOperationIdRef.current) return;
+            setFullBackup((current) => ({ ...current, progress }));
+        };
+
+        socket.on('database-backup:progress', handleFullBackupProgress);
+        return () => socket.off('database-backup:progress', handleFullBackupProgress);
     }, [socket]);
 
     const loadTables = async () => {
@@ -166,15 +182,22 @@ const DatabaseBackupCard = () => {
     const handleFullBackup = async () => {
         if (!socket) return;
 
+        const operationId = uuidv4();
+        backupOperationIdRef.current = operationId;
+        setFullBackup({ isRunning: true, isCancelling: false, progress: null });
+
         try {
             const response = await socket.emitWithAck('api.call', {
                 cmd: 'database-backup.full_backup',
                 data: {
-                    action: 'full_backup'
+                    action: 'full_backup',
+                    operation_id: operationId
                 }
             });
 
-            if (response.success) {
+            if (response.success && response.cancelled) {
+                toast.info('Full database backup cancelled');
+            } else if (response.success) {
                 // Create a blob and download it
                 const blob = new Blob([response.sql], { type: 'text/plain' });
                 const url = window.URL.createObjectURL(blob);
@@ -192,6 +215,32 @@ const DatabaseBackupCard = () => {
             }
         } catch (error) {
             toast.error(`Error backing up database: ${error.message}`);
+        } finally {
+            if (backupOperationIdRef.current === operationId) {
+                backupOperationIdRef.current = null;
+                setFullBackup({ isRunning: false, isCancelling: false, progress: null });
+            }
+        }
+    };
+
+    const handleCancelFullBackup = async () => {
+        const operationId = backupOperationIdRef.current;
+        if (!socket || !operationId) return;
+
+        setFullBackup((current) => ({ ...current, isCancelling: true }));
+        try {
+            const response = await socket.emitWithAck('api.call', {
+                cmd: 'database-backup.cancel_full_backup',
+                data: { operation_id: operationId }
+            });
+
+            if (!response.success) {
+                setFullBackup((current) => ({ ...current, isCancelling: false }));
+                toast.error(`Failed to cancel database backup: ${response.error}`);
+            }
+        } catch (error) {
+            setFullBackup((current) => ({ ...current, isCancelling: false }));
+            toast.error(`Error cancelling database backup: ${error.message}`);
         }
     };
 
@@ -263,6 +312,16 @@ const DatabaseBackupCard = () => {
         }
     };
 
+    const backupProgress = fullBackup.progress;
+    const tableProgress = backupProgress?.tables_total
+        ? Math.round((backupProgress.tables_completed / backupProgress.tables_total) * 100)
+        : null;
+    const backupStatus = fullBackup.isCancelling
+        ? 'Cancelling full database backup...'
+        : backupProgress?.phase === 'table'
+            ? `Backing up ${backupProgress.table_name} (table ${backupProgress.tables_completed + 1} of ${backupProgress.tables_total})${backupProgress.rows_total ? ` — ${backupProgress.rows_processed.toLocaleString()} of ${backupProgress.rows_total.toLocaleString()} rows` : ''}`
+            : 'Preparing full database backup...';
+
     return (
         <>
             <Typography variant="h6" gutterBottom>
@@ -287,7 +346,7 @@ const DatabaseBackupCard = () => {
                                 color="primary"
                                 startIcon={<Backup />}
                                 onClick={handleFullBackup}
-                                disabled={loading}
+                                disabled={loading || fullBackup.isRunning}
                             >
                                 Full Database Backup
                             </Button>
@@ -296,7 +355,7 @@ const DatabaseBackupCard = () => {
                                 color="warning"
                                 startIcon={<Upload />}
                                 onClick={handleFullRestoreOpen}
-                                disabled={loading}
+                                disabled={loading || fullBackup.isRunning}
                             >
                                 Full Database Restore
                             </Button>
@@ -358,6 +417,7 @@ const DatabaseBackupCard = () => {
                                                         startIcon={<Download />}
                                                         onClick={() => handleBackupTable(table.name)}
                                                         sx={{ mr: 1 }}
+                                                        disabled={fullBackup.isRunning}
                                                     >
                                                         Backup
                                                     </Button>
@@ -366,6 +426,7 @@ const DatabaseBackupCard = () => {
                                                         startIcon={<Upload />}
                                                         onClick={() => handleRestoreTable(table.name)}
                                                         color="warning"
+                                                        disabled={fullBackup.isRunning}
                                                     >
                                                         Restore
                                                     </Button>
@@ -496,6 +557,41 @@ const DatabaseBackupCard = () => {
                         disabled={!fullRestoreFile || loading}
                     >
                         {loading ? <CircularProgress size={24} /> : 'Restore Full Database'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Keep backup progress visible even when the database tab is busy with a large export. */}
+            <Dialog
+                open={fullBackup.isRunning}
+                disableEscapeKeyDown
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>Creating Full Database Backup</DialogTitle>
+                <DialogContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, pt: 1 }}>
+                        <CircularProgress size={28} />
+                        <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body1">{backupStatus}</Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                Large databases can take several minutes. Keep this page open until the download starts.
+                            </Typography>
+                        </Box>
+                    </Box>
+                    <LinearProgress
+                        variant={tableProgress === null ? 'indeterminate' : 'determinate'}
+                        value={tableProgress ?? undefined}
+                        sx={{ mt: 3 }}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={handleCancelFullBackup}
+                        disabled={fullBackup.isCancelling}
+                        color="warning"
+                    >
+                        {fullBackup.isCancelling ? 'Cancelling...' : 'Cancel backup'}
                     </Button>
                 </DialogActions>
             </Dialog>

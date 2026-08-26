@@ -54,7 +54,7 @@ and [GP data query documentation](https://celestrak.org/NORAD/documentation/gp-d
 
 ### 1. Redirects are currently hidden
 
-Status: complete (2026-08-25)
+Status: complete (2026-08-26)
 
 `requests.get()` follows redirects by default in
 `backend/tlesync/source_adapters.py`. A `www.celestrak.*` request can therefore
@@ -65,13 +65,13 @@ generate a 301 at CelesTrak while the application sees only a later response.
 - [x] Reject any status other than 200 before parsing a response body.
 - [x] Include the status code and CelesTrak response text (safely truncated) in
   the reported error.
-- [ ] Extend the regression test from 301 to 403, 404, and 5xx responses,
+- [x] Extend the regression test from 301 to 403, 404, and 5xx responses,
   proving that parsing is
   not attempted and no follow-up CelesTrak request is made.
 
 ### 2. A failed source currently does not stop later source requests
 
-Status: complete (2026-08-25; multi-source regression test still pending)
+Status: complete (2026-08-26)
 
 `synchronize_satellite_data_internal()` records a fetch exception and continues
 to the next source. Several CelesTrak sources can therefore multiply one bad
@@ -88,12 +88,12 @@ as successful.
   a successful database-processing result.
 - [x] Present the error prominently in the sync UI and task result as requiring
   human investigation.
-- [ ] Add integration tests with multiple CelesTrak sources to prove that one
+- [x] Add integration tests with multiple CelesTrak sources to prove that one
   non-200 response produces exactly one CelesTrak HTTP request.
 
 ### 3. Existing users have not been migrated
 
-Status: complete (2026-08-25; migration coverage remains to be automated)
+Status: complete (2026-08-26)
 
 The current migration that mentions CelesTrak only normalizes the provider
 label. It does not migrate URLs, groups, formats, adapters, or existing TLE
@@ -112,7 +112,7 @@ releases.
   user to choose a supported source.
 - [x] Normalize known bad hosts such as `www.celestrak.com` and
   `www.celestrak.org`; never preserve them as active CelesTrak URLs.
-- [ ] Add migration tests covering old static `.txt` URLs, `FORMAT=tle`,
+- [x] Add migration tests covering old static `.txt` URLs, `FORMAT=tle`,
   non-canonical domains, valid documented GP group URLs, and unknown custom
   CelesTrak URLs.
 
@@ -188,7 +188,7 @@ source editor accepts arbitrary HTTP(S) URLs.
 - [x] Inspect the upgraded `orbital_sources` table and confirm that no enabled
   CelesTrak URL has a `www` host, a static `.txt` path, a TLE format request,
   or an undocumented format value.
-- [ ] Verify that a 301, 403, 404, and 5xx each stop further CelesTrak traffic
+- [x] Verify that a 301, 403, 404, and 5xx each stop further CelesTrak traffic
   and create a persistent human-action-required status.
 - [ ] Verify that repeated manual sync actions do not repeat a successful GP
   request inside the two-hour interval.

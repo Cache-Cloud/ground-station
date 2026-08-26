@@ -17,8 +17,9 @@ import asyncio
 import html
 import json
 import re
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
@@ -221,7 +222,10 @@ async def list_tables() -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-async def backup_table(table_name: str) -> Dict[str, Any]:
+async def backup_table(
+    table_name: str,
+    progress_callback: Optional[Callable[[int, int], Awaitable[None]]] = None,
+) -> Dict[str, Any]:
     """Generate SQL INSERT statements for a specific table."""
     try:
         # Validate table name to prevent SQL injection
@@ -249,7 +253,7 @@ async def backup_table(table_name: str) -> Dict[str, Any]:
             sql_statements.append(f"-- Generated at: {datetime.now()}")
             sql_statements.append(f"-- Total rows: {len(rows)}\n")
 
-            for row in rows:
+            for row_number, row in enumerate(rows, start=1):
                 # Convert row to dictionary
                 row_dict = dict(zip(column_names, row))
 
@@ -277,6 +281,14 @@ async def backup_table(table_name: str) -> Dict[str, Any]:
                 sql_statements.append(
                     f"INSERT INTO {table_name} ({columns_str}) VALUES ({values_str});"
                 )
+
+                # Large exports can spend a long time formatting rows without awaiting. Yield
+                # periodically so progress can be emitted and a user cancellation can be handled.
+                if row_number % 1_000 == 0 or row_number == len(rows):
+                    if progress_callback:
+                        await progress_callback(row_number, len(rows))
+                    else:
+                        await asyncio.sleep(0)
 
             sql = "\n".join(sql_statements)
             return {"success": True, "sql": sql, "row_count": len(rows)}
@@ -336,13 +348,18 @@ async def restore_table(table_name: str, sql: str, delete_first: bool = True) ->
         return {"success": False, "error": str(e)}
 
 
-async def full_backup() -> Dict[str, Any]:
+async def full_backup(
+    progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+) -> Dict[str, Any]:
     """Generate a full database backup including schema and all data."""
     try:
         sql_statements = []
         sql_statements.append("-- Full Database Backup")
         sql_statements.append(f"-- Generated at: {datetime.now()}")
         sql_statements.append("")
+
+        if progress_callback:
+            await progress_callback({"phase": "preparing"})
 
         # Get CREATE TABLE statements
         sql_statements.append("-- ========================================")
@@ -404,8 +421,34 @@ async def full_backup() -> Dict[str, Any]:
             table_names.append("alembic_version")
 
         # Backup each table
-        for table_name in table_names:
-            result = await backup_table(table_name)
+        total_tables = len(table_names)
+        for table_number, table_name in enumerate(table_names, start=1):
+            if progress_callback:
+                await progress_callback(
+                    {
+                        "phase": "table",
+                        "table_name": table_name,
+                        "tables_completed": table_number - 1,
+                        "tables_total": total_tables,
+                        "rows_processed": 0,
+                        "rows_total": None,
+                    }
+                )
+
+            async def report_table_progress(rows_processed: int, rows_total: int) -> None:
+                if progress_callback:
+                    await progress_callback(
+                        {
+                            "phase": "table",
+                            "table_name": table_name,
+                            "tables_completed": table_number - 1,
+                            "tables_total": total_tables,
+                            "rows_processed": rows_processed,
+                            "rows_total": rows_total,
+                        }
+                    )
+
+            result = await backup_table(table_name, progress_callback=report_table_progress)
             if result["success"]:
                 sql_statements.append(f"\n-- Table: {table_name} ({result['row_count']} rows)")
                 sql_statements.append(result["sql"])
@@ -413,6 +456,18 @@ async def full_backup() -> Dict[str, Any]:
             else:
                 sql_statements.append(
                     f"\n-- Error backing up table {table_name}: {result['error']}"
+                )
+
+            if progress_callback:
+                await progress_callback(
+                    {
+                        "phase": "table",
+                        "table_name": table_name,
+                        "tables_completed": table_number,
+                        "tables_total": total_tables,
+                        "rows_processed": result.get("row_count", 0),
+                        "rows_total": result.get("row_count", 0),
+                    }
                 )
 
         sql = "\n".join(sql_statements)

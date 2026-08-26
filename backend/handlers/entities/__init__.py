@@ -13,51 +13,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""Entity-based handlers for Socket.IO requests.
+"""Entity-based Socket.IO handlers.
 
-This package exposes each entity module so callers can import them via
-`from handlers.entities import <module>` and have module-level registration
-run as expected.
+Callers import the specific entity module they need.  The socket entry point
+imports and registers the complete handler set during application startup.
 """
-
-from . import orbitalsources  # noqa: F401
-from . import tlesources  # noqa: F401
-from . import (
-    appsettings,
-    celestial,
-    control,
-    filebrowser,
-    groups,
-    hardware,
-    locations,
-    preferences,
-    satellites,
-    sdr,
-    sessions,
-    setup,
-    systeminfo,
-    tracking,
-    transmitters,
-    vfo,
-)
-
-__all__ = [
-    "appsettings",
-    "satellites",
-    "orbitalsources",
-    "tlesources",
-    "groups",
-    "hardware",
-    "locations",
-    "preferences",
-    "setup",
-    "transmitters",
-    "tracking",
-    "filebrowser",
-    "sdr",
-    "vfo",
-    "systeminfo",
-    "sessions",
-    "celestial",
-    "control",
-]

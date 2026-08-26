@@ -27,52 +27,10 @@ Legacy handlers (deprecated):
 - handlers/tracking.py: Moved to handlers/entities/tracking.py
 """
 
+# Import handler modules from their concrete paths.  This package initializer
+# deliberately exposes only the dependency-light routing primitives so service
+# modules can depend on a single handler without triggering task registration.
 from .base import run_async_in_thread
-from .entities import (
-    appsettings,
-    celestial,
-    decoderconfig,
-    filebrowser,
-    groups,
-    hardware,
-    locations,
-    preferences,
-    satellites,
-    sdr,
-    tracking,
-    transmitters,
-)
-from .entities.filebrowser import filebrowser_request_routing
-from .entities.sdr import sdr_command_routing
-from .entities.tracking import emit_tracker_data, emit_ui_tracker_values
 from .routing import HandlerRegistry, dispatch_request, handler_registry
 
-__all__ = [
-    # Base utilities
-    "run_async_in_thread",
-    # Routing
-    "handler_registry",
-    "HandlerRegistry",
-    "dispatch_request",
-    # Entity modules
-    "satellites",
-    "appsettings",
-    "orbitalsources.py",
-    "tlesources.py",
-    "groups",
-    "hardware",
-    "locations",
-    "preferences",
-    "transmitters",
-    "tracking",
-    "filebrowser",
-    "sdr",
-    "celestial",
-    "decoderconfig",
-    # Special routing functions
-    "filebrowser_request_routing",
-    "sdr_command_routing",
-    # Tracking utilities
-    "emit_tracker_data",
-    "emit_ui_tracker_values",
-]
+__all__ = ["run_async_in_thread", "handler_registry", "HandlerRegistry", "dispatch_request"]

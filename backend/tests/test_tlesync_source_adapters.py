@@ -5,6 +5,7 @@ import json
 import pytest
 import requests
 
+import tlesync.source_adapters as source_adapters
 from tlesync.celestrak import CelestrakRequestError
 from tlesync.source_adapters import (
     build_space_track_norad_source_batches,
@@ -112,16 +113,22 @@ def test_fetch_http_omm_adapter_keeps_six_digit_catalogue_number_as_omm(monkeypa
     assert records[0]["orbit_payload"]["NORAD_CAT_ID"] == "100000"
 
 
-def test_celestrak_rejects_redirect_without_following_it(monkeypatch):
+@pytest.mark.parametrize("status_code", [301, 403, 404, 500])
+def test_celestrak_rejects_non_200_without_parsing_or_following_up(monkeypatch, status_code):
+    """Every non-200 response must stop before the OMM payload is parsed."""
     calls = []
 
     def fake_get(url, **kwargs):
         calls.append((url, kwargs))
-        return _DummyResponse("Use the canonical host", status_code=301)
+        return _DummyResponse("CelesTrak response body", status_code=status_code)
+
+    def fail_if_parsed(*_args, **_kwargs):
+        raise AssertionError("a non-200 CelesTrak response must not be parsed")
 
     monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(source_adapters, "_normalize_omm_records", fail_if_parsed)
 
-    with pytest.raises(CelestrakRequestError, match="HTTP 301"):
+    with pytest.raises(CelestrakRequestError, match=rf"HTTP {status_code}"):
         fetch_source_orbit_records(
             {
                 "adapter": "http_omm",

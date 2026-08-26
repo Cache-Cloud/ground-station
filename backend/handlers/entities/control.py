@@ -17,10 +17,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 import time
 from typing import Any, Dict, Optional, cast
+from uuid import UUID
 
 from db import AsyncSessionLocal
 from handlers.entities.databasebackup import (
@@ -49,6 +51,11 @@ _ORBITAL_SYNC_TASK_PATTERNS = (
     "tle sync",
     "tle_sync",
 )
+
+# Full backups remain request/response operations because the generated SQL is downloaded
+# in the Socket.IO acknowledgement. Keep their request tasks here so their owner can cancel
+# a long-running export without affecting another connected administrator's backup.
+_FULL_BACKUP_OPERATIONS: Dict[str, tuple[str, asyncio.Task[Any]]] = {}
 
 
 def _is_orbital_sync_task(task: Dict[str, Any]) -> bool:
@@ -215,8 +222,68 @@ async def backup_table_restore(
 
 async def backup_full_dump(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Dict[str, Any]:
     """Export full database schema + content."""
-    del sio, data, logger, sid
-    return _typed_reply(await full_backup())
+    payload = data or {}
+    operation_id = payload.get("operation_id")
+    try:
+        operation_id = str(UUID(str(operation_id)))
+    except (TypeError, ValueError, AttributeError):
+        return {"success": False, "error": "Missing or invalid backup operation ID"}
+
+    current_task = asyncio.current_task()
+    if current_task is None:
+        return {"success": False, "error": "Unable to start backup operation"}
+    if operation_id in _FULL_BACKUP_OPERATIONS:
+        return {"success": False, "error": "A backup with this operation ID is already running"}
+
+    _FULL_BACKUP_OPERATIONS[operation_id] = (sid, current_task)
+
+    async def emit_progress(progress: Dict[str, Any]) -> None:
+        # Progress is private to the socket that started the backup.
+        await sio.emit(
+            "database-backup:progress",
+            {"operation_id": operation_id, **progress},
+            to=sid,
+        )
+
+    try:
+        logger.info("Full database backup started: operation_id=%s, sid=%s", operation_id, sid)
+        result = await full_backup(progress_callback=emit_progress)
+        return _typed_reply(result)
+    except asyncio.CancelledError:
+        logger.info("Full database backup cancelled: operation_id=%s, sid=%s", operation_id, sid)
+        return {"success": True, "cancelled": True}
+    finally:
+        # Do not remove a newer task if an operation ID was somehow reused.
+        if _FULL_BACKUP_OPERATIONS.get(operation_id) == (sid, current_task):
+            _FULL_BACKUP_OPERATIONS.pop(operation_id, None)
+
+
+async def cancel_full_backup(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Any]:
+    """Cancel the calling socket's in-progress full database backup."""
+    del sio
+    payload = data or {}
+    operation_id = payload.get("operation_id")
+    try:
+        operation_id = str(UUID(str(operation_id)))
+    except (TypeError, ValueError, AttributeError):
+        return {"success": False, "error": "Missing or invalid backup operation ID"}
+
+    operation = _FULL_BACKUP_OPERATIONS.get(operation_id)
+    if not operation or operation[0] != sid:
+        # Keep the response deliberately generic so operation IDs cannot be enumerated.
+        return {"success": False, "error": "Backup operation not found or already finished"}
+
+    backup_task = operation[1]
+    if backup_task.done():
+        return {"success": False, "error": "Backup operation not found or already finished"}
+
+    logger.info(
+        "Full database backup cancellation requested: operation_id=%s, sid=%s", operation_id, sid
+    )
+    backup_task.cancel()
+    return {"success": True, "operation_id": operation_id, "cancelling": True}
 
 
 async def backup_full_restore(
@@ -352,6 +419,7 @@ def register_handlers(registry):
             "database-backup.backup_table": (backup_table_dump, "api_call"),
             "database-backup.restore_table": (backup_table_restore, "api_call"),
             "database-backup.full_backup": (backup_full_dump, "api_call"),
+            "database-backup.cancel_full_backup": (cancel_full_backup, "api_call"),
             "database-backup.full_restore": (backup_full_restore, "api_call"),
             "transmitter-import.satdump": (import_satdump, "api_call"),
             "transmitter-import.gr-satellites": (import_grsatellites, "api_call"),
