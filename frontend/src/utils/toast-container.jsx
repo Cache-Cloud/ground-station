@@ -70,7 +70,7 @@ export const ToastContainerWithStyles = () => {
                 .Toastify__toast-container {
                     /* Card geometry: wider and tighter than the react-toastify default. */
                     --toastify-toast-width: 420px;
-                    --toastify-toast-bd-radius: 10px;
+                    --toastify-toast-bd-radius: 5px;
                     --toastify-toast-min-height: 0px;
                     --toastify-toast-padding: 10px 32px 12px 12px;
                     --toastify-color-progress-bgo: ${isDark ? 0.28 : 0.18};
