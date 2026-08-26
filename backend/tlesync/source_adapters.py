@@ -255,7 +255,8 @@ def _build_space_track_norad_query_url(source: Dict[str, Any], norad_ids: List[i
 def _normalize_tle_records(content: str, source: Dict[str, Any]) -> List[Dict[str, Any]]:
     satellites = simple_parse_3le(content)
     source_id = source.get("id")
-    central_body = str(source.get("central_body") or "earth").strip().lower()
+    # Source configuration is Earth-only until non-Earth propagation exists.
+    central_body = "earth"
     normalized: List[Dict[str, Any]] = []
     for satellite in satellites:
         line1 = satellite["line1"].strip()
@@ -282,7 +283,8 @@ def _normalize_tle_records(content: str, source: Dict[str, Any]) -> List[Dict[st
 def _normalize_omm_records(content: str, source: Dict[str, Any]) -> List[Dict[str, Any]]:
     omm_rows = _parse_omm_rows(content)
     source_id = source.get("id")
-    central_body = str(source.get("central_body") or "earth").strip().lower()
+    # Source configuration is Earth-only until non-Earth propagation exists.
+    central_body = "earth"
     normalized: List[Dict[str, Any]] = []
     for row in omm_rows:
         fields = _normalize_omm_fields(row)

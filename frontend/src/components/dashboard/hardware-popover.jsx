@@ -553,17 +553,18 @@ const HardwareSettingsPopover = () => {
                                                 </Typography>
                                             </Box>
                                             {!isRotatorPanel && (
-                                                <Box
-                                                    sx={{
-                                                        mt: 0.25,
-                                                        display: 'grid',
-                                                        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                                                        columnGap: 1.1,
-                                                        rowGap: 0.1,
-                                                        fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                                                        fontFeatureSettings: '"tnum" 1',
-                                                    }}
-                                                >
+                                                <>
+                                                    <Box
+                                                        sx={{
+                                                            mt: 0.25,
+                                                            display: 'grid',
+                                                            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                                                            columnGap: 1.1,
+                                                            rowGap: 0.1,
+                                                            fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                                                            fontFeatureSettings: '"tnum" 1',
+                                                        }}
+                                                    >
                                                     <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', alignItems: 'baseline', columnGap: 0.6, minWidth: 0 }}>
                                                         <Typography component="span" variant="caption" color="text.secondary" sx={{ fontSize: '12px', lineHeight: 1.3, whiteSpace: 'nowrap' }}>
                                                             VFO 1 Frequency
@@ -616,7 +617,17 @@ const HardwareSettingsPopover = () => {
                                                             {rigDownlinkObserved}
                                                         </Typography>
                                                     </Box>
-                                                </Box>
+                                                    </Box>
+                                                    {row.rigData?.orbit_compatibility_notice && (
+                                                        <Typography
+                                                            variant="caption"
+                                                            color="warning.main"
+                                                            sx={{ display: 'block', mt: 0.5, lineHeight: 1.35 }}
+                                                        >
+                                                            {row.rigData.orbit_compatibility_notice}
+                                                        </Typography>
+                                                    )}
+                                                </>
                                             )}
                                         </Box>
                                     )}

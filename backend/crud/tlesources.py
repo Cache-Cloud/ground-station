@@ -20,6 +20,7 @@ import string
 import traceback
 import uuid
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,13 +35,17 @@ from db.models import (
     Satellites,
     Transmitters,
 )
-from tlesync.celestrak import is_celestrak_url, validate_celestrak_source
+from tlesync.celestrak import (
+    build_celestrak_gp_url,
+    celestrak_group_from_url,
+    is_celestrak_url,
+    validate_celestrak_source,
+)
 from tlesync.sourcestate import clear_source_suspension
 
-SUPPORTED_CENTRAL_BODIES = {"earth", "moon", "mars"}
 SUPPORTED_AUTH_TYPES = {"none", "basic", "token"}
 SUPPORTED_QUERY_MODES = {"url"}
-LEGACY_PROVIDER_ALIASES = {"celestrak": "generic_http"}
+LEGACY_PROVIDER_ALIASES: Dict[str, str] = {}
 SPACE_TRACK_GP_BASE_URL = "https://www.space-track.org/basicspacedata/query/class/gp"
 
 
@@ -78,6 +83,8 @@ def _coerce_optional_uuid(value: Any) -> Optional[uuid.UUID]:
 
 def _infer_provider(url: Optional[str]) -> str:
     lowered = (url or "").lower()
+    if is_celestrak_url(url):
+        return "celestrak"
     if "space-track" in lowered:
         return "space_track"
     return "generic_http"
@@ -141,6 +148,34 @@ def _normalize_source_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     normalized["format"] = source_format.lower()
 
     normalized["provider"] = _normalize_provider(normalized.get("provider"), normalized["url"])
+
+    # CelesTrak is intentionally a constrained source type. The UI sends a
+    # group selection; the server is still authoritative and builds the URL so
+    # API callers cannot bypass the GP/CSV contract with a hand-written URL.
+    if normalized["provider"] == "celestrak":
+        selected_group = _clean_optional_text(normalized.pop("celestrak_group", None))
+        if selected_group is None:
+            selected_group = celestrak_group_from_url(normalized["url"] or "")
+            existing_query = parse_qs(urlparse(normalized["url"] or "").query)
+            if existing_query.get("FORMAT", [""])[0].lower() != "csv":
+                raise ValueError("CelesTrak sources must request FORMAT=CSV")
+        if selected_group is None:
+            raise ValueError("CelesTrak sources require a supported source group")
+        normalized["url"] = build_celestrak_gp_url(selected_group)
+        normalized["format"] = "omm"
+        normalized["adapter"] = "http_omm"
+    elif is_celestrak_url(normalized["url"]):
+        # Convert known canonical legacy URLs during their next edit. Unknown
+        # historical CelesTrak URLs were disabled by the remediation migration
+        # and must be recreated through the constrained source type.
+        selected_group = celestrak_group_from_url(normalized["url"])
+        if selected_group is None:
+            raise ValueError("CelesTrak sources require a supported source group")
+        normalized["provider"] = "celestrak"
+        normalized["url"] = build_celestrak_gp_url(selected_group)
+        normalized["format"] = "omm"
+        normalized["adapter"] = "http_omm"
+
     query_mode = (_clean_optional_text(normalized.get("query_mode")) or "url").lower()
     if query_mode == "group_norad":
         query_mode = "url"
@@ -157,6 +192,10 @@ def _normalize_source_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     normalized["adapter"] = adapter.lower()
 
+    if normalized["provider"] == "celestrak":
+        normalized["format"] = "omm"
+        normalized["adapter"] = "http_omm"
+
     if is_celestrak_url(normalized["url"]):
         # CelesTrak is intentionally handled as a stricter subset of generic
         # HTTP sources. Other providers may continue to offer 3LE feeds.
@@ -172,12 +211,9 @@ def _normalize_source_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         normalized["priority"] = 100
 
-    central_body = (_clean_optional_text(normalized.get("central_body")) or "earth").lower()
-    if central_body not in SUPPORTED_CENTRAL_BODIES:
-        raise ValueError(
-            f"Invalid central_body '{central_body}'. Expected one of: {sorted(SUPPORTED_CENTRAL_BODIES)}"
-        )
-    normalized["central_body"] = central_body
+    # Non-Earth orbit propagation is not implemented. Keep this fixed even
+    # for API callers so a source cannot be saved in an unusable state.
+    normalized["central_body"] = "earth"
 
     auth_type = (_clean_optional_text(normalized.get("auth_type")) or "none").lower()
     if auth_type not in SUPPORTED_AUTH_TYPES:

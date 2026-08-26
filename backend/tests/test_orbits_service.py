@@ -100,6 +100,24 @@ def test_omm_propagation_handles_six_digit_catalogue_number_without_tle():
     assert skyfield_satellite.model.satnum == 100000
 
 
+def test_six_digit_omm_ephemeris_payload_keeps_canonical_data_without_tle():
+    """Tracker/API consumers receive OMM data instead of a lossy TLE export."""
+    omm_row = {
+        "norad_id": 100000,
+        "name": "New catalogue object",
+        "orbit_format": "omm",
+        "orbit_payload": {**OMM_PAYLOAD, "NORAD_CAT_ID": "100000", "OBJECT_ID": "2025-001A"},
+    }
+
+    payload = build_satellite_ephemeris_payload(omm_row, central_body=CentralBody.EARTH)
+
+    assert payload["norad_id"] == 100000
+    assert payload["tle1"] is None
+    assert payload["tle2"] is None
+    assert payload["model_kind"] == "omm"
+    assert payload["omm_payload"]["NORAD_CAT_ID"] == "100000"
+
+
 def test_get_propagation_input_rejects_missing_tle_lines():
     invalid_row = {"norad_id": 25544, "name": "ISS", "orbit_format": "tle"}
 

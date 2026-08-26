@@ -25,6 +25,7 @@ from common.logger import logger
 from db import AsyncSessionLocal
 from db.models import OrbitalSources
 from tasks.registry import get_task
+from tlesync.celestrak import build_celestrak_gp_url
 
 # Orbital sync is now handled by background task manager
 # from tlesync.logic import synchronize_satellite_data
@@ -96,22 +97,22 @@ async def first_time_initialization():
             default_sources = [
                 (
                     "Cubesats",
-                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=cubesat&FORMAT=CSV",
+                    build_celestrak_gp_url("cubesat"),
                     "omm",
                 ),
                 (
                     "Amateur",
-                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=CSV",
+                    build_celestrak_gp_url("amateur"),
                     "omm",
                 ),
                 (
                     "Space stations",
-                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV",
+                    build_celestrak_gp_url("stations"),
                     "omm",
                 ),
                 (
                     "Weather",
-                    "https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=CSV",
+                    build_celestrak_gp_url("weather"),
                     "omm",
                 ),
                 (
@@ -125,11 +126,17 @@ async def first_time_initialization():
                 # Seed directly via ORM (without CRUD normalization), so keep adapter
                 # aligned with source format for tlesync adapter dispatch.
                 source_adapter = "http_omm" if source_format == "omm" else "http_3le"
+                source_provider = (
+                    "celestrak"
+                    if source_url.startswith("https://celestrak.org/")
+                    else "generic_http"
+                )
                 source = OrbitalSources(
                     name=source_name,
                     identifier=generate_identifier(),
                     url=source_url,
                     format=source_format,
+                    provider=source_provider,
                     adapter=source_adapter,
                 )
                 session.add(source)

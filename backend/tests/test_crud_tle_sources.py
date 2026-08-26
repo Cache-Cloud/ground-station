@@ -321,21 +321,26 @@ class TestTLESourcesCRUD:
         assert result["data"]["username"] == "test-user"
         assert result["data"]["password"] == "test-pass"
 
-    async def test_add_tle_source_maps_legacy_celestrak_provider(self, db_session):
-        """Test legacy celestrak provider aliases to generic_http."""
+    async def test_add_celestrak_source_builds_canonical_group_url(self, db_session):
+        """CelesTrak group selection owns its canonical GP/CSV URL."""
         result = await add_satellite_tle_source(
             db_session,
             {
-                "name": "Legacy CelesTrak",
-                "url": "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV",
+                "name": "CelesTrak Stations",
                 "provider": "celestrak",
-                "format": "omm",
+                "celestrak_group": "stations",
+                "central_body": "mars",
             },
         )
 
         assert result["success"] is True
-        assert result["data"]["provider"] == "generic_http"
+        assert result["data"]["provider"] == "celestrak"
         assert result["data"]["adapter"] == "http_omm"
+        assert result["data"]["format"] == "omm"
+        assert result["data"]["central_body"] == "earth"
+        assert result["data"]["url"] == (
+            "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV"
+        )
 
     async def test_add_celestrak_tle_source_is_rejected(self, db_session):
         """CelesTrak may not be configured with its retired TLE transport."""

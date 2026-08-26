@@ -40,7 +40,7 @@ const defaultTLESource = {
 
 const normalizeProvider = (provider) => {
     const normalized = String(provider ?? defaultTLESource.provider).toLowerCase();
-    return normalized === 'celestrak' ? 'generic_http' : normalized;
+    return normalized;
 };
 
 const normalizeTLESourceRecord = (source) => ({

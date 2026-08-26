@@ -10,7 +10,48 @@ requests, and continued requests after failure.
 The implementation must comply with the [CelesTrak usage policy](https://celestrak.org/usage-policy.php)
 and [GP data query documentation](https://celestrak.org/NORAD/documentation/gp-data-formats.php).
 
-## Current implementation status (2026-08-25)
+## Remediation summary
+
+Ground Station has completed the following remediation work after the April
+2026 firewall incident:
+
+- Historical Ground Station CelesTrak feeds are migrated to canonical
+  `https://celestrak.org/NORAD/elements/gp.php?GROUP=...&FORMAT=CSV` URLs.
+  Unsafe or unknown legacy CelesTrak feeds are disabled for user review.
+- New CelesTrak sources use a guided group selector. The server builds the
+  canonical GP/CSV URL and rejects hand-written CelesTrak queries.
+- Every CelesTrak request uses one helper with redirects disabled. Only HTTP
+  200 is accepted; any other response records its status and response summary,
+  suspends the source, and stops later CelesTrak requests in that sync run.
+- Successful CelesTrak sources use the persisted two-hour refresh interval,
+  including manual synchronization and restarts.
+- GP/CSV records are stored as canonical OMM. TLE is retained only as a
+  compatibility cache where the catalogue number can be represented safely.
+
+## OMM and TLE compatibility boundary
+
+Ground Station stores GP data as canonical OMM. Backend Earth position and pass
+prediction build SGP4/Skyfield state directly from that payload, including
+six-digit NORAD catalogue numbers. Orbital sources are fixed to Earth until
+Moon and Mars propagation paths are implemented.
+
+TLE is retained only as a derived compatibility cache for catalogue numbers up
+to 99999. A six-digit catalogue number must not be truncated to fit the
+five-character TLE field.
+
+The following integrations remain TLE-only:
+
+- Hardware Doppler and automatic rig-frequency control. When an OMM-only
+  object is selected, Ground Station continues position/rotator tracking but
+  does not calculate or issue TLE-based rig Doppler corrections.
+- SatDump's local `--tle_override` cache. OMM-only objects are deliberately
+  omitted from that cache; SatDump processing for them requires a downstream
+  OMM-capable integration.
+
+No Alpha-5 representation is emitted. It can be introduced only after every
+consumer that receives exported TLE lines explicitly supports Alpha-5.
+
+## Current implementation status (2026-08-26)
 
 - [x] Migrate known historical CelesTrak defaults to canonical GP/CSV URLs;
   disable unknown historical CelesTrak URLs for explicit user review.
@@ -24,13 +65,13 @@ and [GP data query documentation](https://celestrak.org/NORAD/documentation/gp-d
   even when its next request is deferred by the two-hour interval.
 - [x] Refresh the Sources UI after every terminal sync outcome, including a
   failed or partially completed synchronization.
-- [ ] Add the remaining automated migration, circuit-breaker, HTTP-status, and
-  six-digit runtime-boundary regression coverage listed below before release.
+- [x] Add automated migration, circuit-breaker, HTTP-status, and six-digit
+  runtime-boundary regression coverage.
 
 ## Required behavior
 
 - [x] Send CelesTrak requests only to `https://celestrak.org`.
-- [ ] Build GP requests from documented queries and current documented group
+- [x] Build GP requests from documented queries and current documented group
   names. Do not use legacy static `.txt` feeds.
 - [x] Request GP data explicitly as `FORMAT=CSV`. CelesTrak's GP documentation
   lists CSV as a supported format and its usage policy directs clients to move
@@ -118,7 +159,7 @@ releases.
 
 ### 4. New defaults use `FORMAT=omm`, not a documented format value
 
-Status: complete (2026-08-25)
+Status: complete (2026-08-26)
 
 The default source URLs in `backend/server/firsttime.py` use `FORMAT=omm`.
 CelesTrak currently responds with CSV because CSV is the default, but `OMM` is
@@ -126,16 +167,16 @@ the data model rather than a documented GP `FORMAT` value. The source metadata
 also calls this `format=omm`, obscuring the actual wire format.
 
 - [x] Change default CelesTrak URLs to explicit `FORMAT=CSV`.
-- [ ] Model CSV as a supported source transport format, or clearly name the
+- [x] Model CSV as a supported source transport format, or clearly name the
   existing adapter as an OMM-compatible CSV parser.
 - [ ] Keep XML and JSON parsing only where a configured provider explicitly
   returns those documented formats.
-- [ ] Update source-editor labels, help text, and tests so users do not select
+- [x] Update source-editor labels, help text, and tests so users do not select
   undocumented CelesTrak query formats.
 
 ### 5. The runtime still requires TLE compatibility data
 
-Status: in progress (2026-08-25)
+Status: complete (2026-08-26)
 
 The initial GP/OMM parser converted every record back to TLE, and the OMM
 propagator required those generated lines. This fails for catalogue IDs above
@@ -152,18 +193,18 @@ propagator required those generated lines. This fails for catalogue IDs above
   payload in the orbit service.
 - [x] Move tracker details, map position/path, and pass prediction to the orbit
   service's OMM-capable Skyfield construction path.
-- [ ] Move or explicitly preserve the remaining TLE-only boundaries: hardware
+- [x] Move or explicitly preserve the remaining TLE-only boundaries: hardware
   Doppler/rig control and any export or downstream integration that still
   requires TLE-compatible lines.
-- [ ] Retain derived TLE/Alpha-5 only where a downstream dependency explicitly
+- [x] Retain derived TLE/Alpha-5 only where a downstream dependency explicitly
   supports it, and document that compatibility boundary.
-- [ ] Add six-digit NORAD fixtures to API, tracking, and export paths.
+- [x] Add six-digit NORAD fixtures to API, tracking, and export paths.
 - [x] Add six-digit NORAD fixtures to GP import, canonical storage, and the
   orbit-service propagation boundary.
 
 ### 6. Rate limiting and source selection need policy controls
 
-Status: partially complete (2026-08-25)
+Status: partially complete (2026-08-26)
 
 The scheduled sync is every 24 hours, which is within CelesTrak's two-hour GP
 update cadence. Manual sync has no persistent rate limit, however, and the
@@ -173,7 +214,7 @@ source editor accepts arbitrary HTTP(S) URLs.
   an in-memory lock.
 - [ ] Prevent the first startup sync and a manual sync from issuing duplicate
   requests for the same query.
-- [ ] Add a dedicated CelesTrak source type with a URL builder and allowlisted
+- [x] Add a dedicated CelesTrak source type with a URL builder and allowlisted
   current groups instead of accepting arbitrary CelesTrak URLs as generic HTTP
   sources.
 - [x] Keep a generic HTTP source type for non-CelesTrak providers.
@@ -194,5 +235,5 @@ source editor accepts arbitrary HTTP(S) URLs.
   request inside the two-hour interval.
 - [x] Verify a clean installation uses only canonical, documented CelesTrak
   GP/CSV URLs.
-- [ ] Prepare a short remediation summary for CelesTrak describing the URL
+- [x] Prepare a short remediation summary for CelesTrak describing the URL
   migration, exact-200 handling, immediate stop behavior, and two-hour limit.

@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
-from urllib.parse import parse_qs, urlparse
+from typing import Any, Dict, Optional
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
 CELESTRAK_HOST = "celestrak.org"
-CELESTRAK_GP_PATH = "/norad/elements/gp.php"
+CELESTRAK_GP_PATH = "/NORAD/elements/gp.php"
 CELESTRAK_CSV_FORMAT = "csv"
 CELESTRAK_REQUEST_TIMEOUT_SECONDS = 20
 CELESTRAK_RATE_LIMIT_SECONDS = 2 * 60 * 60
 MAX_ERROR_RESPONSE_CHARS = 500
+
+# Keep the selectable catalogue deliberately small and tied to the feeds Ground
+# Station maintains. New CelesTrak sources are built from these values rather
+# than accepting a hand-written provider URL.
+CELESTRAK_GROUPS = {
+    "amateur": "Amateur radio",
+    "cubesat": "CubeSats",
+    "gnss": "GNSS",
+    "iridium-next": "Iridium NEXT",
+    "orbcomm": "ORBCOMM",
+    "stations": "Space stations",
+    "weather": "Weather",
+}
 
 
 class CelestrakRequestError(requests.RequestException):
@@ -39,20 +52,47 @@ def is_celestrak_url(url: Any) -> bool:
     }
 
 
+def build_celestrak_gp_url(group: str) -> str:
+    """Build the one canonical GP/CSV endpoint for an allowed source group."""
+    normalized_group = str(group or "").strip().lower()
+    if normalized_group not in CELESTRAK_GROUPS:
+        raise ValueError(
+            "Choose a supported CelesTrak group: " + ", ".join(sorted(CELESTRAK_GROUPS))
+        )
+    return f"https://{CELESTRAK_HOST}{CELESTRAK_GP_PATH}?" + urlencode(
+        {"GROUP": normalized_group, "FORMAT": "CSV"}
+    )
+
+
+def celestrak_group_from_url(url: str) -> Optional[str]:
+    """Return the allowlisted group encoded by a canonical CelesTrak URL."""
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    group = query.get("GROUP", [""])[0].strip().lower()
+    if group in CELESTRAK_GROUPS:
+        return group
+    return None
+
+
 def validate_celestrak_source(url: str, source_format: str, adapter: str) -> None:
     """Reject CelesTrak source settings that violate the documented GP contract."""
     parsed = urlparse(url)
     hostname = (parsed.hostname or "").lower()
     if parsed.scheme != "https" or hostname != CELESTRAK_HOST:
         raise ValueError("CelesTrak sources must use https://celestrak.org")
-    if parsed.path.lower() != CELESTRAK_GP_PATH:
+    if parsed.path.lower() != CELESTRAK_GP_PATH.lower():
         raise ValueError("CelesTrak sources must use the documented GP gp.php endpoint")
 
     query = parse_qs(parsed.query, keep_blank_values=True)
-    if not {"GROUP", "CATNR", "INTDES", "NAME", "SPECIAL"}.intersection(query):
-        raise ValueError("CelesTrak GP sources require a documented query selector")
+    group = celestrak_group_from_url(url)
+    if group is None:
+        raise ValueError(
+            "CelesTrak sources must use a supported group selected in the source editor"
+        )
     if query.get("FORMAT", [""])[0].lower() != CELESTRAK_CSV_FORMAT:
         raise ValueError("CelesTrak sources must request FORMAT=CSV")
+    if url != build_celestrak_gp_url(group):
+        raise ValueError("CelesTrak sources must use the canonical GP/CSV URL")
     if source_format.lower() != "omm" or adapter.lower() != "http_omm":
         raise ValueError("CelesTrak CSV sources must use the OMM-compatible parser")
 

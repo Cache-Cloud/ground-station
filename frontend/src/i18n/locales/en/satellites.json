@@ -76,14 +76,20 @@
     "url": "URL",
     "provider": "Provider",
     "providers": {
+      "celestrak": "CelesTrak",
       "generic_http": "Generic HTTP",
       "space_track": "Space-Track"
     },
+    "provider_option_celestrak": "CelesTrak (guided GP/CSV feeds)",
     "provider_option_generic_http": "Generic HTTP (Curated Lists)",
     "provider_option_space_track": "Space-Track (Self-Curated Lists)",
     "adapter": "Adapter",
     "format": "Format",
     "format_hint": "Controls how orbital records from this source are parsed.",
+    "celestrak_group": "CelesTrak group",
+    "select_celestrak_group": "Select a CelesTrak group",
+    "celestrak_group_hint": "Ground Station builds the canonical CelesTrak GP/CSV URL for this group.",
+    "celestrak_transport_hint": "Transport: CelesTrak GP/CSV. Records are stored as canonical OMM and parsed by the OMM-compatible CSV adapter.",
     "sync_status": "Sync Status",
     "sync_status_attention": "Attention required",
     "sync_status_disabled": "Disabled",
@@ -130,6 +136,7 @@
     "password": "Password / Token",
     "advanced_settings": "Advanced settings",
     "default_names": {
+      "celestrak": "CelesTrak Source",
       "generic_http": "Generic HTTP Source",
       "space_track_norad": "Space-Track - NORAD IDs",
       "space_track_group": "Space-Track - {{group}}",
@@ -166,6 +173,7 @@
       "space_track_auth": "space_track_gp adapter requires auth type = basic",
       "space_track_creds": "space_track_gp adapter requires username and password",
       "norad_ids_required": "At least one NORAD ID is required",
+      "celestrak_group_required": "Choose a supported CelesTrak group",
       "group_required": "Group is required",
       "user_group_required": "Select a user-defined group",
       "space_track_query_filter_required": "Custom Space-Track queries must include a filter such as NORAD_CAT_ID. Use Satellite Group for curated groups."

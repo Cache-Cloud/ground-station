@@ -119,7 +119,7 @@ def test_celestrak_migration_converts_known_sources_and_suspends_unknown_ones(
     finally:
         connection.close()
 
-    command.upgrade(alembic_config, "d3e8a2c4b6f1")
+    command.upgrade(alembic_config, "head")
 
     connection = sqlite3.connect(db_path)
     try:
@@ -148,7 +148,7 @@ def test_celestrak_migration_converts_known_sources_and_suspends_unknown_ones(
     for source_name, expected_url in expected_urls.items():
         url, provider, source_format, adapter, enabled = rows[source_ids[source_name]]
         assert url == expected_url
-        assert provider == "generic_http"
+        assert provider == "celestrak"
         assert source_format == "omm"
         assert adapter == "http_omm"
         assert enabled == 1

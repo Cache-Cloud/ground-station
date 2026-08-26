@@ -847,6 +847,17 @@ class SatelliteTracker:
                 satellite_name = target_context["target_name"]
                 skypoint = target_context["skypoint"]
 
+                if target_type == "satellite" and not satellite_tles:
+                    # Six-digit OMM records propagate normally, but the rig
+                    # Doppler APIs consume a TLE pair. Publish the boundary so
+                    # clients do not mistake missing corrections for a fault.
+                    self.rig_data["orbit_compatibility_notice"] = (
+                        "Hardware Doppler and rig control require TLE-compatible orbit lines; "
+                        "this OMM-only object will not receive rig corrections."
+                    )
+                else:
+                    self.rig_data.pop("orbit_compatibility_notice", None)
+
                 # Update current state variables
                 self.current_target_type = target_type
                 self.current_norad_id = (

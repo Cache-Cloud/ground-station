@@ -97,6 +97,30 @@ def _build_tle_file_from_ground_station_db(db_path: Path, output_path: Path) -> 
     return inserted
 
 
+def _count_omm_only_satellites(db_path: Path) -> int:
+    """Count records SatDump cannot receive through its TLE-only override."""
+    if not db_path.exists():
+        return 0
+    try:
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM satellites
+            WHERE tle1 IS NULL OR tle1 = '' OR tle2 IS NULL OR tle2 = ''
+            """
+        )
+        return int(cursor.fetchone()[0])
+    except Exception:
+        return 0
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def _prepare_satdump_tle_cache(backend_dir: Path, progress_queue: Optional[Queue] = None) -> Path:
     """
     Prepare a local SatDump-compatible TLE file for --tle_override.
@@ -151,6 +175,18 @@ def _prepare_satdump_tle_cache(backend_dir: Path, progress_queue: Optional[Queue
                         "type": "output",
                         "output": f"Built SatDump TLE cache from database ({count} entries)",
                         "stream": "stdout",
+                    }
+                )
+            omitted = _count_omm_only_satellites(db_path)
+            if omitted and progress_queue:
+                progress_queue.put(
+                    {
+                        "type": "output",
+                        "output": (
+                            f"Notice: {omitted} OMM-only satellite(s) were omitted from the "
+                            "SatDump TLE cache because SatDump receives TLE-compatible lines only."
+                        ),
+                        "stream": "stderr",
                     }
                 )
 

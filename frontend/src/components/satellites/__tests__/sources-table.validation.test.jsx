@@ -60,11 +60,11 @@ describe('sources-table form helpers', () => {
         expect(presentation.label).toBe('orbital_sources.sync_status_not_synced');
     });
 
-    it('normalizes legacy provider in form values', () => {
+    it('preserves the dedicated CelesTrak provider in form values', () => {
         const formValues = toFormValues({
             id: 'source-1',
             name: 'Legacy OMM',
-            url: 'https://example.com/omm.json',
+            url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV',
             format: 'omm',
             query_mode: 'url',
             provider: 'celestrak',
@@ -73,7 +73,8 @@ describe('sources-table form helpers', () => {
         });
 
         expect(formValues.id).toBe('source-1');
-        expect(formValues.provider).toBe('generic_http');
+        expect(formValues.provider).toBe('celestrak');
+        expect(formValues.celestrak_group).toBe('stations');
         expect(formValues.query_mode).toBe('url');
         expect(formValues.norad_ids).toBe('25544, 43017');
     });
@@ -87,12 +88,13 @@ describe('sources-table form helpers', () => {
         expect(formValues.norad_ids).toBe('25544,43017 57172');
     });
 
-    it('normalizes legacy celestrak provider and stale space-track adapter values', () => {
+    it('builds the canonical URL for a selected CelesTrak group', () => {
         const {errors, payload} = validateSourceForm(
             {
                 id: null,
                 name: 'Legacy OMM',
-                url: 'https://example.com/omm.json',
+                url: 'https://example.com/ignored',
+                celestrak_group: 'stations',
                 format: 'omm',
                 query_mode: 'url',
                 group_id: 'ignored',
@@ -113,8 +115,9 @@ describe('sources-table form helpers', () => {
         expect(payload.query_mode).toBe('url');
         expect(payload.group_id).toBeNull();
         expect(payload.norad_ids).toBeNull();
-        expect(payload.provider).toBe('generic_http');
+        expect(payload.provider).toBe('celestrak');
         expect(payload.adapter).toBe('http_omm');
+        expect(payload.url).toBe('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=CSV');
     });
 
     it('builds normalized payload for valid basic auth source', () => {

@@ -64,13 +64,24 @@ import SynchronizeOrbitalDataCard from "./synchronize-orbital-data-card.jsx";
 import {toRowSelectionModel, toSelectedIds} from '../../utils/datagrid-selection.js';
 import { AntTab, AntTabs } from '../common/common.jsx';
 
-const PROVIDER_OPTIONS = ['generic_http', 'space_track'];
+const PROVIDER_OPTIONS = ['celestrak', 'generic_http', 'space_track'];
 const ADAPTER_OPTIONS = ['http_3le', 'http_omm', 'space_track_gp'];
 const FORMAT_OPTIONS = ['3le', 'omm'];
-const CENTRAL_BODY_OPTIONS = ['earth', 'moon', 'mars'];
 const AUTH_TYPE_OPTIONS = ['none', 'basic', 'token'];
 const SPACE_TRACK_GP_BASE_URL = 'https://www.space-track.org/basicspacedata/query/class/gp';
 const CELESTRAK_SYNC_INTERVAL_MS = 2 * 60 * 60 * 1000;
+const CELESTRAK_GROUP_OPTIONS = [
+    ['amateur', 'Amateur radio'],
+    ['cubesat', 'CubeSats'],
+    ['gnss', 'GNSS'],
+    ['iridium-next', 'Iridium NEXT'],
+    ['orbcomm', 'ORBCOMM'],
+    ['stations', 'Space stations'],
+    ['weather', 'Weather'],
+];
+
+const buildCelestrakUrl = (group) =>
+    `https://celestrak.org/NORAD/elements/gp.php?GROUP=${encodeURIComponent(group)}&FORMAT=CSV`;
 
 const isCelestrakSource = (url) => {
     try {
@@ -78,6 +89,15 @@ const isCelestrakSource = (url) => {
             .includes(new URL(url).hostname.toLowerCase());
     } catch {
         return false;
+    }
+};
+
+const getCelestrakGroupFromUrl = (url) => {
+    try {
+        const group = new URL(url).searchParams.get('GROUP')?.toLowerCase();
+        return CELESTRAK_GROUP_OPTIONS.some(([value]) => value === group) ? group : '';
+    } catch {
+        return '';
     }
 };
 
@@ -165,13 +185,14 @@ const getOrbitalSourcesTabsSx = (theme) => {
     };
 };
 
-const normalizeProvider = (provider) => {
+const normalizeProvider = (provider, url = '') => {
     const normalized = String(provider || 'generic_http').toLowerCase();
-    return normalized === 'celestrak' ? 'generic_http' : normalized;
+    // Present canonical legacy CelesTrak URLs as the constrained source type.
+    return normalized === 'celestrak' || isCelestrakSource(url) ? 'celestrak' : normalized;
 };
 
-const getProviderLabel = (provider, t) => {
-    const normalizedProvider = normalizeProvider(provider);
+const getProviderLabel = (provider, t, url = '') => {
+    const normalizedProvider = normalizeProvider(provider, url);
     return t(`orbital_sources.providers.${normalizedProvider}`, {defaultValue: normalizedProvider});
 };
 
@@ -183,7 +204,12 @@ const getProviderOptionLabel = (provider, t) => {
 };
 
 const buildSuggestedSourceName = (formValues, t) => {
-    const provider = normalizeProvider(formValues.provider);
+    const provider = normalizeProvider(formValues.provider, formValues.url);
+    if (provider === 'celestrak') {
+        return t('orbital_sources.default_names.celestrak', {
+            defaultValue: 'CelesTrak Source',
+        });
+    }
     if (provider === 'space_track') {
         return t('orbital_sources.default_names.space_track_norad', {
             defaultValue: 'Space-Track - NORAD IDs',
@@ -248,6 +274,7 @@ const defaultFormValues = {
     id: null,
     name: '',
     url: '',
+    celestrak_group: 'stations',
     format: '3le',
     query_mode: 'url',
     group_id: '',
@@ -272,16 +299,18 @@ export function toFormValues(source) {
         name: source.name ?? '',
         url: source.url ?? '',
         format: String(source.format ?? defaultFormValues.format).toLowerCase(),
+        celestrak_group: getCelestrakGroupFromUrl(source.url),
         query_mode: String(source.query_mode ?? defaultFormValues.query_mode).toLowerCase(),
         group_id: source.group_id ?? '',
         norad_ids: Array.isArray(source.norad_ids)
             ? source.norad_ids.join(', ')
             : (typeof source.norad_ids === 'string' ? source.norad_ids : ''),
-        provider: normalizeProvider(source.provider ?? defaultFormValues.provider),
+        provider: normalizeProvider(source.provider ?? defaultFormValues.provider, source.url),
         adapter: String(source.adapter ?? defaultFormValues.adapter).toLowerCase(),
         enabled: source.enabled === undefined ? true : Boolean(source.enabled),
         priority: String(source.priority ?? '100'),
-        central_body: String(source.central_body ?? defaultFormValues.central_body).toLowerCase(),
+        // Orbital sources are Earth-only until a non-Earth propagation path exists.
+        central_body: 'earth',
         auth_type: String(source.auth_type ?? defaultFormValues.auth_type).toLowerCase(),
         username: source.username ?? '',
         password: source.password ?? '',
@@ -291,17 +320,23 @@ export function toFormValues(source) {
 export function validateSourceForm(formValues, t) {
     const errors = {};
 
-    const provider = normalizeProvider(String(formValues.provider || '').trim().toLowerCase());
+    const provider = normalizeProvider(String(formValues.provider || '').trim().toLowerCase(), formValues.url);
     const format = String(formValues.format || '').trim().toLowerCase();
     const queryMode = 'url';
     const name = String(formValues.name || '').trim();
     const rawUrl = String(formValues.url || '').trim();
-    const url = provider === 'space_track' ? SPACE_TRACK_GP_BASE_URL : rawUrl;
+    const celestrakGroup = String(formValues.celestrak_group || '').trim().toLowerCase();
+    const isAllowedCelestrakGroup = CELESTRAK_GROUP_OPTIONS.some(([value]) => value === celestrakGroup);
+    const url = provider === 'space_track'
+        ? SPACE_TRACK_GP_BASE_URL
+        : provider === 'celestrak' && isAllowedCelestrakGroup
+            ? buildCelestrakUrl(celestrakGroup)
+            : rawUrl;
     const requestedAdapter = String(formValues.adapter || '').trim().toLowerCase();
     const adapter = provider === 'space_track' || requestedAdapter === 'space_track_gp'
         ? getAdapterForProviderAndFormat(provider, format)
         : requestedAdapter || getAdapterForProviderAndFormat(provider, format);
-    const centralBody = String(formValues.central_body || '').trim().toLowerCase();
+    const centralBody = 'earth';
     const authType = provider === 'space_track'
         ? 'basic'
         : String(formValues.auth_type || '').trim().toLowerCase();
@@ -314,7 +349,9 @@ export function validateSourceForm(formValues, t) {
         errors.name = t('orbital_sources.validation.required');
     }
 
-    if (provider !== 'space_track' && !url) {
+    if (provider === 'celestrak' && !isAllowedCelestrakGroup) {
+        errors.celestrak_group = t('orbital_sources.validation.celestrak_group_required');
+    } else if (provider !== 'space_track' && !url) {
         errors.url = t('orbital_sources.validation.required');
     } else if (provider !== 'space_track') {
         try {
@@ -335,9 +372,6 @@ export function validateSourceForm(formValues, t) {
     }
     if (!FORMAT_OPTIONS.includes(format)) {
         errors.format = t('orbital_sources.validation.invalid_option');
-    }
-    if (!CENTRAL_BODY_OPTIONS.includes(centralBody)) {
-        errors.central_body = t('orbital_sources.validation.invalid_option');
     }
     if (!AUTH_TYPE_OPTIONS.includes(authType)) {
         errors.auth_type = t('orbital_sources.validation.invalid_option');
@@ -364,6 +398,10 @@ export function validateSourceForm(formValues, t) {
         errors.norad_ids = t('orbital_sources.validation.norad_ids_required');
     }
 
+    if (provider === 'celestrak' && (format !== 'omm' || adapter !== 'http_omm')) {
+        errors.format = t('orbital_sources.validation.invalid_option');
+    }
+
     if (adapter === 'space_track_gp') {
         if (provider !== 'space_track') {
             errors.provider = t('orbital_sources.validation.space_track_provider');
@@ -383,6 +421,7 @@ export function validateSourceForm(formValues, t) {
             id: formValues.id ?? null,
             name,
             url,
+            celestrak_group: provider === 'celestrak' ? celestrakGroup : null,
             format,
             query_mode: queryMode,
             group_id: null,
@@ -423,7 +462,7 @@ export default function SourcesTable() {
             field: 'provider',
             headerName: t('orbital_sources.provider'),
             width: 150,
-            renderCell: (params) => getProviderLabel(params.value, t),
+            renderCell: (params) => getProviderLabel(params.value, t, params.row.url),
         },
         {field: 'format', headerName: t('orbital_sources.format'), width: 90},
         {
@@ -550,6 +589,17 @@ export default function SourcesTable() {
             nextValues.auth_type = 'basic';
             nextValues.url = SPACE_TRACK_GP_BASE_URL;
         }
+        if (name === 'provider' && value === 'celestrak') {
+            const group = nextValues.celestrak_group || defaultFormValues.celestrak_group;
+            nextValues.celestrak_group = group;
+            nextValues.url = buildCelestrakUrl(group);
+            nextValues.format = 'omm';
+            nextValues.adapter = 'http_omm';
+            nextValues.auth_type = 'none';
+            nextValues.username = '';
+            nextValues.password = '';
+            nextValues.norad_ids = '';
+        }
         if (name === 'provider' && value !== 'space_track') {
             nextValues.query_mode = 'url';
             nextValues.auth_type = 'none';
@@ -563,6 +613,11 @@ export default function SourcesTable() {
         }
         if (name === 'format' && nextValues.provider !== 'space_track') {
             nextValues.adapter = getAdapterForProviderAndFormat(nextValues.provider, value);
+        }
+        if (name === 'celestrak_group' && nextValues.provider === 'celestrak') {
+            nextValues.url = buildCelestrakUrl(value);
+            nextValues.format = 'omm';
+            nextValues.adapter = 'http_omm';
         }
         // Keep Space-Track defaults coherent when selecting the dedicated adapter.
         if (name === 'adapter' && value === 'space_track_gp') {
@@ -628,6 +683,7 @@ export default function SourcesTable() {
 
     const normalizedFormValues = toFormValues(formValues);
     const isSpaceTrackSource = normalizedFormValues.provider === 'space_track';
+    const isCelestrakConfiguredSource = normalizedFormValues.provider === 'celestrak';
     const validationResult = validateSourceForm(normalizedFormValues, t);
     const validationErrors = validationResult.errors;
     const hasValidationErrors = Object.keys(validationErrors).length > 0;
@@ -1009,7 +1065,7 @@ export default function SourcesTable() {
                                 </Typography>
                             </Box>
 
-                            {!isSpaceTrackSource && (
+                            {!isSpaceTrackSource && !isCelestrakConfiguredSource && (
                                 <TextField
                                     label={t('orbital_sources.url')}
                                     name="url"
@@ -1020,6 +1076,32 @@ export default function SourcesTable() {
                                     error={Boolean(validationErrors.url)}
                                     helperText={validationErrors.url || ' '}
                                 />
+                            )}
+
+                            {isCelestrakConfiguredSource && (
+                                <FormControl fullWidth size="small" error={Boolean(validationErrors.celestrak_group)}>
+                                    <InputLabel id="celestrak-group-label">
+                                        {t('orbital_sources.celestrak_group')}
+                                    </InputLabel>
+                                    <Select
+                                        label={t('orbital_sources.celestrak_group')}
+                                        name="celestrak_group"
+                                        value={normalizedFormValues.celestrak_group}
+                                        onChange={handleInputChange}
+                                        size="small"
+                                    >
+                                        <MenuItem value="" disabled>
+                                            {t('orbital_sources.select_celestrak_group')}
+                                        </MenuItem>
+                                        {CELESTRAK_GROUP_OPTIONS.map(([value, label]) => (
+                                            <MenuItem key={value} value={value}>{label}</MenuItem>
+                                        ))}
+                                    </Select>
+                                    <FormHelperText>
+                                        {validationErrors.celestrak_group
+                                            || t('orbital_sources.celestrak_group_hint')}
+                                    </FormHelperText>
+                                </FormControl>
                             )}
 
                             {isSpaceTrackSource && (
@@ -1038,7 +1120,7 @@ export default function SourcesTable() {
                                 />
                             )}
 
-                            {!isSpaceTrackSource && (
+                            {!isSpaceTrackSource && !isCelestrakConfiguredSource && (
                                 <FormControl fullWidth size="small" error={Boolean(validationErrors.format)}>
                                     <InputLabel id="format-label">{t('orbital_sources.format')}</InputLabel>
                                     <Select
@@ -1059,6 +1141,21 @@ export default function SourcesTable() {
                                     )}
                                     <FormHelperText>{t('orbital_sources.format_hint')}</FormHelperText>
                                 </FormControl>
+                            )}
+
+                            {isCelestrakConfiguredSource && (
+                                <Box
+                                    sx={(theme) => ({
+                                        px: 1.25,
+                                        py: 1,
+                                        borderRadius: 1,
+                                        bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.14 : 0.06),
+                                    })}
+                                >
+                                    <Typography variant="caption" color="text.secondary">
+                                        {t('orbital_sources.celestrak_transport_hint')}
+                                    </Typography>
+                                </Box>
                             )}
 
                             {isSpaceTrackSource && (
@@ -1149,26 +1246,7 @@ export default function SourcesTable() {
                                                 <FormHelperText>{t('orbital_sources.format_hint')}</FormHelperText>
                                             </FormControl>
                                         )}
-                                        <FormControl fullWidth size="small" error={Boolean(validationErrors.central_body)}>
-                                            <InputLabel id="central-body-label">{t('orbital_sources.central_body')}</InputLabel>
-                                            <Select
-                                                label={t('orbital_sources.central_body')}
-                                                name="central_body"
-                                                value={normalizedFormValues.central_body}
-                                                onChange={handleInputChange}
-                                                size="small"
-                                            >
-                                                {CENTRAL_BODY_OPTIONS.map((body) => (
-                                                    <MenuItem key={body} value={body}>
-                                                        {body}
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                            {validationErrors.central_body && (
-                                                <FormHelperText>{validationErrors.central_body}</FormHelperText>
-                                            )}
-                                        </FormControl>
-                                        {!isSpaceTrackSource && (
+                                        {!isSpaceTrackSource && !isCelestrakConfiguredSource && (
                                             <FormControl fullWidth size="small" error={Boolean(validationErrors.auth_type)}>
                                                 <InputLabel id="auth-type-label">{t('orbital_sources.auth_type')}</InputLabel>
                                                 <Select
@@ -1189,7 +1267,7 @@ export default function SourcesTable() {
                                                 )}
                                             </FormControl>
                                         )}
-                                        {!isSpaceTrackSource && normalizedFormValues.auth_type !== 'none' && (
+                                        {!isSpaceTrackSource && !isCelestrakConfiguredSource && normalizedFormValues.auth_type !== 'none' && (
                                             <>
                                                 <TextField
                                                     label={t('orbital_sources.username')}
