@@ -53,9 +53,9 @@ from tracker.messages import handle_tracker_messages
 
 # Increase payload limits to handle large waterfall PNG images and maintenance uploads.
 Payload.max_decode_packets = 50
-# Keep comfortably above the user-facing 300MB restore limit so JSON/Socket.IO escaping
+# Keep comfortably above the user-facing 1GB restore limit so JSON/Socket.IO escaping
 # overhead does not reject requests near the configured cap.
-SOCKET_IO_MAX_PAYLOAD_BYTES = 384 * 1024 * 1024  # 384MB
+SOCKET_IO_MAX_PAYLOAD_BYTES = 1280 * 1024 * 1024  # 1.25GB
 # Large setup restore payloads can keep a request in-flight for a while; allow longer
 # heartbeat windows so transport is not dropped mid-restore.
 SOCKET_IO_PING_INTERVAL_SECONDS = 25

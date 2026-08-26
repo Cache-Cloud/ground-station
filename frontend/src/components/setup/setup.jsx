@@ -91,7 +91,7 @@ const normalizeChecklistStep = (stepValue) => {
     };
 };
 
-const FULL_RESTORE_MAX_FILE_SIZE_BYTES = 300 * 1024 * 1024;
+const FULL_RESTORE_MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
 const FULL_RESTORE_MAX_FILE_SIZE_MB = FULL_RESTORE_MAX_FILE_SIZE_BYTES / (1024 * 1024);
 
 const SetupWizard = ({
