@@ -505,9 +505,11 @@ function FileTableRow({ item, selectionMode, isSelected, onToggleSelection, onSh
         <TableRow
             hover
             selected={isSelected}
-            onClick={() => selectionMode ? onToggleSelection(item) : null}
+            // In normal mode, a row is the same entry point as its Details action.
+            // Selection mode deliberately retains row-click selection instead.
+            onClick={() => selectionMode ? onToggleSelection(item) : onShowDetails(item)}
             sx={{
-                cursor: selectionMode ? 'pointer' : 'default',
+                cursor: 'pointer',
                 ...(item.recording_in_progress && {
                     backgroundColor: 'rgba(211, 47, 47, 0.08)',
                 }),
