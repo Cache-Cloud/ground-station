@@ -31,7 +31,7 @@ const openSetupWizard = async (page) => {
 
   const setupDialog = getSetupDialog(page);
   await expect(setupDialog).toBeVisible({ timeout: 20000 });
-  await expect(setupDialog.getByRole('heading', { name: /restore existing backup/i })).toBeVisible();
+  await expect(setupDialog.getByRole('heading', { name: /create administrator account/i })).toBeVisible();
   return setupDialog;
 };
 
@@ -48,17 +48,8 @@ const fillCoordinatesInWizard = async (page, setupDialog) => {
   await expect(coordinatesDialog).toBeHidden({ timeout: 10000 });
 };
 
-const advanceToAdminStep = async (setupDialog) => {
-  const nextButton = setupDialog.getByRole('button', { name: /^next$/i });
-  await expect(nextButton).toBeEnabled();
-  await nextButton.click();
-  await expect(setupDialog.getByRole('heading', { name: /create administrator account/i })).toBeVisible();
-};
-
 const advanceToReviewStep = async (page, setupDialog, { username, password }) => {
   const nextButton = setupDialog.getByRole('button', { name: /^next$/i });
-
-  await advanceToAdminStep(setupDialog);
 
   await setupDialog.getByLabel(/^username\b/i).fill(username);
   await setupDialog.getByLabel(/^password\b/i).fill(password);
@@ -153,8 +144,6 @@ test.describe('Setup Wizard', () => {
     await expect(setupDialog.getByText(/^location$/i).first()).toBeVisible();
     await expect(setupDialog.getByText(/^review$/i).first()).toBeVisible();
     await expect(setupDialog.getByText(/finalize setup/i).first()).toBeVisible();
-
-    await advanceToAdminStep(setupDialog);
 
     const nextButton = setupDialog.getByRole('button', { name: /^next$/i });
     await nextButton.click();

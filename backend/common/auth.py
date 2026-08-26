@@ -56,7 +56,6 @@ logger = logging.getLogger(__name__)
 setup_allowed_commands = {
     "get-locations",
     # Setup mode exposes only setup-scoped commands until the first admin exists.
-    "setup.restore",
     "setup.finalize",
     "setup.status",
 }

@@ -151,7 +151,6 @@ def test_operator_cannot_run_admin_only_commands():
 
 def test_setup_mode_only_allows_setup_scoped_commands():
     assert auth.is_command_allowed_during_setup("get-locations") is True
-    assert auth.is_command_allowed_during_setup("setup.restore") is True
     assert auth.is_command_allowed_during_setup("setup.finalize") is True
     assert auth.is_command_allowed_during_setup("setup.status") is True
 
@@ -159,6 +158,7 @@ def test_setup_mode_only_allows_setup_scoped_commands():
     assert auth.is_command_allowed_during_setup("background-task.list") is False
     assert auth.is_command_allowed_during_setup("sync-satellite-data") is False
     assert auth.is_command_allowed_during_setup("database-backup.full_restore") is False
+    assert auth.is_command_allowed_during_setup("setup.restore") is False
 
 
 def test_extract_session_cookie_token_from_cookie_header():

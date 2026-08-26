@@ -364,35 +364,10 @@ async def setup_status(sio: Any, data: Optional[Dict], logger: Any, sid: str) ->
     return {"success": True, "data": _finalize_state_snapshot()}
 
 
-async def setup_restore(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Dict[str, Any]:
-    setup_required = await authsvc.is_setup_required(force_refresh=True)
-    if not setup_required:
-        return {"success": False, "error": "Setup already completed."}
-
-    payload = data or {}
-    sql = str(payload.get("sql") or "")
-    if not sql.strip():
-        return {"success": False, "error": "Missing sql parameter"}
-
-    return cast(
-        Dict[str, Any],
-        await control.backup_full_restore(
-            sio,
-            {
-                "sql": sql,
-                "drop_tables": bool(payload.get("drop_tables", True)),
-            },
-            logger,
-            sid,
-        ),
-    )
-
-
 def register_handlers(registry: Any) -> None:
     registry.register_batch(
         {
             "setup.finalize": (setup_finalize, "api_call"),
             "setup.status": (setup_status, "api_call"),
-            "setup.restore": (setup_restore, "api_call"),
         }
     )

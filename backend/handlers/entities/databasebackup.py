@@ -19,7 +19,8 @@ import json
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 from sqlalchemy import text
 
@@ -141,6 +142,86 @@ def _parse_full_restore_sql(sql: str) -> Dict[str, Any]:
         "alembic_create": alembic_create,
         "alembic_inserts": alembic_inserts,
     }
+
+
+def _classify_full_restore_statement(statement: str) -> tuple[Optional[str], str]:
+    """Return the permitted restore statement type, discarding SQL dump comments."""
+    clean_statement = (
+        "\n".join(line for line in statement.split("\n") if not line.strip().startswith("--"))
+        .strip()
+        .lstrip("\ufeff")
+    )
+    statement_upper = clean_statement.upper()
+
+    if statement_upper.startswith("CREATE TABLE"):
+        return (
+            "alembic_create" if "ALEMBIC_VERSION" in statement_upper else "create",
+            clean_statement,
+        )
+    if statement_upper.startswith("CREATE INDEX") or statement_upper.startswith(
+        "CREATE UNIQUE INDEX"
+    ):
+        return "index", clean_statement
+    if statement_upper.startswith("INSERT INTO"):
+        return (
+            "alembic_insert" if "ALEMBIC_VERSION" in statement_upper else "insert",
+            clean_statement,
+        )
+    return None, clean_statement
+
+
+async def _iter_full_restore_file_statements(sql_path: Path) -> AsyncIterator[str]:
+    """Stream SQL statements from a backup file without loading the full file into memory."""
+    statement_parts: List[str] = []
+    in_single_quote = False
+
+    with sql_path.open("r", encoding="utf-8", errors="replace") as backup_file:
+        while chunk := await asyncio.to_thread(backup_file.read, 1024 * 1024):
+            index = 0
+            while index < len(chunk):
+                char = chunk[index]
+
+                if char == "'":
+                    # SQLite escapes quotes in string literals with a doubled quote.
+                    if in_single_quote and index + 1 < len(chunk) and chunk[index + 1] == "'":
+                        statement_parts.append("''")
+                        index += 2
+                        continue
+                    in_single_quote = not in_single_quote
+                elif char == ";" and not in_single_quote:
+                    statement = "".join(statement_parts).strip()
+                    if statement:
+                        yield statement
+                    statement_parts = []
+                    index += 1
+                    continue
+
+                statement_parts.append(char)
+                index += 1
+
+    trailing_statement = "".join(statement_parts).strip()
+    if trailing_statement:
+        yield trailing_statement
+
+
+async def _validate_full_restore_file(sql_path: Path) -> None:
+    """Preflight a streamed restore before it is allowed to replace existing data."""
+    create_count = 0
+    valid_count = 0
+    async for statement in _iter_full_restore_file_statements(sql_path):
+        statement_type, _clean_statement = _classify_full_restore_statement(statement)
+        if statement_type is None:
+            continue
+        valid_count += 1
+        if statement_type in {"create", "alembic_create"}:
+            create_count += 1
+
+    if create_count == 0:
+        raise ValueError("No CREATE TABLE statements found in backup file")
+    if valid_count == 0:
+        raise ValueError(
+            "No valid CREATE TABLE/INDEX or INSERT INTO statements found in backup file"
+        )
 
 
 def _normalize_optional_json(value):
@@ -587,6 +668,102 @@ async def full_restore(sql: str, drop_tables: bool = True) -> Dict[str, Any]:
                     pass
                 raise e
 
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+async def full_restore_file(sql_path: Path, drop_tables: bool = True) -> Dict[str, Any]:
+    """Restore a full SQL backup from disk without materializing the entire file in memory."""
+    try:
+        # Validate the complete file before any existing tables are dropped. This preserves the
+        # old restore safety property while keeping only one SQL statement in memory at a time.
+        await _validate_full_restore_file(sql_path)
+
+        async with AsyncSessionLocal() as session:
+            try:
+                await session.execute(text("PRAGMA foreign_keys = OFF"))
+
+                if drop_tables:
+                    result = await session.execute(
+                        text(
+                            "SELECT name FROM sqlite_master WHERE type='table' "
+                            "AND name NOT LIKE 'sqlite_%'"
+                        )
+                    )
+                    existing_tables = [row[0] for row in result.fetchall()]
+                    for table_name in reversed(existing_tables):
+                        try:
+                            await session.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+                        except Exception:
+                            # Continue attempting the remaining drops so a valid backup can
+                            # recover databases with partially broken schemas.
+                            pass
+                    await session.commit()
+
+                tables_created = 0
+                indexes_created = 0
+                rows_inserted = 0
+                schema_committed = False
+                index_statements: List[str] = []
+                alembic_create: Optional[str] = None
+                alembic_inserts: List[str] = []
+
+                async for raw_statement in _iter_full_restore_file_statements(sql_path):
+                    statement_type, statement = _classify_full_restore_statement(raw_statement)
+                    if statement_type == "create":
+                        await (await session.connection()).exec_driver_sql(statement)
+                        tables_created += 1
+                    elif statement_type == "index":
+                        # Indexes are deliberately created after inserts for restore speed.
+                        index_statements.append(statement)
+                    elif statement_type == "insert":
+                        if not schema_committed:
+                            await session.commit()
+                            schema_committed = True
+                        await (await session.connection()).exec_driver_sql(statement)
+                        rows_inserted += 1
+                    elif statement_type == "alembic_create":
+                        alembic_create = statement
+                    elif statement_type == "alembic_insert":
+                        alembic_inserts.append(statement)
+
+                if not schema_committed:
+                    await session.commit()
+
+                # Keep migration metadata last so an interrupted restore cannot claim a schema
+                # revision that has not been completely recreated.
+                if alembic_create:
+                    await (await session.connection()).exec_driver_sql(alembic_create)
+                    tables_created += 1
+                    await session.commit()
+
+                for statement in alembic_inserts:
+                    await (await session.connection()).exec_driver_sql(statement)
+                    rows_inserted += 1
+
+                for statement in index_statements:
+                    await (await session.connection()).exec_driver_sql(statement)
+                    indexes_created += 1
+
+                normalized_rows = await _normalize_transmitters_itu_notification(session)
+                await session.execute(text("PRAGMA foreign_keys = ON"))
+                await session.commit()
+
+                return {
+                    "success": True,
+                    "tables_created": tables_created,
+                    "indexes_created": indexes_created,
+                    "rows_inserted": rows_inserted,
+                    "rows_normalized": normalized_rows,
+                }
+            except Exception:
+                await session.rollback()
+                try:
+                    await session.execute(text("PRAGMA foreign_keys = ON"))
+                    await session.commit()
+                except Exception:
+                    pass
+                raise
     except Exception as e:
         return {"success": False, "error": str(e)}
 

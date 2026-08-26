@@ -21,6 +21,7 @@ import asyncio
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional, cast
 from uuid import UUID
 
@@ -28,7 +29,7 @@ from db import AsyncSessionLocal
 from handlers.entities.databasebackup import (
     backup_table,
     full_backup,
-    full_restore,
+    full_restore_file,
     list_tables,
     restore_table,
 )
@@ -286,20 +287,14 @@ async def cancel_full_backup(
     return {"success": True, "operation_id": operation_id, "cancelling": True}
 
 
-async def backup_full_restore(
-    sio: Any, data: Optional[Dict], logger: Any, sid: str
+async def restore_full_backup_file(
+    sio: Any, sql_path: Path, drop_tables: bool, logger: Any
 ) -> Dict[str, Any]:
-    """Restore full database from SQL script."""
-    del sid
-    payload = data or {}
-    sql = payload.get("sql")
-    drop_tables = payload.get("drop_tables", True)
-    if not sql:
-        return {"success": False, "error": "Missing sql parameter"}
+    """Restore a server-side upload after stopping conflicting orbital sync work."""
     stop_reply = await _stop_orbital_sync_before_restore(sio, logger)
     if not stop_reply.get("success"):
         return _typed_reply(stop_reply)
-    return _typed_reply(await full_restore(sql, drop_tables))
+    return _typed_reply(await full_restore_file(sql_path, drop_tables))
 
 
 async def import_satdump(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Dict[str, Any]:
@@ -420,7 +415,6 @@ def register_handlers(registry):
             "database-backup.restore_table": (backup_table_restore, "api_call"),
             "database-backup.full_backup": (backup_full_dump, "api_call"),
             "database-backup.cancel_full_backup": (cancel_full_backup, "api_call"),
-            "database-backup.full_restore": (backup_full_restore, "api_call"),
             "transmitter-import.satdump": (import_satdump, "api_call"),
             "transmitter-import.gr-satellites": (import_grsatellites, "api_call"),
             "background-task.start": (background_task_start, "api_call"),

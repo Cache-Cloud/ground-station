@@ -25,6 +25,7 @@ from common.logger import logger
 from db import AsyncSessionLocal, engine
 from db.migrations import run_migrations
 from db.models import Locations
+from handlers.entities.control import restore_full_backup_file
 from observations import events as obs_events
 from observations.bundle import prune_finalized_empty_observation_bundles
 from observations.events import emit_scheduled_observations_changed as _emit
@@ -53,15 +54,16 @@ from tracker.messages import handle_tracker_messages
 
 # Increase payload limits to handle large waterfall PNG images and maintenance uploads.
 Payload.max_decode_packets = 50
-# Keep comfortably above the user-facing 1GB restore limit so JSON/Socket.IO escaping
-# overhead does not reject requests near the configured cap.
-SOCKET_IO_MAX_PAYLOAD_BYTES = 1280 * 1024 * 1024  # 1.25GB
-# Large setup restore payloads can keep a request in-flight for a while; allow longer
-# heartbeat windows so transport is not dropped mid-restore.
+# Socket.IO is not used for full database restore uploads. Keep a bounded limit for
+# realtime traffic such as waterfall images and smaller maintenance messages.
+SOCKET_IO_MAX_PAYLOAD_BYTES = 384 * 1024 * 1024  # 384MB
+# Long-running maintenance requests can keep a socket in-flight; allow longer heartbeat
+# windows for the separate full-backup download operation.
 SOCKET_IO_PING_INTERVAL_SECONDS = 25
 SOCKET_IO_PING_TIMEOUT_SECONDS = 120
-# Default is 100KB (100000 bytes), increase for large backup restore payloads.
+# Default is 100KB (100000 bytes), increase for large realtime payloads.
 Payload.max_decode_packet_size = SOCKET_IO_MAX_PAYLOAD_BYTES
+FULL_RESTORE_MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024  # 1GB
 AUTH_COOKIE_MAX_AGE_DEFAULT_SECONDS = 15 * 24 * 60 * 60
 AUTH_COOKIE_MAX_AGE_KEEP_ACTIVE_SECONDS = 365 * 24 * 60 * 60
 
@@ -604,6 +606,59 @@ async def auth_delete_user(user_id: str, request: Request):
             status_code=400, detail=str(result.get("error") or "Failed to delete user.")
         )
     return result
+
+
+@app.post("/api/database/restore")
+async def restore_database_backup(request: Request):
+    """Restore an admin-uploaded SQL backup without placing it in browser or Socket.IO memory."""
+    await _require_request_auth(request, require_auth=True, require_admin=True)
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            declared_size = int(content_length)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid backup upload size.") from exc
+        if declared_size > FULL_RESTORE_MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413, detail="Backup file exceeds the 1GB restore limit."
+            )
+
+    drop_tables = str(request.query_params.get("drop_tables", "true")).lower() not in {
+        "0",
+        "false",
+        "no",
+    }
+    temp_file = tempfile.NamedTemporaryFile(prefix="gs-restore-", suffix=".sql", delete=False)
+    temp_path = Path(temp_file.name)
+    bytes_received = 0
+
+    try:
+        async for chunk in request.stream():
+            bytes_received += len(chunk)
+            if bytes_received > FULL_RESTORE_MAX_FILE_SIZE_BYTES:
+                raise HTTPException(
+                    status_code=413, detail="Backup file exceeds the 1GB restore limit."
+                )
+            await asyncio.to_thread(temp_file.write, chunk)
+        await asyncio.to_thread(temp_file.close)
+
+        if bytes_received == 0:
+            raise HTTPException(status_code=400, detail="Backup file is empty.")
+
+        restore_reply = await restore_full_backup_file(sio, temp_path, drop_tables, logger)
+        if not restore_reply.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=str(restore_reply.get("error") or "Failed to restore database backup."),
+            )
+        return restore_reply
+    finally:
+        if not temp_file.closed:
+            temp_file.close()
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Failed to remove temporary database restore upload: %s", temp_path)
 
 
 # Mount data directories for recordings, snapshots, decoded data (SSTV, AFSK, Morse, etc.), and audio

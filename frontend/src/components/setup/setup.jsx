@@ -20,12 +20,9 @@
 import React from 'react';
 import {
     Alert,
-    Backdrop,
     Box,
     Button,
-    Checkbox,
     CircularProgress,
-    FormControlLabel,
     Stack,
     Step,
     StepLabel,
@@ -46,12 +43,11 @@ import { loginUser } from '../auth/auth-slice.jsx';
 import { useSocket } from '../common/socket.jsx';
 import { SettingsActionFooter, SettingsSection } from '../settings/shared/index.js';
 
-const WIZARD_STEP_RESTORE = 0;
-const WIZARD_STEP_IDENTITY = 1;
-const WIZARD_STEP_COORDINATES = 2;
-const WIZARD_STEP_REVIEW = 3;
-const WIZARD_STEP_ADMIN = 4;
-const WIZARD_STEP_FINALIZE = 5;
+const WIZARD_STEP_IDENTITY = 0;
+const WIZARD_STEP_COORDINATES = 1;
+const WIZARD_STEP_REVIEW = 2;
+const WIZARD_STEP_ADMIN = 3;
+const WIZARD_STEP_FINALIZE = 4;
 
 const CALL_STATUS_IDLE = 'idle';
 const CALL_STATUS_PENDING = 'pending';
@@ -91,9 +87,6 @@ const normalizeChecklistStep = (stepValue) => {
     };
 };
 
-const FULL_RESTORE_MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
-const FULL_RESTORE_MAX_FILE_SIZE_MB = FULL_RESTORE_MAX_FILE_SIZE_BYTES / (1024 * 1024);
-
 const SetupWizard = ({
     wizardBackendReady = true,
     wizardRequireAdminSetup = false,
@@ -119,12 +112,9 @@ const SetupWizard = ({
     );
     const { loadingAction: authLoadingAction, error: authError } = useSelector((state) => state.auth);
 
-    const [wizardStep, setWizardStep] = React.useState(WIZARD_STEP_RESTORE);
-    const [wizardRestoreFile, setWizardRestoreFile] = React.useState(null);
-    const [wizardRestoreDropTables, setWizardRestoreDropTables] = React.useState(true);
-    const [wizardRestoreLoading, setWizardRestoreLoading] = React.useState(false);
-    const [wizardRestoreFileInputKey, setWizardRestoreFileInputKey] = React.useState(0);
-    const [showRestoreReloadBackdrop, setShowRestoreReloadBackdrop] = React.useState(false);
+    const [wizardStep, setWizardStep] = React.useState(
+        wizardRequireAdminSetup ? WIZARD_STEP_ADMIN : WIZARD_STEP_IDENTITY
+    );
     const [adminUsername, setAdminUsername] = React.useState('');
     const [adminPassword, setAdminPassword] = React.useState('');
     const [adminConfirmPassword, setAdminConfirmPassword] = React.useState('');
@@ -144,9 +134,6 @@ const SetupWizard = ({
 
     const wizardStepLabels = React.useMemo(
         () => ({
-            [WIZARD_STEP_RESTORE]: t('location.wizard_step_restore', {
-                defaultValue: 'Restore Backup (Optional)',
-            }),
             [WIZARD_STEP_ADMIN]: t('location.wizard_step_admin', { defaultValue: 'Create Admin User' }),
             [WIZARD_STEP_IDENTITY]: t('location.wizard_step_identity', {
                 defaultValue: 'Station Identity',
@@ -165,7 +152,6 @@ const SetupWizard = ({
         () =>
             showWizardAdminStep
                 ? [
-                      WIZARD_STEP_RESTORE,
                       WIZARD_STEP_ADMIN,
                       WIZARD_STEP_IDENTITY,
                       WIZARD_STEP_COORDINATES,
@@ -173,7 +159,6 @@ const SetupWizard = ({
                       WIZARD_STEP_FINALIZE,
                   ]
                 : [
-                      WIZARD_STEP_RESTORE,
                       WIZARD_STEP_IDENTITY,
                       WIZARD_STEP_COORDINATES,
                       WIZARD_STEP_REVIEW,
@@ -217,17 +202,6 @@ const SetupWizard = ({
         },
         [socket]
     );
-
-    const didSetupFinishAfterRestoreDisconnect = React.useCallback(async () => {
-        try {
-            const response = await fetch('/api/auth/status');
-            if (!response.ok) return false;
-            const payload = await response.json();
-            return payload?.setup_required === false;
-        } catch {
-            return false;
-        }
-    }, []);
 
     const applySetupStatus = React.useCallback((statusPayload) => {
         if (!statusPayload || typeof statusPayload !== 'object') return;
@@ -547,8 +521,6 @@ const SetupWizard = ({
     };
 
     const handleWizardBack = () => {
-        if (wizardStep === WIZARD_STEP_RESTORE) return;
-
         const previousStep = wizardStepOrder[wizardCurrentOrderIndex - 1];
         if (previousStep == null) return;
         setWizardStep(previousStep);
@@ -640,158 +612,6 @@ const SetupWizard = ({
             setAdminLocalError(String(error || 'Failed to sign in.'));
         }
     };
-
-    const handleWizardRestoreFileSelect = (event) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        if (file.size > FULL_RESTORE_MAX_FILE_SIZE_BYTES) {
-            toast.error(
-                t('location.wizard_restore_file_too_large', {
-                    defaultValue: `Selected file exceeds ${FULL_RESTORE_MAX_FILE_SIZE_MB} MB limit. Please choose a smaller backup file.`,
-                })
-            );
-            setWizardRestoreFile(null);
-            setWizardRestoreFileInputKey((current) => current + 1);
-            return;
-        }
-
-        setWizardRestoreFile(file);
-    };
-
-    const handleWizardRestoreDatabase = async () => {
-        if (!wizardBackendReady || !socket || !wizardRestoreFile) return;
-
-        if (wizardRestoreFile.size > FULL_RESTORE_MAX_FILE_SIZE_BYTES) {
-            toast.error(
-                t('location.wizard_restore_file_too_large', {
-                    defaultValue: `Selected file exceeds ${FULL_RESTORE_MAX_FILE_SIZE_MB} MB limit. Please choose a smaller backup file.`,
-                })
-            );
-            return;
-        }
-
-        setWizardRestoreLoading(true);
-        try {
-            const sqlContent = await wizardRestoreFile.text();
-            const response = await socket.emitWithAck('api.call', {
-                cmd: 'setup.restore',
-                data: {
-                    sql: sqlContent,
-                    drop_tables: wizardRestoreDropTables,
-                },
-            });
-
-            if (response?.success) {
-                toast.success(
-                    t('location.wizard_restore_success', {
-                        defaultValue: `Backup restored successfully. ${response.tables_created} tables created, ${response.rows_inserted} rows inserted.`,
-                    })
-                );
-                setShowRestoreReloadBackdrop(true);
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
-                return;
-            }
-
-            toast.error(
-                t('location.wizard_restore_failed', {
-                    defaultValue: `Failed to restore database: ${response?.error || 'Unknown error'}`,
-                })
-            );
-        } catch (error) {
-            const restoreError = error?.message || String(error);
-            // Full restore can complete while the setup-mode socket reconnect path drops;
-            // verify setup status before surfacing a hard failure.
-            if (String(restoreError).toLowerCase().includes('socket has been disconnected')) {
-                const setupFinished = await didSetupFinishAfterRestoreDisconnect();
-                if (setupFinished) {
-                    toast.success(
-                        t('location.wizard_restore_success_recovered', {
-                            defaultValue: 'Backup restore completed. Reloading application...',
-                        })
-                    );
-                    setShowRestoreReloadBackdrop(true);
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1000);
-                    return;
-                }
-            }
-            toast.error(
-                t('location.wizard_restore_error', {
-                    defaultValue: `Error restoring database: ${restoreError}`,
-                })
-            );
-        } finally {
-            setWizardRestoreLoading(false);
-        }
-    };
-
-    const wizardRestoreSection = (
-        <SettingsSection
-            title={t('location.wizard_restore_title', { defaultValue: 'Restore Existing Backup (Optional)' })}
-            description={t('location.wizard_restore_help', {
-                defaultValue: 'If you already have a Ground Station backup, restore it now before continuing setup.',
-            })}
-            sx={sectionSx}
-        >
-            <Stack spacing={2}>
-                <Alert severity="warning">
-                    {t('location.wizard_restore_warning', {
-                        defaultValue: 'This replaces database content with the selected backup file.',
-                    })}
-                </Alert>
-                <Alert severity="info">
-                    {t('location.wizard_restore_file_requirements', {
-                        defaultValue: `Use a full SQL backup that includes schema and data. Maximum size: ${FULL_RESTORE_MAX_FILE_SIZE_MB} MB.`,
-                    })}
-                </Alert>
-                <FormControlLabel
-                    control={
-                        <Checkbox
-                            checked={wizardRestoreDropTables}
-                            onChange={(event) => setWizardRestoreDropTables(event.target.checked)}
-                            disabled={wizardRestoreLoading}
-                        />
-                    }
-                    label={t('location.wizard_restore_drop_tables', {
-                        defaultValue: 'Drop existing tables before restore (recommended)',
-                    })}
-                />
-                <Button variant="outlined" component="label" disabled={wizardRestoreLoading} fullWidth>
-                    {t('location.wizard_restore_select_file', { defaultValue: 'Select Full Backup SQL File' })}
-                    <input
-                        key={wizardRestoreFileInputKey}
-                        type="file"
-                        hidden
-                        accept=".sql"
-                        onChange={handleWizardRestoreFileSelect}
-                    />
-                </Button>
-                {wizardRestoreFile && (
-                    <Typography variant="body2" color="text.secondary">
-                        {t('location.wizard_restore_selected_file', {
-                            defaultValue: `Selected: ${wizardRestoreFile.name}`,
-                        })}
-                    </Typography>
-                )}
-                <Button
-                    variant="contained"
-                    color="warning"
-                    onClick={handleWizardRestoreDatabase}
-                    disabled={!wizardRestoreFile || wizardRestoreLoading || !wizardBackendReady}
-                >
-                    {wizardRestoreLoading ? (
-                        <CircularProgress size={20} color="inherit" />
-                    ) : (
-                        t('location.wizard_restore_button', { defaultValue: 'Restore Backup and Reload' })
-                    )}
-                </Button>
-            </Stack>
-        </SettingsSection>
-    );
 
     const soapyLastUpdateText = React.useMemo(() => {
         if (!soapyRuntimeState.lastUpdate) {
@@ -1357,11 +1177,6 @@ const SetupWizard = ({
     );
 
     const wizardStatusText = (() => {
-        if (wizardStep === WIZARD_STEP_RESTORE) {
-            return t('location.wizard_restore_skip_help', {
-                defaultValue: 'You can skip this step and continue with a fresh setup.',
-            });
-        }
         if (isWizardFinalizeStep) {
             return t('location.setup_finalize_help', {
                 defaultValue: 'Review task status and complete setup.',
@@ -1400,8 +1215,6 @@ const SetupWizard = ({
                 </Box>
 
                 <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-                    {wizardStep === WIZARD_STEP_RESTORE && <Stack spacing={2}>{wizardRestoreSection}</Stack>}
-
                     {wizardStep === WIZARD_STEP_IDENTITY && (
                         <Stack spacing={2}>{stationIdentitySection}</Stack>
                     )}
@@ -1433,9 +1246,8 @@ const SetupWizard = ({
                         variant="outlined"
                         onClick={handleWizardBack}
                         disabled={
-                            wizardStep === WIZARD_STEP_RESTORE ||
+                            wizardCurrentOrderIndex === 0 ||
                             locationSaving ||
-                            wizardRestoreLoading ||
                             authLoadingAction ||
                             wizardFinalizing
                         }
@@ -1445,7 +1257,7 @@ const SetupWizard = ({
                     {isWizardSaveStep ? (
                         <Button
                             variant="contained"
-                            disabled={!canSaveInReviewStep || wizardFinalizing || wizardRestoreLoading}
+                            disabled={!canSaveInReviewStep || wizardFinalizing}
                             aria-label={t('location.save_location')}
                             onClick={handleWizardSave}
                         >
@@ -1476,7 +1288,7 @@ const SetupWizard = ({
                         <Button
                             variant="contained"
                             onClick={handleWizardNext}
-                            disabled={!canAdvanceWizard || locationSaving || wizardRestoreLoading}
+                            disabled={!canAdvanceWizard || locationSaving}
                         >
                             {t('location.next', { defaultValue: 'Next' })}
                         </Button>
@@ -1484,17 +1296,6 @@ const SetupWizard = ({
                 </SettingsActionFooter>
             </Box>
 
-            <Backdrop
-                sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.drawer + 1 }}
-                open={showRestoreReloadBackdrop}
-            >
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <CircularProgress color="inherit" size={60} />
-                    <Typography variant="h6" sx={{ mt: 2 }}>
-                        {t('location.wizard_restore_reloading', { defaultValue: 'Reloading application...' })}
-                    </Typography>
-                </Box>
-            </Backdrop>
         </>
     );
 };

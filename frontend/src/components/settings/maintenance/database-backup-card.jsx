@@ -49,6 +49,35 @@ import { toast } from '../../../utils/toast-with-timestamp.jsx';
 const FULL_RESTORE_MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
 const FULL_RESTORE_MAX_FILE_SIZE_MB = FULL_RESTORE_MAX_FILE_SIZE_BYTES / (1024 * 1024);
 
+const uploadFullRestore = (file, dropTables, onUploadProgress) => new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', `/api/database/restore?drop_tables=${dropTables}`);
+    request.withCredentials = true;
+    request.setRequestHeader('Content-Type', 'application/sql');
+
+    request.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+            onUploadProgress(Math.round((event.loaded / event.total) * 100));
+        }
+    };
+    request.onerror = () => reject(new Error('Network error while uploading database backup'));
+    request.onload = () => {
+        let response = null;
+        try {
+            response = JSON.parse(request.responseText);
+        } catch {
+            // A reverse proxy may return a non-JSON error page for an interrupted upload.
+        }
+
+        if (request.status >= 200 && request.status < 300 && response?.success) {
+            resolve(response);
+            return;
+        }
+        reject(new Error(response?.detail || response?.error || 'Failed to restore database backup'));
+    };
+    request.send(file);
+});
+
 const DatabaseBackupCard = () => {
     const { socket } = useSocket();
     const [tables, setTables] = useState([]);
@@ -59,6 +88,7 @@ const DatabaseBackupCard = () => {
     const [fullRestoreDialog, setFullRestoreDialog] = useState(false);
     const [fullRestoreFile, setFullRestoreFile] = useState(null);
     const [dropTables, setDropTables] = useState(true);
+    const [fullRestoreProgress, setFullRestoreProgress] = useState(null);
     const [showReloadBackdrop, setShowReloadBackdrop] = useState(false);
     const [fullBackup, setFullBackup] = useState({ isRunning: false, isCancelling: false, progress: null });
     const backupOperationIdRef = useRef(null);
@@ -248,6 +278,7 @@ const DatabaseBackupCard = () => {
         setFullRestoreDialog(true);
         setFullRestoreFile(null);
         setDropTables(true);
+        setFullRestoreProgress(null);
     };
 
     const handleFullRestoreFileSelect = (event) => {
@@ -267,7 +298,7 @@ const DatabaseBackupCard = () => {
     };
 
     const handleFullRestoreConfirm = async () => {
-        if (!socket || !fullRestoreFile) return;
+        if (!fullRestoreFile) return;
 
         if (fullRestoreFile.size > FULL_RESTORE_MAX_FILE_SIZE_BYTES) {
             toast.error(
@@ -277,38 +308,25 @@ const DatabaseBackupCard = () => {
         }
 
         setLoading(true);
+        setFullRestoreProgress(0);
         try {
-            const sqlContent = await fullRestoreFile.text();
+            const response = await uploadFullRestore(fullRestoreFile, dropTables, setFullRestoreProgress);
+            toast.success(
+                `Full database restored successfully!\n${response.tables_created} tables created, ${response.rows_inserted} rows inserted`
+            );
+            setFullRestoreDialog(false);
+            setFullRestoreFile(null);
 
-            const response = await socket.emitWithAck('api.call', {
-                cmd: 'database-backup.full_restore',
-                data: {
-                    action: 'full_restore',
-                    sql: sqlContent,
-                    drop_tables: dropTables
-                }
-            });
-
-            if (response.success) {
-                toast.success(
-                    `Full database restored successfully!\n${response.tables_created} tables created, ${response.rows_inserted} rows inserted`
-                );
-                setFullRestoreDialog(false);
-                setFullRestoreFile(null);
-                setLoading(false);
-
-                // Show backdrop spinner and reload page after 1 second
-                setShowReloadBackdrop(true);
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
-            } else {
-                toast.error(`Failed to restore database: ${response.error}`);
-                setLoading(false);
-            }
+            // A restored database can replace the active account/session; reload to re-authenticate.
+            setShowReloadBackdrop(true);
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
         } catch (error) {
             toast.error(`Error restoring database: ${error.message}`);
+        } finally {
             setLoading(false);
+            setFullRestoreProgress(null);
         }
     };
 
@@ -498,12 +516,13 @@ const DatabaseBackupCard = () => {
             <Dialog open={fullRestoreDialog} onClose={() => setFullRestoreDialog(false)} maxWidth="sm" fullWidth>
                 <DialogTitle>Full Database Restore</DialogTitle>
                 <DialogContent>
-                    <Box sx={{ minWidth: 400 }}>
+                    <Box sx={{ minWidth: 400, pt: 2.5 }}>
                         <Alert severity="error" sx={{ mb: 2 }}>
                             <strong>⚠️ DESTRUCTIVE OPERATION!</strong><br />
                             This will replace your entire database with the backup file.
                             All current data will be lost if "Drop existing tables" is checked.
-                            Make sure you have a recent backup before proceeding!
+                            Make sure you have a recent backup before proceeding! After restoring,
+                            sign in with an administrator account from the restored database.
                         </Alert>
 
                         <Alert severity="info" sx={{ mb: 2 }}>
@@ -556,7 +575,14 @@ const DatabaseBackupCard = () => {
                         color="error"
                         disabled={!fullRestoreFile || loading}
                     >
-                        {loading ? <CircularProgress size={24} /> : 'Restore Full Database'}
+                        {loading ? (
+                            <>
+                                <CircularProgress size={20} sx={{ mr: 1 }} />
+                                {fullRestoreProgress === 100
+                                    ? 'Restoring database...'
+                                    : `Uploading backup... ${fullRestoreProgress ?? 0}%`}
+                            </>
+                        ) : 'Restore Full Database'}
                     </Button>
                 </DialogActions>
             </Dialog>
