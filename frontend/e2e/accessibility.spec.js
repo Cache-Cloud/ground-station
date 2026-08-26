@@ -8,7 +8,9 @@ test.describe('Accessibility - Keyboard Navigation', () => {
   test('should allow tab navigation on home page', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(2000);
+    // The initial Socket.IO payload can take longer than a fixed delay. Keyboard
+    // navigation is only meaningful after the blocking connection overlay ends.
+    await expect(page.getByTestId('connection-overlay')).toBeHidden({ timeout: 30_000 });
 
     let foundVisibleFocus = false;
 

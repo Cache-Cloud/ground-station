@@ -93,6 +93,7 @@ function ConnectionOverlay() {
     return (
         <Backdrop
             open={true}
+            data-testid="connection-overlay"
             sx={{
                 zIndex: (theme) => theme.zIndex.modal + 1,
                 backgroundColor: theme.palette.surface.scrim,
