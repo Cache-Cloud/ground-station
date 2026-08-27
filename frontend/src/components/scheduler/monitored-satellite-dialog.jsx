@@ -2400,7 +2400,7 @@ export default function MonitoredSatelliteDialog() {
                                                                     </FormControl>
                                                                 );
                                                             })()}
-                                                            <FormControl fullWidth size="small" sx={{ mt: 2 }} disabled={isFormDisabled}>
+                                                            <FormControl fullWidth size="small" sx={{ mt: 2 }}>
                                                                 <InputLabel>{t('scheduler_dialogs.shared.iq_storage_format_label')}</InputLabel>
                                                                 <Select
                                                                     value={task.config.storage_format || 'cf32_le'}
