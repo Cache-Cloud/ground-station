@@ -728,6 +728,7 @@ const ObservationFormDialog = () => {
                         auto_fill_target_freq: false,
                         target_center_freq: '',
                         decimation_factor: 1,
+                        storage_format: 'cf32_le',
                         enable_post_processing: false,
                         post_process_pipeline: getDefaultSatdumpPipeline(),
                         delete_after_post_processing: false,
@@ -867,7 +868,8 @@ const ObservationFormDialog = () => {
                     })
                 );
             }
-            const parts = [transmitterName, freqMHz, ...extraInfo, t('scheduler_dialogs.shared.iq_format_sigmf')].filter(Boolean);
+            const storageFormat = task.config.storage_format || 'cf32_le';
+            const parts = [transmitterName, freqMHz, ...extraInfo, `SigMF (${storageFormat})`].filter(Boolean);
             return parts.join(' • ');
         }
         return '';
@@ -2579,6 +2581,26 @@ const ObservationFormDialog = () => {
                                                             </FormControl>
                                                         );
                                                     })()}
+                                                    <FormControl fullWidth size="small" sx={{ mt: 2 }} disabled={isFormDisabled}>
+                                                        <InputLabel>{t('scheduler_dialogs.shared.iq_storage_format_label')}</InputLabel>
+                                                        <Select
+                                                            value={task.config.storage_format || 'cf32_le'}
+                                                            onChange={(e) => handleTaskConfigChange(index, 'storage_format', e.target.value)}
+                                                            label={t('scheduler_dialogs.shared.iq_storage_format_label')}
+                                                        >
+                                                            <MenuItem value="cf32_le">{t('scheduler_dialogs.shared.iq_storage_format_cf32')}</MenuItem>
+                                                            <MenuItem value="ci16_le">{t('scheduler_dialogs.shared.iq_storage_format_ci16')}</MenuItem>
+                                                        </Select>
+                                                        {task.config.storage_format === 'ci16_le' ? (
+                                                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                                                {t('scheduler_dialogs.shared.iq_storage_format_ci16_help')}
+                                                            </Typography>
+                                                        ) : (
+                                                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                                                {t('scheduler_dialogs.shared.iq_storage_format_cf32_help')}
+                                                            </Typography>
+                                                        )}
+                                                    </FormControl>
                                                     <Box sx={{ mt: 2 }}>
                                                         <FormControlLabel
                                                             control={

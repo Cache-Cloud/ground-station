@@ -26,7 +26,7 @@ from common.filenames import (
     resolve_base_path_within_root,
     sanitize_filename_component,
 )
-from demodulators.iqrecorder import IQRecorder
+from demodulators.iqrecorder import SUPPORTED_STORAGE_FORMATS, IQRecorder
 from pipeline.orchestration.processmanager import process_manager
 
 logger = logging.getLogger("recorder")
@@ -38,6 +38,8 @@ def start_recording(
     recording_name: str = "",
     target_satellite_norad_id: str = "",
     target_satellite_name: str = "",
+    decimation_factor: int = 1,
+    storage_format: str = "cf32_le",
 ) -> dict:
     """
     Start IQ recording for a given SDR and client.
@@ -48,6 +50,8 @@ def start_recording(
         recording_name: Optional custom recording name (auto-generated if empty)
         target_satellite_norad_id: Optional target satellite NORAD ID to include in metadata
         target_satellite_name: Optional target satellite name to include in metadata
+        decimation_factor: Integer reduction factor for centered, filtered recording
+        storage_format: SigMF IQ storage datatype
 
     Returns:
         dict: Result with 'success' (bool), 'data' or 'error' fields
@@ -58,6 +62,23 @@ def start_recording(
     # Validate SDR is streaming
     if not process_manager.is_sdr_process_running(sdr_id):
         raise Exception(f"SDR {sdr_id} is not streaming. Start streaming before recording.")
+
+    # The UI offers only factors derived from the active SDR sample rate. Validate
+    # here as well because this Socket.IO endpoint can be called independently.
+    if isinstance(decimation_factor, bool):
+        raise ValueError("Decimation factor must be a positive integer")
+    try:
+        requested_factor = float(decimation_factor)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Decimation factor must be a positive integer") from exc
+    if not requested_factor.is_integer():
+        raise ValueError("Decimation factor must be a positive integer")
+    decimation_factor = int(requested_factor)
+    if decimation_factor < 1 or decimation_factor > 40:
+        raise ValueError("Decimation factor must be between 1 and 40")
+    storage_format = str(storage_format or "cf32_le").lower()
+    if storage_format not in SUPPORTED_STORAGE_FORMATS:
+        raise ValueError(f"Unsupported IQ storage format: {storage_format}")
 
     # Generate timestamp
     now = datetime.now()
@@ -96,6 +117,8 @@ def start_recording(
         recording_path=recording_path,
         target_satellite_norad_id=target_satellite_norad_id,
         target_satellite_name=target_satellite_name,
+        decimation_factor=decimation_factor,
+        storage_format=storage_format,
     )
 
     if result:

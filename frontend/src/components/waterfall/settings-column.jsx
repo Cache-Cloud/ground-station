@@ -70,6 +70,8 @@ import {
     startRecording,
     stopRecording,
     setRecordingName,
+    setRecordingDecimationFactor,
+    setRecordingStorageFormat,
     incrementRecordingDuration,
     setSelectedPlaybackRecording,
     setPlaybackRecordingPath,
@@ -153,6 +155,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         isRecording,
         recordingDuration,
         recordingName,
+        recordingDecimationFactor,
+        recordingStorageFormat,
         selectedPlaybackRecording,
         playbackRecordingPath,
         playbackStartTime,
@@ -201,6 +205,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
             isRecording: state.waterfall.isRecording,
             recordingDuration: state.waterfall.recordingDuration,
             recordingName: state.waterfall.recordingName,
+            recordingDecimationFactor: state.waterfall.recordingDecimationFactor,
+            recordingStorageFormat: state.waterfall.recordingStorageFormat,
             selectedPlaybackRecording: state.waterfall.selectedPlaybackRecording,
             playbackRecordingPath: state.waterfall.playbackRecordingPath,
             playbackStartTime: state.waterfall.playbackStartTime,
@@ -1184,6 +1190,14 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         dispatch(setRecordingName(name));
     }, [dispatch]);
 
+    const handleRecordingDecimationFactorChange = useCallback((factor) => {
+        dispatch(setRecordingDecimationFactor(factor));
+    }, [dispatch]);
+
+    const handleRecordingStorageFormatChange = useCallback((format) => {
+        dispatch(setRecordingStorageFormat(format));
+    }, [dispatch]);
+
     const handleVfoCenterFrequencyChange = useCallback((newFreq) => {
         dispatch(setCenterFrequency(newFreq));
         sendSDRConfigToBackend({centerFrequency: newFreq});
@@ -1230,7 +1244,13 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         // Use custom name if provided, otherwise use state
         const nameToUse = customRecordingName !== undefined ? customRecordingName : recordingName;
 
-        dispatch(startRecording({ socket, recordingName: nameToUse, selectedSDRId }))
+        dispatch(startRecording({
+            socket,
+            recordingName: nameToUse,
+            selectedSDRId,
+            decimationFactor: recordingDecimationFactor,
+            storageFormat: recordingStorageFormat,
+        }))
             .unwrap()
             .catch((error) => {
                 toast.error(`Failed to start recording: ${error}`);
@@ -1563,6 +1583,11 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     recordingDuration={recordingDuration}
                     recordingName={recordingName}
                     onRecordingNameChange={handleRecordingNameChange}
+                    sampleRate={sampleRate}
+                    decimationFactor={recordingDecimationFactor}
+                    onDecimationFactorChange={handleRecordingDecimationFactorChange}
+                    storageFormat={recordingStorageFormat}
+                    onStorageFormatChange={handleRecordingStorageFormatChange}
                     onStartRecording={handleStartRecording}
                     onStopRecording={handleStopRecording}
                     isStreaming={isStreaming}

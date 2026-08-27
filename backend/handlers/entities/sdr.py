@@ -596,6 +596,8 @@ async def sdr_command_routing(
                 recording_name = data.get("recordingName", "")
                 target_satellite_norad_id = data.get("targetSatelliteNoradId", "")
                 target_satellite_name = data.get("targetSatelliteName", "")
+                decimation_factor = data.get("decimationFactor", 1)
+                storage_format = data.get("storageFormat", "cf32_le")
 
                 result = start_recording(
                     sdr_id,
@@ -603,6 +605,8 @@ async def sdr_command_routing(
                     recording_name,
                     target_satellite_norad_id,
                     target_satellite_name,
+                    decimation_factor,
+                    storage_format,
                 )
                 reply.update(result)
 

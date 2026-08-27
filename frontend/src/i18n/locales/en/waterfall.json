@@ -145,6 +145,18 @@
   "recording": {
     "title": "IQ Recording",
     "filename": "Recording Name",
+    "sampleRate": "Recorded Sample Rate",
+    "fullBandwidth": "Full bandwidth ({{rate}})",
+    "centeredBandwidthHelp": "Records the centered portion of the SDR spectrum. Center the signal before recording.",
+    "fullBandwidthHelp": "Records the full SDR spectrum.",
+    "storageFormat": "IQ Storage Format",
+    "storageFormatFloat": "32-bit float IQ (cf32_le)",
+    "storageFormatFloatHelp": "Lossless, full-precision IQ. Uses twice the disk space of ci16_le.",
+    "storageFormatInt16": "16-bit signed IQ (ci16_le)",
+    "storageFormatInt16Help": "50% smaller. Lossy only if exceptionally strong samples clip.",
+    "statusRecording": "Recording",
+    "statusReady": "Not recording",
+    "statusAriaLabel": "IQ recording {{status}}, {{rate}}",
     "start": "RECORD",
     "stop": "Stop"
   },

@@ -26,6 +26,16 @@ from common.pathguard import (
 
 logger = logging.getLogger("sigmf-probe")
 
+BYTES_PER_SAMPLE = {
+    "cf32_le": 8,
+    "ci16_le": 4,
+    "ci16": 4,
+    "ci8": 2,
+    "ci8_le": 2,
+    "cu8": 2,
+    "cu8_le": 2,
+}
+
 
 def probe_sigmf_recording(sdr_details):
     """
@@ -70,11 +80,12 @@ def probe_sigmf_recording(sdr_details):
         sample_rate = global_meta.get("core:sample_rate", 0)
         datatype = global_meta.get("core:datatype", "cf32_le")
 
-        # Validate datatype
-        if datatype != "cf32_le":
+        bytes_per_sample = BYTES_PER_SAMPLE.get(str(datatype).lower())
+        if bytes_per_sample is None:
             reply["log"].append(
-                f"WARNING: Datatype {datatype} may not be fully supported. Expected cf32_le."
+                f"WARNING: Datatype {datatype} is not supported for playback duration calculation."
             )
+            bytes_per_sample = 8
 
         # Check if data file exists
         data_path = resolve_sigmf_data_path(meta_path, allowed_roots=allowed_roots)
@@ -85,8 +96,7 @@ def probe_sigmf_recording(sdr_details):
         data_file_size = os.path.getsize(data_path)
         reply["log"].append(f"INFO: Data file size: {data_file_size / (1024**2):.2f} MB")
 
-        # Calculate total samples (cf32_le = 8 bytes per sample: 4 bytes I + 4 bytes Q)
-        bytes_per_sample = 8  # complex64
+        # Datatype determines the size of one complex I/Q sample.
         total_samples = data_file_size // bytes_per_sample
 
         # Calculate duration

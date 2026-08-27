@@ -123,6 +123,18 @@
   "recording": {
     "title": "Εγγραφή IQ",
     "filename": "Ονομα Εγγραφής",
+    "sampleRate": "Ρυθμός Δειγματοληψίας Εγγραφής",
+    "fullBandwidth": "Πλήρες εύρος ζώνης ({{rate}})",
+    "centeredBandwidthHelp": "Εγγράφει το κεντρικό τμήμα του φάσματος SDR. Κεντράρετε το σήμα πριν από την εγγραφή.",
+    "fullBandwidthHelp": "Εγγράφει ολόκληρο το φάσμα SDR.",
+    "storageFormat": "Μορφή αποθήκευσης IQ",
+    "storageFormatFloat": "32-bit float IQ (cf32_le)",
+    "storageFormatFloatHelp": "IQ πλήρους ακρίβειας χωρίς απώλεια. Χρησιμοποιεί διπλάσιο χώρο από το ci16_le.",
+    "storageFormatInt16": "16-bit signed IQ (ci16_le)",
+    "storageFormatInt16Help": "50% μικρότερο. Υπάρχει απώλεια μόνο αν κοπούν εξαιρετικά ισχυρά δείγματα.",
+    "statusRecording": "Εγγραφή",
+    "statusReady": "Δεν γίνεται εγγραφή",
+    "statusAriaLabel": "Εγγραφή IQ: {{status}}, {{rate}}",
     "start": "ΕΓΓΡΑΦΗ",
     "stop": "Διακοπή"
   },

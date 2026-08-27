@@ -29,6 +29,7 @@ import {
 } from "./waterfall-slice.jsx";
 import VFOMarkersContainer from './vfo-marker/vfo-container.jsx';
 import FrequencyBandOverlay from './bandplan-overlay.jsx';
+import RecordingBandOverlay from './recording-band-overlay.jsx';
 import {useDopplerNeighbors} from '../../hooks/useDopplerNeighbors.jsx';
 
 const PLAYBACK_COUNTDOWN_UPDATE_MS = 250;
@@ -79,6 +80,7 @@ const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
         isRecording,
         isStreaming,
         selectedSDRId,
+        recordingDecimationFactor,
     } = useSelector((state) => ({
         waterFallCanvasWidth: state.waterfall.waterFallCanvasWidth,
         waterFallCanvasHeight: state.waterfall.waterFallCanvasHeight,
@@ -89,6 +91,7 @@ const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
         isRecording: state.waterfall.isRecording,
         isStreaming: state.waterfall.isStreaming,
         selectedSDRId: state.waterfall.selectedSDRId,
+        recordingDecimationFactor: state.waterfall.recordingDecimationFactor,
     }), shallowEqual);
 
     // Track playback countdown for display
@@ -684,6 +687,18 @@ const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
                             perspective: '1000px',
                             marginTop: `${bandscopeTopPadding}px`,
                         }}
+                    />
+                    <RecordingBandOverlay
+                        inputSampleRate={sampleRate}
+                        decimationFactor={recordingDecimationFactor}
+                        isRecording={isRecording}
+                        containerWidth={waterFallCanvasWidth}
+                        transformTick={bookmarkTransformTick}
+                        interactionActive={isTransformInteracting}
+                        allowInteractionMeasure={isTouchMeasuring}
+                        interactionMeasureTick={touchInteractionMeasureTick}
+                        height={bandScopeHeight + bandscopeTopPadding}
+                        topPadding={bandscopeTopPadding}
                     />
                     {/* Add the new FrequencyBandOverlay component */}
                     <FrequencyBandOverlay

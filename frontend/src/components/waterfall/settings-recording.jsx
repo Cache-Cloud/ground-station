@@ -17,7 +17,7 @@
  *
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import {
     Accordion,
@@ -32,6 +32,10 @@ import {
     Chip,
     Stack,
     LinearProgress,
+    FormControl,
+    InputLabel,
+    MenuItem,
+    Select,
 } from "@mui/material";
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import StopIcon from '@mui/icons-material/Stop';
@@ -50,6 +54,11 @@ const RecordingAccordion = ({
     isStreaming,
     selectedSDRId,
     centerFrequency,
+    sampleRate,
+    decimationFactor,
+    onDecimationFactorChange,
+    storageFormat,
+    onStorageFormatChange,
 }) => {
     const { t } = useTranslation('waterfall');
     const [localRecordingName, setLocalRecordingName] = useState(recordingName);
@@ -72,6 +81,22 @@ const RecordingAccordion = ({
             onRecordingNameChange('');
         }
     }, [isRecording]);
+
+    const decimationOptions = useMemo(() => {
+        const inputRate = Number(sampleRate);
+        if (!Number.isFinite(inputRate) || inputRate <= 0) return [1];
+
+        const maxFactor = Math.min(40, Math.floor(inputRate / 1000));
+        const options = Array.from({ length: maxFactor }, (_, index) => index + 1)
+            .filter((factor) => inputRate % factor === 0);
+        return options.length > 0 ? options : [1];
+    }, [sampleRate]);
+
+    useEffect(() => {
+        if (!decimationOptions.includes(decimationFactor)) {
+            onDecimationFactorChange(1);
+        }
+    }, [decimationFactor, decimationOptions, onDecimationFactorChange]);
 
     const formatDuration = (seconds) => {
         const hours = Math.floor(seconds / 3600);
@@ -146,6 +171,16 @@ const RecordingAccordion = ({
         return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
     };
 
+    const formatSampleRate = (rate) => {
+        if (rate >= 1000000) return `${(rate / 1000000).toFixed(rate % 1000000 === 0 ? 0 : 1)} MHz`;
+        return `${Math.round(rate / 1000)} kS/s`;
+    };
+
+    const inputRate = Number(sampleRate);
+    const outputRate = Number.isFinite(inputRate) && inputRate > 0
+        ? inputRate / decimationFactor
+        : null;
+
     const usagePercent = diskUsage.total > 0 ? ((diskUsage.used / diskUsage.total) * 100) : 0;
 
     return (
@@ -196,6 +231,65 @@ const RecordingAccordion = ({
                         variant="outlined"
                         placeholder="unknown_recording"
                     />
+
+                    <FormControl fullWidth size="small" disabled={isRecording || !outputRate}>
+                        <InputLabel id="recording-sample-rate-label">
+                            {t('recording.sampleRate', 'Recorded Sample Rate')}
+                        </InputLabel>
+                        <Select
+                            labelId="recording-sample-rate-label"
+                            value={decimationOptions.includes(decimationFactor) ? decimationFactor : 1}
+                            label={t('recording.sampleRate', 'Recorded Sample Rate')}
+                            onChange={(event) => onDecimationFactorChange(Number(event.target.value))}
+                        >
+                            {decimationOptions.map((factor) => (
+                                <MenuItem key={factor} value={factor}>
+                                    {factor === 1
+                                        ? t('recording.fullBandwidth', {
+                                            rate: formatSampleRate(inputRate),
+                                            defaultValue: `Full bandwidth (${formatSampleRate(inputRate)})`,
+                                        })
+                                        : `${formatSampleRate(inputRate / factor)} (÷${factor})`}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                            {decimationFactor > 1
+                                ? t(
+                                    'recording.centeredBandwidthHelp',
+                                    'Records the centered portion of the SDR spectrum. Center the signal before recording.'
+                                )
+                                : t('recording.fullBandwidthHelp', 'Records the full SDR spectrum.')}
+                        </Typography>
+                    </FormControl>
+
+                    <FormControl fullWidth size="small" disabled={isRecording}>
+                        <InputLabel id="recording-storage-format-label">
+                            {t('recording.storageFormat', 'IQ Storage Format')}
+                        </InputLabel>
+                        <Select
+                            labelId="recording-storage-format-label"
+                            value={storageFormat}
+                            label={t('recording.storageFormat', 'IQ Storage Format')}
+                            onChange={(event) => onStorageFormatChange(event.target.value)}
+                        >
+                            <MenuItem value="cf32_le">
+                                {t('recording.storageFormatFloat', '32-bit float IQ (cf32_le)')}
+                            </MenuItem>
+                            <MenuItem value="ci16_le">
+                                {t('recording.storageFormatInt16', '16-bit signed IQ (ci16_le)')}
+                            </MenuItem>
+                        </Select>
+                        {storageFormat === 'cf32_le' ? (
+                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                                {t('recording.storageFormatFloatHelp', 'Lossless, full-precision IQ. Uses twice the disk space of ci16_le.')}
+                            </Typography>
+                        ) : (
+                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                                {t('recording.storageFormatInt16Help', '50% smaller. Lossy only if exceptionally strong samples clip.')}
+                            </Typography>
+                        )}
+                    </FormControl>
 
                     {/* Disk Space Progress Bar */}
                     {diskUsage.total > 0 && (
@@ -265,7 +359,12 @@ function areRecordingAccordionPropsEqual(prevProps, nextProps) {
         prevProps.onStopRecording === nextProps.onStopRecording &&
         prevProps.isStreaming === nextProps.isStreaming &&
         prevProps.selectedSDRId === nextProps.selectedSDRId &&
-        prevProps.centerFrequency === nextProps.centerFrequency
+        prevProps.centerFrequency === nextProps.centerFrequency &&
+        prevProps.sampleRate === nextProps.sampleRate &&
+        prevProps.decimationFactor === nextProps.decimationFactor &&
+        prevProps.onDecimationFactorChange === nextProps.onDecimationFactorChange &&
+        prevProps.storageFormat === nextProps.storageFormat &&
+        prevProps.onStorageFormatChange === nextProps.onStorageFormatChange
     );
 }
 

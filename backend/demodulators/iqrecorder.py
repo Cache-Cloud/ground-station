@@ -30,6 +30,8 @@ from common.iqsamples import require_complex64
 
 logger = logging.getLogger("iq-recorder")
 
+SUPPORTED_STORAGE_FORMATS = {"cf32_le": 8, "ci16_le": 4}
+
 
 class IQRecorder(threading.Thread):
     """
@@ -50,6 +52,7 @@ class IQRecorder(threading.Thread):
         target_center_freq=None,
         enable_frequency_shift=False,
         decimation_factor=1,
+        storage_format="cf32_le",
     ):
         super().__init__(daemon=True, name=f"IQRecorder-{session_id}")
         self.iq_queue = iq_queue
@@ -64,6 +67,14 @@ class IQRecorder(threading.Thread):
         if self.decimation_factor < 1:
             logger.warning(f"Invalid decimation factor {decimation_factor}, falling back to 1")
             self.decimation_factor = 1
+        self.storage_format = str(storage_format or "cf32_le").lower()
+        if self.storage_format not in SUPPORTED_STORAGE_FORMATS:
+            logger.warning(
+                "Unsupported IQ storage format %r, falling back to cf32_le",
+                storage_format,
+            )
+            self.storage_format = "cf32_le"
+        self.bytes_per_sample = SUPPORTED_STORAGE_FORMATS[self.storage_format]
 
         # Frequency shift tracking
         self.shift_hz = 0
@@ -93,6 +104,8 @@ class IQRecorder(threading.Thread):
             "queue_timeouts": 0,
             "last_activity": None,
             "errors": 0,
+            "quantization_clipped_components": 0,
+            "peak_component_magnitude": 0.0,
             # Stream continuity debug counters (bug-hunt instrumentation)
             "messages_with_chunk_meta": 0,
             "messages_missing_chunk_meta": 0,
@@ -284,14 +297,15 @@ class IQRecorder(threading.Thread):
                             self.stats["errors"] += 1
                         continue
 
-                # Write samples to file
-                samples.tofile(self.data_file)
+                # Keep DSP in float precision and quantize only at the disk boundary.
+                # This makes ci16_le a storage choice, not a lower-precision DSP path.
+                samples_to_write = self._encode_samples(samples)
+                samples_to_write.tofile(self.data_file)
                 self.total_samples += len(samples)
 
-                # Update stats (cf32_le = 8 bytes per sample)
                 with self.stats_lock:
                     self.stats["samples_written"] += len(samples)
-                    self.stats["bytes_written"] += len(samples) * 8
+                    self.stats["bytes_written"] += len(samples) * self.bytes_per_sample
 
             except Exception as e:
                 if self.running:
@@ -303,10 +317,37 @@ class IQRecorder(threading.Thread):
 
         logger.info(f"IQ recorder stopped: {self.total_samples} samples written")
 
+    def _encode_samples(self, samples: np.ndarray) -> np.ndarray:
+        """Encode float IQ for the selected SigMF storage format."""
+        if self.storage_format == "cf32_le":
+            return samples
+
+        if samples.size == 0:
+            return np.empty(0, dtype="<i2")
+
+        # ci16_le stores signed, normalized I and Q values. Record clipping so a
+        # lossy capture still makes overrange visible to users and later tooling.
+        real = samples.real
+        imag = samples.imag
+        peak = float(max(np.max(np.abs(real)), np.max(np.abs(imag))))
+        clipped_components = int(
+            np.count_nonzero(np.abs(real) > 1.0) + np.count_nonzero(np.abs(imag) > 1.0)
+        )
+        with self.stats_lock:
+            self.stats["peak_component_magnitude"] = max(
+                self.stats["peak_component_magnitude"], peak
+            )
+            self.stats["quantization_clipped_components"] += clipped_components
+
+        encoded = np.empty(samples.size * 2, dtype="<i2")
+        encoded[0::2] = np.rint(np.clip(real, -1.0, 1.0) * 32767.0).astype("<i2")
+        encoded[1::2] = np.rint(np.clip(imag, -1.0, 1.0) * 32767.0).astype("<i2")
+        return encoded
+
     def _write_preliminary_metadata(self):
         """Write preliminary metadata file to mark recording as in progress."""
         global_metadata: dict = {
-            "core:datatype": "cf32_le",
+            "core:datatype": self.storage_format,
             "core:version": "1.0.0",
             "core:description": "Ground Station IQ Recording",
             "core:recorder": "ground-station",
@@ -314,6 +355,10 @@ class IQRecorder(threading.Thread):
             "gs:start_time": self.start_time_iso,
             "gs:session_id": self.session_id,
         }
+
+        if self.storage_format == "ci16_le":
+            global_metadata["gs:quantization"] = "float IQ quantized to signed 16-bit I/Q"
+            global_metadata["gs:quantization_scale"] = 32767
 
         # Add target satellite NORAD ID if provided
         if self.target_satellite_norad_id:
@@ -359,7 +404,7 @@ class IQRecorder(threading.Thread):
             recorder_stats = self.stats.copy()
 
         global_metadata: dict = {
-            "core:datatype": "cf32_le",
+            "core:datatype": self.storage_format,
             "core:sample_rate": self.current_sample_rate,
             "core:version": "1.0.0",
             "core:description": "Ground Station IQ Recording",
@@ -372,6 +417,10 @@ class IQRecorder(threading.Thread):
             "gs:session_id": self.session_id,
             "gs:recorder_stats": recorder_stats,
         }
+
+        if self.storage_format == "ci16_le":
+            global_metadata["gs:quantization"] = "float IQ quantized to signed 16-bit I/Q"
+            global_metadata["gs:quantization_scale"] = 32767
 
         # Add target satellite NORAD ID if provided
         if self.target_satellite_norad_id:

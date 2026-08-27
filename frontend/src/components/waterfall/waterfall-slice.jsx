@@ -129,7 +129,7 @@ function applySDRConfigParametersToState(state, payload, sdrId) {
 
 export const startRecording = createAsyncThunk(
     'waterfall/startRecording',
-    async ({socket, recordingName, selectedSDRId}, {getState, rejectWithValue}) => {
+    async ({socket, recordingName, selectedSDRId, decimationFactor = 1, storageFormat = 'cf32_le'}, {getState, rejectWithValue}) => {
         return new Promise((resolve, reject) => {
             const state = getState();
             const targetNoradId = state.targetSatTrack?.trackingState?.norad_id || '';
@@ -140,6 +140,8 @@ export const startRecording = createAsyncThunk(
   data: {
     recordingName,
     selectedSDRId,
+    decimationFactor,
+    storageFormat,
     targetSatelliteNoradId: targetNoradId,
     targetSatelliteName: targetSatelliteName
   }
@@ -281,6 +283,8 @@ const initialState = {
     recordingDuration: 0,
     recordingStartTime: null, // ISO timestamp when recording started
     recordingName: '',
+    recordingDecimationFactor: 1,
+    recordingStorageFormat: 'cf32_le',
     // Playback state
     selectedPlaybackRecording: null, // Selected recording for playback
     playbackRecordingPath: '', // Path to the selected recording file
@@ -629,6 +633,12 @@ export const waterfallSlice = createSlice({
         setRecordingName: (state, action) => {
             state.recordingName = action.payload;
         },
+        setRecordingDecimationFactor: (state, action) => {
+            state.recordingDecimationFactor = action.payload;
+        },
+        setRecordingStorageFormat: (state, action) => {
+            state.recordingStorageFormat = action.payload;
+        },
         setRecordingStartTime: (state, action) => {
             state.recordingStartTime = action.payload;
         },
@@ -798,6 +808,8 @@ export const {
     setIsRecording,
     setRecordingDuration,
     setRecordingName,
+    setRecordingDecimationFactor,
+    setRecordingStorageFormat,
     setRecordingStartTime,
     incrementRecordingDuration,
     setSelectedPlaybackRecording,
