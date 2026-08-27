@@ -169,11 +169,12 @@ const RecordingBandOverlay = ({
         topPadding,
     ]);
 
-    if (!isVisible) return null;
-
+    // Stay mounted at 1× so transform ticks keep this layer's backing store in
+    // sync before a user enables decimation, just like the other canvas layers.
     return (
         <Box
             ref={containerRef}
+            aria-hidden={!isVisible}
             aria-label={t('recording.statusAriaLabel', {
                 status: statusText,
                 rate: outputRate,
