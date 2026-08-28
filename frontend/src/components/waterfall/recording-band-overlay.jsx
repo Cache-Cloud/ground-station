@@ -103,26 +103,41 @@ const RecordingBandOverlay = ({
     }, [selectedOffsetHz]);
 
     useEffect(() => {
-        const handleMouseMove = (event) => updateOffsetFromPointer(event.clientX);
-        const handleMouseUp = () => { dragRef.current = null; };
+        const handleMouseMove = (event) => {
+            if (!dragRef.current) return;
+
+            // The bandscope pans from a window listener. Capture the event at
+            // document before it reaches that listener, matching VFO drags.
+            event.preventDefault();
+            event.stopPropagation();
+            updateOffsetFromPointer(event.clientX);
+        };
+        const handleMouseUp = (event) => {
+            if (!dragRef.current) return;
+            event.stopPropagation();
+            dragRef.current = null;
+        };
         const handleTouchMove = (event) => {
-            if (dragRef.current && event.touches.length === 1) {
-                event.preventDefault();
+            if (!dragRef.current) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.touches.length === 1) {
                 updateOffsetFromPointer(event.touches[0].clientX);
             }
         };
 
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
-        window.addEventListener('touchmove', handleTouchMove, { passive: false });
-        window.addEventListener('touchend', handleMouseUp);
-        window.addEventListener('touchcancel', handleMouseUp);
+        document.addEventListener('mousemove', handleMouseMove, { capture: true });
+        document.addEventListener('mouseup', handleMouseUp, { capture: true });
+        document.addEventListener('touchmove', handleTouchMove, { capture: true, passive: false });
+        document.addEventListener('touchend', handleMouseUp, { capture: true });
+        document.addEventListener('touchcancel', handleMouseUp, { capture: true });
         return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
-            window.removeEventListener('touchmove', handleTouchMove);
-            window.removeEventListener('touchend', handleMouseUp);
-            window.removeEventListener('touchcancel', handleMouseUp);
+            document.removeEventListener('mousemove', handleMouseMove, { capture: true });
+            document.removeEventListener('mouseup', handleMouseUp, { capture: true });
+            document.removeEventListener('touchmove', handleTouchMove, { capture: true });
+            document.removeEventListener('touchend', handleMouseUp, { capture: true });
+            document.removeEventListener('touchcancel', handleMouseUp, { capture: true });
         };
     }, [updateOffsetFromPointer]);
 
@@ -283,8 +298,10 @@ const RecordingBandOverlay = ({
             {hasInputRate && selectionEnabled && !isRecording && factor > 1 && (
                 <Box
                     aria-label={t('recording.dragBand', 'Drag recording band')}
-                    onMouseDown={startMouseDrag}
-                    onTouchStart={startTouchDrag}
+                    // Capture prevents the bandscope's native pan-start
+                    // listener from claiming the same gesture first.
+                    onMouseDownCapture={startMouseDrag}
+                    onTouchStartCapture={startTouchDrag}
                     sx={{
                         position: 'absolute',
                         top: `${topPadding}px`,
