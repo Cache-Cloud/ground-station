@@ -507,6 +507,22 @@ const getPassTagLabel = (tag, t) => {
     return labels[tag] || tag;
 };
 
+const getPassTagTooltip = (tag, t) => t(`passes_table.pass_tag_tooltips.${tag}`, {
+    defaultValue: {
+        north_crossing: 'The pass crosses north (0° azimuth).',
+        south_crossing: 'The pass crosses south (180° azimuth).',
+        direction_cw: 'The satellite moves clockwise across the sky.',
+        direction_ccw: 'The satellite moves counterclockwise across the sky.',
+        direction_mixed: 'The satellite changes direction during the pass.',
+        direction_e_to_w: 'The satellite travels from east to west.',
+        direction_w_to_e: 'The satellite travels from west to east.',
+        elevation_low: 'Maximum elevation is below 30°.',
+        elevation_medium: 'Maximum elevation is from 30° to below 60°.',
+        elevation_high: 'Maximum elevation is from 60° to below 80°.',
+        elevation_overhead: 'Maximum elevation is 80° or higher.',
+    }[tag] || tag,
+});
+
 const getPassTagColor = (tag) => ({
     north_crossing: '#1971C2',
     south_crossing: '#C2255C',
@@ -556,32 +572,48 @@ const PassTypesCell = React.memo(function PassTypesCell({tags, t}) {
                 }}
             >
                 {tagList.map((tag) => (
-                    <Chip
-                        key={tag}
-                        label={getPassTagLabel(tag, t)}
-                        size="small"
-                        variant="filled"
-                        sx={{
-                            fontSize: '0.64rem',
-                            height: 20,
-                            flexShrink: 0,
-                            fontWeight: 700,
-                            backgroundColor: getPassTagColor(tag),
-                            color: 'common.white',
-                            border: '1px solid',
-                            borderColor: getPassTagColor(tag),
-                            '& .MuiChip-label': {
-                                px: 0.7,
-                            },
-                        }}
-                    />
+                    <Tooltip key={tag} title={getPassTagTooltip(tag, t)}>
+                        <Chip
+                            label={getPassTagLabel(tag, t)}
+                            size="small"
+                            variant="filled"
+                            sx={{
+                                fontSize: '0.64rem',
+                                height: 20,
+                                flexShrink: 0,
+                                fontWeight: 700,
+                                backgroundColor: getPassTagColor(tag),
+                                color: 'common.white',
+                                border: '1px solid',
+                                borderColor: getPassTagColor(tag),
+                                '& .MuiChip-label': {px: 0.7},
+                            }}
+                        />
+                    </Tooltip>
                 ))}
             </Box>
         </Box>
     );
 });
 
-const PassTransmitterLinksCell = React.memo(function PassTransmitterLinksCell({transmitters, noDataText}) {
+const getTransmitterLinkTooltip = (link, t) => {
+    const key = 'passes_table.transmitter_link_tooltips';
+    if (link.upBand && link.downBand) {
+        if (link.upBand === link.downBand) {
+            return t(`${key}.same_band`, {count: link.count, band: link.upBand});
+        }
+        return t(`${key}.split_band`, {count: link.count, uplinkBand: link.upBand, downlinkBand: link.downBand});
+    }
+    if (link.upBand) {
+        return t(`${key}.uplink_only`, {count: link.count, uplinkBand: link.upBand});
+    }
+    if (link.downBand) {
+        return t(`${key}.downlink_only`, {count: link.count, downlinkBand: link.downBand});
+    }
+    return t(`${key}.unknown`, {count: link.count});
+};
+
+const PassTransmitterLinksCell = React.memo(function PassTransmitterLinksCell({transmitters, noDataText, t}) {
     if (!Array.isArray(transmitters) || transmitters.length === 0) {
         return noDataText;
     }
@@ -625,7 +657,7 @@ const PassTransmitterLinksCell = React.memo(function PassTransmitterLinksCell({t
             signature,
             count: details.count,
             isSplitBand: details.isSplitBand,
-            tooltip: Array.from(details.descriptions).join(', '),
+            descriptions: Array.from(details.descriptions).join(', '),
             upBand: details.upBand,
             downBand: details.downBand,
         }))
@@ -708,12 +740,24 @@ const PassTransmitterLinksCell = React.memo(function PassTransmitterLinksCell({t
                     />
                 );
 
-                if (!link.tooltip) {
-                    return chip;
-                }
-
                 return (
-                    <Tooltip key={`tx-link-tooltip-${link.signature}`} title={link.tooltip}>
+                    <Tooltip
+                        key={`tx-link-tooltip-${link.signature}`}
+                        title={
+                            <Box>
+                                <Typography variant="caption" component="div">
+                                    {getTransmitterLinkTooltip(link, t)}
+                                </Typography>
+                                {link.descriptions && (
+                                    <Typography variant="caption" component="div">
+                                        {t('passes_table.transmitter_link_tooltips.details', {
+                                            descriptions: link.descriptions,
+                                        })}
+                                    </Typography>
+                                )}
+                            </Box>
+                        }
+                    >
                         <span>{chip}</span>
                     </Tooltip>
                 );
@@ -953,7 +997,11 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             flex: 2,
             sortable: false,
             valueGetter: (_value, row) => row.transmitters,
-            renderCell: (params) => <PassTransmitterLinksCell transmitters={params.value} noDataText={t('passes_table.no_data')} />
+            renderCell: (params) => <PassTransmitterLinksCell
+                transmitters={params.value}
+                noDataText={t('passes_table.no_data')}
+                t={t}
+            />
         },
         {
             field: 'event_start',

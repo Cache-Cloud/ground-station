@@ -71,10 +71,31 @@
       "elevation_high": "High EL",
       "elevation_overhead": "Overhead"
     },
+    "pass_tag_tooltips": {
+      "north_crossing": "The pass crosses north (0° azimuth).",
+      "south_crossing": "The pass crosses south (180° azimuth).",
+      "direction_cw": "The satellite moves clockwise across the sky.",
+      "direction_ccw": "The satellite moves counterclockwise across the sky.",
+      "direction_mixed": "The satellite changes direction during the pass.",
+      "direction_e_to_w": "The satellite travels from east to west.",
+      "direction_w_to_e": "The satellite travels from west to east.",
+      "elevation_low": "Maximum elevation is below 30°.",
+      "elevation_medium": "Maximum elevation is from 30° to below 60°.",
+      "elevation_high": "Maximum elevation is from 60° to below 80°.",
+      "elevation_overhead": "Maximum elevation is 80° or higher."
+    },
     "progress": "Progress",
     "duration": "Duration",
     "bands": "Bands",
     "transmitter_links": "Links",
+    "transmitter_link_tooltips": {
+      "same_band": "{{count}} transmitter(s) with {{band}} uplink and downlink",
+      "split_band": "{{count}} transmitter(s) with {{uplinkBand}} uplink and {{downlinkBand}} downlink",
+      "uplink_only": "{{count}} transmitter(s) with {{uplinkBand}} uplink only",
+      "downlink_only": "{{count}} transmitter(s) with {{downlinkBand}} downlink only",
+      "unknown": "{{count}} transmitter(s) with no listed uplink or downlink band",
+      "details": "Details: {{descriptions}}"
+    },
     "start": "Start",
     "end": "End",
     "distance_aos": "Distance at AOS",

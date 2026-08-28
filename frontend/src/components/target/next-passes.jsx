@@ -25,7 +25,7 @@ import {
     getTimeFromISO,
     humanizeFutureDateInMinutes,
     islandTitleBarCompactSx,
-    TitleBar
+    TitleBar,
 } from "../common/common.jsx";
 import {DataGrid, gridClasses, useGridApiRef} from "@mui/x-data-grid";
 import { useDispatch, useSelector } from 'react-redux';
@@ -62,6 +62,7 @@ import {
     resolveTargetDisplayName,
 } from './celestial-target-utils.js';
 import {isPassScheduledForAutomaticObservation} from '../common/passobservationutils.js';
+import PassTransmitterLinksCell from '../common/pass-transmitter-links-cell.jsx';
 
 const getPassStatus = (row, now = new Date()) => {
     const startDate = new Date(row?.event_start);
@@ -313,6 +314,22 @@ const getPassTagLabel = (tag, t) => {
     return labels[tag] || tag;
 };
 
+const getPassTagTooltip = (tag, t) => t(`next_passes.pass_tag_tooltips.${tag}`, {
+    defaultValue: {
+        north_crossing: 'The pass crosses north (0° azimuth).',
+        south_crossing: 'The pass crosses south (180° azimuth).',
+        direction_cw: 'The satellite moves clockwise across the sky.',
+        direction_ccw: 'The satellite moves counterclockwise across the sky.',
+        direction_mixed: 'The satellite changes direction during the pass.',
+        direction_e_to_w: 'The satellite travels from east to west.',
+        direction_w_to_e: 'The satellite travels from west to east.',
+        elevation_low: 'Maximum elevation is below 30°.',
+        elevation_medium: 'Maximum elevation is from 30° to below 60°.',
+        elevation_high: 'Maximum elevation is from 60° to below 80°.',
+        elevation_overhead: 'Maximum elevation is 80° or higher.',
+    }[tag] || tag,
+});
+
 const PassTypesCell = React.memo(function PassTypesCell({tags, t}) {
     const tagList = Array.isArray(tags)
         ? tags.filter(Boolean).filter((tag) => tag !== 'elevation_medium')
@@ -338,19 +355,18 @@ const PassTypesCell = React.memo(function PassTypesCell({tags, t}) {
             }}
         >
             {tagList.map((tag) => (
-                <Chip
-                    key={tag}
-                    label={getPassTagLabel(tag, t)}
-                    size="small"
-                    variant="outlined"
-                    sx={{
-                        fontSize: '0.64rem',
-                        height: 20,
-                        '& .MuiChip-label': {
-                            px: 0.7,
-                        },
-                    }}
-                />
+                <Tooltip key={tag} title={getPassTagTooltip(tag, t)}>
+                    <Chip
+                        label={getPassTagLabel(tag, t)}
+                        size="small"
+                        variant="outlined"
+                        sx={{
+                            fontSize: '0.64rem',
+                            height: 20,
+                            '& .MuiChip-label': {px: 0.7},
+                        }}
+                    />
+                </Tooltip>
             ))}
         </Box>
     );
@@ -426,6 +442,22 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             sortable: false,
             cellClassName: 'passes-cell-tags',
             renderCell: (params) => <PassTypesCell tags={params.value} t={t} />,
+        },
+        {
+            field: 'transmitter_links',
+            minWidth: 170,
+            align: 'center',
+            headerAlign: 'center',
+            headerName: t('next_passes.transmitter_links', {defaultValue: 'Links'}),
+            flex: 2,
+            sortable: false,
+            valueGetter: (_value, row) => row.transmitters,
+            renderCell: (params) => <PassTransmitterLinksCell
+                transmitters={params.value}
+                noDataText={t('next_passes.no_data', {defaultValue: 'No data'})}
+                t={t}
+                translationPrefix="next_passes"
+            />,
         },
         {
             field: 'event_end',

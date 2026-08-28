@@ -581,6 +581,9 @@ async def fetch_next_events_for_satellite(
 
                 for event in events_for_satellite:
                     event["name"] = satellite["name"]
+                    # Pass calculations do not include radio metadata; attach it here so
+                    # the target table can summarize transmitter link configurations.
+                    event["transmitters"] = satellite.get("transmitters", [])
                     stable_suffix = f"_{satellite['norad_id']}_{event['event_start']}"
                     base_event_id = str(event.get("id") or "").strip()
                     if not base_event_id:

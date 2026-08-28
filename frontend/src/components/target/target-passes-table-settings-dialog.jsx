@@ -68,6 +68,7 @@ const TargetPassesTableSettingsDialog = ({ open, onClose }) => {
         { name: 'duration', label: t('next_passes.duration'), category: 'basic', alwaysVisible: true },
         { name: 'progress', label: t('next_passes.progress'), category: 'basic', alwaysVisible: true },
         { name: 'pass_tags', label: t('next_passes.pass_types', { defaultValue: 'Pass Types' }), category: 'basic' },
+        { name: 'transmitter_links', label: t('next_passes.transmitter_links', { defaultValue: 'Links' }), category: 'basic' },
         { name: 'peak_altitude', label: t('next_passes.max_el'), category: 'basic' },
         { name: 'distance_at_start', label: t('next_passes.distance_aos'), category: 'distance' },
         { name: 'distance_at_end', label: t('next_passes.distance_los'), category: 'distance' },
