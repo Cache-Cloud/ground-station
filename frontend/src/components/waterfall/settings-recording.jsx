@@ -17,7 +17,7 @@
  *
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import {
     Accordion,
@@ -41,6 +41,8 @@ import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import StopIcon from '@mui/icons-material/Stop';
 import { useTranslation } from 'react-i18next';
 
+const RECORDING_BAND_DRAG_STEPS = [100, 1000, 5000, 10000];
+
 const RecordingAccordion = ({
     expanded,
     onAccordionChange,
@@ -57,12 +59,20 @@ const RecordingAccordion = ({
     sampleRate,
     decimationFactor,
     onDecimationFactorChange,
+    recordingBandSelectionEnabled,
+    onRecordingBandSelectionToggle,
+    recordingBandCenterOffsetHz,
+    onRecordingBandCenterFrequencyChange,
+    recordingBandDragStepHz,
+    onRecordingBandDragStepChange,
     storageFormat,
     onStorageFormatChange,
 }) => {
     const { t } = useTranslation('waterfall');
     const [localRecordingName, setLocalRecordingName] = useState(recordingName);
     const [recordingStartFilename, setRecordingStartFilename] = useState('');
+    const [localRecordingCenterMHz, setLocalRecordingCenterMHz] = useState('');
+    const isRecordingCenterFieldFocused = useRef(false);
 
     // Get target satellite name from Redux
     const targetSatelliteName = useSelector((state) => state.targetSatTrack?.satelliteData?.details?.name || '');
@@ -73,6 +83,14 @@ const RecordingAccordion = ({
     useEffect(() => {
         setLocalRecordingName(recordingName);
     }, [recordingName]);
+
+    const recordingCenterFrequencyHz = Number(centerFrequency) + (Number(recordingBandCenterOffsetHz) || 0);
+
+    useEffect(() => {
+        if (!isRecordingCenterFieldFocused.current && Number.isFinite(recordingCenterFrequencyHz)) {
+            setLocalRecordingCenterMHz((recordingCenterFrequencyHz / 1e6).toFixed(6));
+        }
+    }, [recordingCenterFrequencyHz]);
 
     // Clear textbox when recording stops
     useEffect(() => {
@@ -183,6 +201,22 @@ const RecordingAccordion = ({
 
     const usagePercent = diskUsage.total > 0 ? ((diskUsage.used / diskUsage.total) * 100) : 0;
 
+    const handleRecordingCenterFrequencyChange = (event) => {
+        const value = event.target.value;
+        setLocalRecordingCenterMHz(value);
+        const frequencyHz = Number(value) * 1e6;
+        if (Number.isFinite(frequencyHz)) {
+            onRecordingBandCenterFrequencyChange(frequencyHz);
+        }
+    };
+
+    const normalizeRecordingCenterFrequency = () => {
+        isRecordingCenterFieldFocused.current = false;
+        if (Number.isFinite(recordingCenterFrequencyHz)) {
+            setLocalRecordingCenterMHz((recordingCenterFrequencyHz / 1e6).toFixed(6));
+        }
+    };
+
     return (
         <Accordion expanded={expanded} onChange={onAccordionChange}>
             <AccordionSummary
@@ -254,7 +288,12 @@ const RecordingAccordion = ({
                             ))}
                         </Select>
                         <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                            {decimationFactor > 1
+                            {recordingBandSelectionEnabled
+                                ? t(
+                                    'recording.selectedBandwidthHelp',
+                                    'Recording-band selection is enabled. Drag the highlighted band in the bandscope before recording.'
+                                )
+                                : decimationFactor > 1
                                 ? t(
                                     'recording.centeredBandwidthHelp',
                                     'Records the centered portion of the SDR spectrum. Center the signal before recording.'
@@ -262,6 +301,38 @@ const RecordingAccordion = ({
                                 : t('recording.fullBandwidthHelp', 'Records the full SDR spectrum.')}
                         </Typography>
                     </FormControl>
+
+                    <Stack direction="row" spacing={1}>
+                        <TextField
+                            label={t('recording.centerFrequency', 'Recording Centre (MHz)')}
+                            value={localRecordingCenterMHz}
+                            onFocus={() => { isRecordingCenterFieldFocused.current = true; }}
+                            onChange={handleRecordingCenterFrequencyChange}
+                            onBlur={normalizeRecordingCenterFrequency}
+                            type="number"
+                            disabled={!recordingBandSelectionEnabled || isRecording}
+                            inputProps={{ step: 0.000001 }}
+                            size="small"
+                            fullWidth
+                        />
+                        <FormControl size="small" sx={{ minWidth: 130 }} disabled={!recordingBandSelectionEnabled || isRecording}>
+                            <InputLabel id="recording-band-step-label">
+                                {t('recording.dragStep', 'Drag Step')}
+                            </InputLabel>
+                            <Select
+                                labelId="recording-band-step-label"
+                                value={recordingBandDragStepHz}
+                                label={t('recording.dragStep', 'Drag Step')}
+                                onChange={(event) => onRecordingBandDragStepChange(Number(event.target.value))}
+                            >
+                                {RECORDING_BAND_DRAG_STEPS.map((stepHz) => (
+                                    <MenuItem key={stepHz} value={stepHz}>
+                                        {stepHz >= 1000 ? `${stepHz / 1000} kHz` : `${stepHz} Hz`}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    </Stack>
 
                     <FormControl fullWidth size="small" disabled={isRecording}>
                         <InputLabel id="recording-storage-format-label">
@@ -320,6 +391,17 @@ const RecordingAccordion = ({
 
                     <Stack direction="row" spacing={1}>
                         <Button
+                            variant={recordingBandSelectionEnabled ? 'contained' : 'outlined'}
+                            color={recordingBandSelectionEnabled ? 'warning' : 'primary'}
+                            onClick={onRecordingBandSelectionToggle}
+                            disabled={isRecording || !isStreaming}
+                            fullWidth
+                        >
+                            {recordingBandSelectionEnabled
+                                ? t('recording.disableBandSelection', 'DISABLE')
+                                : t('recording.enableBandSelection', 'ENABLE')}
+                        </Button>
+                        <Button
                             variant="contained"
                             color="error"
                             startIcon={<FiberManualRecordIcon />}
@@ -363,6 +445,12 @@ function areRecordingAccordionPropsEqual(prevProps, nextProps) {
         prevProps.sampleRate === nextProps.sampleRate &&
         prevProps.decimationFactor === nextProps.decimationFactor &&
         prevProps.onDecimationFactorChange === nextProps.onDecimationFactorChange &&
+        prevProps.recordingBandSelectionEnabled === nextProps.recordingBandSelectionEnabled &&
+        prevProps.onRecordingBandSelectionToggle === nextProps.onRecordingBandSelectionToggle &&
+        prevProps.recordingBandCenterOffsetHz === nextProps.recordingBandCenterOffsetHz &&
+        prevProps.onRecordingBandCenterFrequencyChange === nextProps.onRecordingBandCenterFrequencyChange &&
+        prevProps.recordingBandDragStepHz === nextProps.recordingBandDragStepHz &&
+        prevProps.onRecordingBandDragStepChange === nextProps.onRecordingBandDragStepChange &&
         prevProps.storageFormat === nextProps.storageFormat &&
         prevProps.onStorageFormatChange === nextProps.onStorageFormatChange
     );

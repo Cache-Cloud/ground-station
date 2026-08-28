@@ -598,6 +598,7 @@ async def sdr_command_routing(
                 target_satellite_name = data.get("targetSatelliteName", "")
                 decimation_factor = data.get("decimationFactor", 1)
                 storage_format = data.get("storageFormat", "cf32_le")
+                target_center_freq = data.get("recordingCenterFrequency")
 
                 result = start_recording(
                     sdr_id,
@@ -607,6 +608,7 @@ async def sdr_command_routing(
                     target_satellite_name,
                     decimation_factor,
                     storage_format,
+                    target_center_freq,
                 )
                 reply.update(result)
 

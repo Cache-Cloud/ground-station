@@ -21,6 +21,10 @@ import { useTranslation } from 'react-i18next';
 const RecordingBandOverlay = ({
     inputSampleRate,
     decimationFactor,
+    selectionEnabled = false,
+    centerOffsetHz = 0,
+    dragStepHz = 1000,
+    onCenterOffsetChange,
     isRecording = false,
     containerWidth,
     transformTick = 0,
@@ -34,10 +38,18 @@ const RecordingBandOverlay = ({
     const { t } = useTranslation('waterfall');
     const canvasRef = useRef(null);
     const containerRef = useRef(null);
+    const dragRef = useRef(null);
     const [actualWidth, setActualWidth] = useState(2048);
     const lastMeasuredWidthRef = useRef(0);
     const factor = Number(decimationFactor) || 1;
-    const isVisible = Number(inputSampleRate) > 0 && factor > 1;
+    const inputRate = Number(inputSampleRate);
+    const hasInputRate = Number.isFinite(inputRate) && inputRate > 0;
+    const isVisible = hasInputRate && (selectionEnabled || isRecording);
+    const maxOffsetHz = hasInputRate ? Math.max(0, (inputRate - inputRate / factor) / 2) : 0;
+    const selectedOffsetHz = Math.max(
+        -maxOffsetHz,
+        Math.min(maxOffsetHz, Number(centerOffsetHz) || 0)
+    );
     const statusColor = isRecording ? theme.palette.error.main : theme.palette.info.main;
     const statusText = isRecording
         ? t('recording.statusRecording', 'Recording')
@@ -51,6 +63,68 @@ const RecordingBandOverlay = ({
     };
 
     const outputRate = formatSampleRate(Number(inputSampleRate) / factor);
+
+    const updateOffsetFromPointer = useCallback((clientX) => {
+        const drag = dragRef.current;
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!drag || !rect?.width || !inputRate || !onCenterOffsetChange) return;
+
+        // The bandscope is transformed for pan/zoom. Its screen width already
+        // includes that transform, so this maps pointer movement back to Hz.
+        const deltaHz = ((clientX - drag.startClientX) / rect.width) * inputRate;
+        const rawOffsetHz = Math.max(
+            -maxOffsetHz,
+            Math.min(maxOffsetHz, drag.startOffsetHz + deltaHz)
+        );
+        const stepHz = Number(dragStepHz);
+        const snappedOffsetHz = Number.isFinite(stepHz) && stepHz > 0
+            ? Math.round(rawOffsetHz / stepHz) * stepHz
+            : rawOffsetHz;
+        onCenterOffsetChange(Math.max(-maxOffsetHz, Math.min(maxOffsetHz, snappedOffsetHz)));
+    }, [dragStepHz, inputRate, maxOffsetHz, onCenterOffsetChange]);
+
+    const startMouseDrag = useCallback((event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        dragRef.current = {
+            startClientX: event.clientX,
+            startOffsetHz: selectedOffsetHz,
+        };
+    }, [selectedOffsetHz]);
+
+    const startTouchDrag = useCallback((event) => {
+        if (event.touches.length !== 1) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragRef.current = {
+            startClientX: event.touches[0].clientX,
+            startOffsetHz: selectedOffsetHz,
+        };
+    }, [selectedOffsetHz]);
+
+    useEffect(() => {
+        const handleMouseMove = (event) => updateOffsetFromPointer(event.clientX);
+        const handleMouseUp = () => { dragRef.current = null; };
+        const handleTouchMove = (event) => {
+            if (dragRef.current && event.touches.length === 1) {
+                event.preventDefault();
+                updateOffsetFromPointer(event.touches[0].clientX);
+            }
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('touchmove', handleTouchMove, { passive: false });
+        window.addEventListener('touchend', handleMouseUp);
+        window.addEventListener('touchcancel', handleMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('touchmove', handleTouchMove);
+            window.removeEventListener('touchend', handleMouseUp);
+            window.removeEventListener('touchcancel', handleMouseUp);
+        };
+    }, [updateOffsetFromPointer]);
 
     const updateActualWidth = useCallback(() => {
         const rect = containerRef.current?.getBoundingClientRect();
@@ -93,7 +167,8 @@ const RecordingBandOverlay = ({
         const drawTop = Math.max(0, topPadding);
         const drawHeight = Math.max(0, canvas.height - drawTop);
         const recordedWidth = canvas.width / factor;
-        const leftEdge = (canvas.width - recordedWidth) / 2;
+        const centerX = canvas.width / 2 + (selectedOffsetHz / inputRate) * canvas.width;
+        const leftEdge = centerX - recordedWidth / 2;
         const rightEdge = leftEdge + recordedWidth;
         // Keep the selected bandwidth legible across the full spectrum. The
         // tint deliberately fades toward the trace, so a zoomed-in retained
@@ -105,9 +180,14 @@ const RecordingBandOverlay = ({
         ctx.fillStyle = fillGradient;
         ctx.fillRect(leftEdge, drawTop, recordedWidth, drawHeight);
 
-        ctx.fillStyle = alpha(theme.palette.info.main, 0.82);
-        ctx.fillRect(Math.round(leftEdge) - 1, drawTop, 2, drawHeight);
-        ctx.fillRect(Math.round(rightEdge) - 1, drawTop, 2, drawHeight);
+        ctx.fillStyle = alpha(statusColor, 0.82);
+        ctx.fillRect(Math.round(leftEdge), drawTop, 1, drawHeight);
+        ctx.fillRect(Math.round(rightEdge), drawTop, 1, drawHeight);
+
+        // This identifies the selected recording frequency even when the
+        // selection spans the complete SDR bandwidth and has no movable edges.
+        ctx.fillStyle = alpha(statusColor, 0.9);
+        ctx.fillRect(Math.round(centerX), drawTop, 1, drawHeight);
 
         // Draw the status in this canvas, as bookmark and band-plan labels are.
         // The backing store tracks the transformed width, preventing CSS zoom
@@ -122,7 +202,7 @@ const RecordingBandOverlay = ({
         ctx.font = '10px Arial, sans-serif';
         const rateWidth = ctx.measureText(outputRate).width;
         const pillWidth = 31 + statusWidth + rateWidth;
-        const pillX = (canvas.width - pillWidth) / 2;
+        const pillX = Math.max(2, Math.min(canvas.width - pillWidth - 2, centerX - pillWidth / 2));
 
         ctx.beginPath();
         ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 4);
@@ -159,18 +239,19 @@ const RecordingBandOverlay = ({
         factor,
         height,
         isVisible,
+        inputRate,
         outputRate,
+        selectedOffsetHz,
         statusColor,
         statusText,
         theme.palette.background.paper,
-        theme.palette.info.main,
         theme.palette.text.primary,
         theme.palette.text.secondary,
         topPadding,
     ]);
 
-    // Stay mounted at 1× so transform ticks keep this layer's backing store in
-    // sync before a user enables decimation, just like the other canvas layers.
+    // Stay mounted so transform ticks keep this layer's backing store in sync
+    // while a user turns recording-band selection on and off.
     return (
         <Box
             ref={containerRef}
@@ -180,13 +261,16 @@ const RecordingBandOverlay = ({
                 rate: outputRate,
                 defaultValue: `IQ recording ${statusText.toLowerCase()}, ${outputRate}`,
             })}
-            role="img"
+            role={selectionEnabled && !isRecording ? undefined : 'img'}
             sx={{
                 position: 'absolute',
                 inset: 0,
                 height: `${height}px`,
                 pointerEvents: 'none',
-                zIndex: 5,
+                // VFO markers occupy the bandscope at z-index 400. The
+                // selection's hit target must sit above that canvas while it
+                // is enabled, otherwise the VFO layer receives every drag.
+                zIndex: 500,
             }}
         >
             <canvas
@@ -196,6 +280,25 @@ const RecordingBandOverlay = ({
                 height={height}
                 style={{ display: 'block', width: '100%', height: '100%' }}
             />
+            {hasInputRate && selectionEnabled && !isRecording && factor > 1 && (
+                <Box
+                    aria-label={t('recording.dragBand', 'Drag recording band')}
+                    onMouseDown={startMouseDrag}
+                    onTouchStart={startTouchDrag}
+                    sx={{
+                        position: 'absolute',
+                        top: `${topPadding}px`,
+                        bottom: 0,
+                        // Values are clamped above, so the draggable element
+                        // always remains within the available SDR bandwidth.
+                        left: `${(0.5 + selectedOffsetHz / inputRate - 1 / (2 * factor)) * 100}%`,
+                        width: `${100 / factor}%`,
+                        cursor: 'ew-resize',
+                        pointerEvents: 'auto',
+                        touchAction: 'none',
+                    }}
+                />
+            )}
         </Box>
     );
 };

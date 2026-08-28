@@ -129,7 +129,7 @@ function applySDRConfigParametersToState(state, payload, sdrId) {
 
 export const startRecording = createAsyncThunk(
     'waterfall/startRecording',
-    async ({socket, recordingName, selectedSDRId, decimationFactor = 1, storageFormat = 'cf32_le'}, {getState, rejectWithValue}) => {
+    async ({socket, recordingName, selectedSDRId, decimationFactor = 1, storageFormat = 'cf32_le', recordingCenterFrequency = null}, {getState, rejectWithValue}) => {
         return new Promise((resolve, reject) => {
             const state = getState();
             const targetNoradId = state.targetSatTrack?.trackingState?.norad_id || '';
@@ -142,6 +142,7 @@ export const startRecording = createAsyncThunk(
     selectedSDRId,
     decimationFactor,
     storageFormat,
+    recordingCenterFrequency,
     targetSatelliteNoradId: targetNoradId,
     targetSatelliteName: targetSatelliteName
   }
@@ -285,6 +286,11 @@ const initialState = {
     recordingName: '',
     recordingDecimationFactor: 1,
     recordingStorageFormat: 'cf32_le',
+    // A selected recording band is optional. Keeping its offset (rather than
+    // an absolute frequency) lets it follow normal SDR tuning changes.
+    recordingBandSelectionEnabled: false,
+    recordingBandCenterOffsetHz: 0,
+    recordingBandDragStepHz: 1000,
     // Playback state
     selectedPlaybackRecording: null, // Selected recording for playback
     playbackRecordingPath: '', // Path to the selected recording file
@@ -639,6 +645,15 @@ export const waterfallSlice = createSlice({
         setRecordingStorageFormat: (state, action) => {
             state.recordingStorageFormat = action.payload;
         },
+        setRecordingBandSelectionEnabled: (state, action) => {
+            state.recordingBandSelectionEnabled = action.payload;
+        },
+        setRecordingBandCenterOffsetHz: (state, action) => {
+            state.recordingBandCenterOffsetHz = action.payload;
+        },
+        setRecordingBandDragStepHz: (state, action) => {
+            state.recordingBandDragStepHz = action.payload;
+        },
         setRecordingStartTime: (state, action) => {
             state.recordingStartTime = action.payload;
         },
@@ -810,6 +825,9 @@ export const {
     setRecordingName,
     setRecordingDecimationFactor,
     setRecordingStorageFormat,
+    setRecordingBandSelectionEnabled,
+    setRecordingBandCenterOffsetHz,
+    setRecordingBandDragStepHz,
     setRecordingStartTime,
     incrementRecordingDuration,
     setSelectedPlaybackRecording,

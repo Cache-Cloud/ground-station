@@ -15,6 +15,7 @@ from common.filenames import (
 from common.pathguard import get_observations_root, resolve_sigmf_meta_path
 from handlers.entities import filebrowser
 from observations.tasks.recorderhandler import RecorderHandler
+from server import recorder
 from server.snapshots import save_waterfall_snapshot
 
 
@@ -157,6 +158,42 @@ def test_looks_like_path_input_detects_traversal_and_absolute_paths():
     assert looks_like_path_input("/tmp/pwn")
     assert looks_like_path_input(r"..\\..\\pwn")
     assert not looks_like_path_input("NOAA_19")
+
+
+def test_start_recording_passes_a_valid_selected_band_to_iq_recorder(monkeypatch):
+    captured_kwargs = {}
+
+    class DummyProcessManager:
+        def is_sdr_process_running(self, _sdr_id):
+            return True
+
+        def start_recorder(self, _sdr_id, _client_id, _recorder_class, **kwargs):
+            captured_kwargs.update(kwargs)
+            return True
+
+    monkeypatch.setattr(recorder, "process_manager", DummyProcessManager())
+
+    result = recorder.start_recording(
+        "sdr-1",
+        "client-1",
+        "capture",
+        target_center_freq=145_900_000,
+    )
+
+    assert result["success"] is True
+    assert captured_kwargs["target_center_freq"] == 145_900_000.0
+    assert captured_kwargs["enable_frequency_shift"] is True
+
+
+def test_start_recording_rejects_an_invalid_selected_band(monkeypatch):
+    class DummyProcessManager:
+        def is_sdr_process_running(self, _sdr_id):
+            return True
+
+    monkeypatch.setattr(recorder, "process_manager", DummyProcessManager())
+
+    with pytest.raises(ValueError, match="positive finite"):
+        recorder.start_recording("sdr-1", "client-1", target_center_freq=float("nan"))
 
 
 def test_resolve_base_path_within_root_rejects_path_traversal(tmp_path):

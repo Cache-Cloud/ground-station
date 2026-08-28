@@ -25,7 +25,8 @@ import FrequencyScale from "./frequency-scale.jsx";
 import BookmarkCanvas from "./bookmarks-overlay.jsx";
 import {
     setWaterFallScaleX,
-    setWaterFallPositionX
+    setWaterFallPositionX,
+    setRecordingBandCenterOffsetHz,
 } from "./waterfall-slice.jsx";
 import VFOMarkersContainer from './vfo-marker/vfo-container.jsx';
 import FrequencyBandOverlay from './bandplan-overlay.jsx';
@@ -81,6 +82,9 @@ const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
         isStreaming,
         selectedSDRId,
         recordingDecimationFactor,
+        recordingBandSelectionEnabled,
+        recordingBandCenterOffsetHz,
+        recordingBandDragStepHz,
     } = useSelector((state) => ({
         waterFallCanvasWidth: state.waterfall.waterFallCanvasWidth,
         waterFallCanvasHeight: state.waterfall.waterFallCanvasHeight,
@@ -92,6 +96,9 @@ const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
         isStreaming: state.waterfall.isStreaming,
         selectedSDRId: state.waterfall.selectedSDRId,
         recordingDecimationFactor: state.waterfall.recordingDecimationFactor,
+        recordingBandSelectionEnabled: state.waterfall.recordingBandSelectionEnabled,
+        recordingBandCenterOffsetHz: state.waterfall.recordingBandCenterOffsetHz,
+        recordingBandDragStepHz: state.waterfall.recordingBandDragStepHz,
     }), shallowEqual);
 
     // Track playback countdown for display
@@ -691,6 +698,10 @@ const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
                     <RecordingBandOverlay
                         inputSampleRate={sampleRate}
                         decimationFactor={recordingDecimationFactor}
+                        selectionEnabled={recordingBandSelectionEnabled}
+                        centerOffsetHz={recordingBandCenterOffsetHz}
+                        dragStepHz={recordingBandDragStepHz}
+                        onCenterOffsetChange={(offset) => dispatch(setRecordingBandCenterOffsetHz(offset))}
                         isRecording={isRecording}
                         containerWidth={waterFallCanvasWidth}
                         transformTick={bookmarkTransformTick}

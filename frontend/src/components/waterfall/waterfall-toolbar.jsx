@@ -11,6 +11,7 @@ import ErrorIcon from '@mui/icons-material/Error';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import LockIcon from '@mui/icons-material/Lock';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
+import SelectAllIcon from '@mui/icons-material/SelectAll';
 import {
     VFO1Icon,
     VFO2Icon,
@@ -27,7 +28,11 @@ import {
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import { useTranslation } from 'react-i18next';
 import { shallowEqual, useSelector, useDispatch } from 'react-redux';
-import { setShowNeighboringTransmitters, setShowBookmarkSource } from './waterfall-slice';
+import {
+    setRecordingBandSelectionEnabled,
+    setShowNeighboringTransmitters,
+    setShowBookmarkSource,
+} from './waterfall-slice';
 import { useTheme } from '@mui/material/styles';
 import { BOOKMARK_SOURCE_KEYS, getBookmarkSourceStyle } from './bookmark-source-styles.js';
 
@@ -62,6 +67,10 @@ const WaterfallToolbar = ({
     const theme = useTheme();
     const dispatch = useDispatch();
     const showNeighboringTransmitters = useSelector((state) => state.waterfall.showNeighboringTransmitters);
+    const { isRecording, recordingBandSelectionEnabled } = useSelector((state) => ({
+        isRecording: state.waterfall.isRecording,
+        recordingBandSelectionEnabled: state.waterfall.recordingBandSelectionEnabled,
+    }), shallowEqual);
     const [menuAnchorEl, setMenuAnchorEl] = React.useState(null);
     const [experimentMenuAnchorEl, setExperimentMenuAnchorEl] = React.useState(null);
     const menuOpen = Boolean(menuAnchorEl);
@@ -509,6 +518,19 @@ const WaterfallToolbar = ({
                         <ErrorIcon />
                     </IconButton>
                 )}
+
+                <IconButton
+                    sx={{ borderRadius: 0 }}
+                    onClick={() => dispatch(setRecordingBandSelectionEnabled(!recordingBandSelectionEnabled))}
+                    color={recordingBandSelectionEnabled ? 'warning' : 'primary'}
+                    title={recordingBandSelectionEnabled
+                        ? t('toolbar.disable_recording_band', 'Disable recording-band selection')
+                        : t('toolbar.enable_recording_band', 'Enable recording-band selection')}
+                    aria-pressed={recordingBandSelectionEnabled}
+                    disabled={!isStreaming || isRecording}
+                >
+                    <SelectAllIcon />
+                </IconButton>
             </Stack>
         </Box>
 

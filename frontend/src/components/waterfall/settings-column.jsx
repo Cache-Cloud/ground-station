@@ -72,6 +72,9 @@ import {
     setRecordingName,
     setRecordingDecimationFactor,
     setRecordingStorageFormat,
+    setRecordingBandSelectionEnabled,
+    setRecordingBandCenterOffsetHz,
+    setRecordingBandDragStepHz,
     incrementRecordingDuration,
     setSelectedPlaybackRecording,
     setPlaybackRecordingPath,
@@ -157,6 +160,9 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         recordingName,
         recordingDecimationFactor,
         recordingStorageFormat,
+        recordingBandSelectionEnabled,
+        recordingBandCenterOffsetHz,
+        recordingBandDragStepHz,
         selectedPlaybackRecording,
         playbackRecordingPath,
         playbackStartTime,
@@ -207,6 +213,9 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
             recordingName: state.waterfall.recordingName,
             recordingDecimationFactor: state.waterfall.recordingDecimationFactor,
             recordingStorageFormat: state.waterfall.recordingStorageFormat,
+            recordingBandSelectionEnabled: state.waterfall.recordingBandSelectionEnabled,
+            recordingBandCenterOffsetHz: state.waterfall.recordingBandCenterOffsetHz,
+            recordingBandDragStepHz: state.waterfall.recordingBandDragStepHz,
             selectedPlaybackRecording: state.waterfall.selectedPlaybackRecording,
             playbackRecordingPath: state.waterfall.playbackRecordingPath,
             playbackStartTime: state.waterfall.playbackStartTime,
@@ -1190,9 +1199,37 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         dispatch(setRecordingName(name));
     }, [dispatch]);
 
-    const handleRecordingDecimationFactorChange = useCallback((factor) => {
-        dispatch(setRecordingDecimationFactor(factor));
+    const handleRecordingBandSelectionToggle = useCallback(() => {
+        dispatch(setRecordingBandSelectionEnabled(!recordingBandSelectionEnabled));
+    }, [dispatch, recordingBandSelectionEnabled]);
+
+    const handleRecordingBandCenterFrequencyChange = useCallback((frequencyHz) => {
+        const inputRate = Number(sampleRate);
+        const maxOffset = Number.isFinite(inputRate) && inputRate > 0
+            ? Math.max(0, (inputRate - inputRate / recordingDecimationFactor) / 2)
+            : 0;
+        const requestedOffset = Number(frequencyHz) - Number(centerFrequency);
+        if (!Number.isFinite(requestedOffset)) return;
+        dispatch(setRecordingBandCenterOffsetHz(
+            Math.max(-maxOffset, Math.min(maxOffset, requestedOffset))
+        ));
+    }, [centerFrequency, dispatch, recordingDecimationFactor, sampleRate]);
+
+    const handleRecordingBandDragStepChange = useCallback((stepHz) => {
+        dispatch(setRecordingBandDragStepHz(stepHz));
     }, [dispatch]);
+
+    const handleRecordingDecimationFactorChange = useCallback((factor) => {
+        // Keep an existing selection inside the newly selected retained band.
+        const inputRate = Number(sampleRate);
+        const maxOffset = Number.isFinite(inputRate) && inputRate > 0
+            ? Math.max(0, (inputRate - inputRate / factor) / 2)
+            : 0;
+        dispatch(setRecordingBandCenterOffsetHz(
+            Math.max(-maxOffset, Math.min(maxOffset, recordingBandCenterOffsetHz))
+        ));
+        dispatch(setRecordingDecimationFactor(factor));
+    }, [dispatch, recordingBandCenterOffsetHz, sampleRate]);
 
     const handleRecordingStorageFormatChange = useCallback((format) => {
         dispatch(setRecordingStorageFormat(format));
@@ -1244,12 +1281,24 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         // Use custom name if provided, otherwise use state
         const nameToUse = customRecordingName !== undefined ? customRecordingName : recordingName;
 
+        const inputRate = Number(sampleRate);
+        const maxOffset = Number.isFinite(inputRate) && inputRate > 0
+            ? Math.max(0, (inputRate - inputRate / recordingDecimationFactor) / 2)
+            : 0;
+        const selectedOffset = Math.max(
+            -maxOffset,
+            Math.min(maxOffset, Number(recordingBandCenterOffsetHz) || 0)
+        );
+
         dispatch(startRecording({
             socket,
             recordingName: nameToUse,
             selectedSDRId,
             decimationFactor: recordingDecimationFactor,
             storageFormat: recordingStorageFormat,
+            recordingCenterFrequency: recordingBandSelectionEnabled
+                ? Number(centerFrequency) + selectedOffset
+                : null,
         }))
             .unwrap()
             .catch((error) => {
@@ -1586,6 +1635,12 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     sampleRate={sampleRate}
                     decimationFactor={recordingDecimationFactor}
                     onDecimationFactorChange={handleRecordingDecimationFactorChange}
+                    recordingBandSelectionEnabled={recordingBandSelectionEnabled}
+                    onRecordingBandSelectionToggle={handleRecordingBandSelectionToggle}
+                    recordingBandCenterOffsetHz={recordingBandCenterOffsetHz}
+                    onRecordingBandCenterFrequencyChange={handleRecordingBandCenterFrequencyChange}
+                    recordingBandDragStepHz={recordingBandDragStepHz}
+                    onRecordingBandDragStepChange={handleRecordingBandDragStepChange}
                     storageFormat={recordingStorageFormat}
                     onStorageFormatChange={handleRecordingStorageFormatChange}
                     onStartRecording={handleStartRecording}

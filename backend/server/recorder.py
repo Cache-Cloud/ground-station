@@ -16,6 +16,7 @@
 
 import base64
 import logging
+import math
 import os
 import re
 from datetime import datetime
@@ -40,6 +41,7 @@ def start_recording(
     target_satellite_name: str = "",
     decimation_factor: int = 1,
     storage_format: str = "cf32_le",
+    target_center_freq: float | None = None,
 ) -> dict:
     """
     Start IQ recording for a given SDR and client.
@@ -52,6 +54,7 @@ def start_recording(
         target_satellite_name: Optional target satellite name to include in metadata
         decimation_factor: Integer reduction factor for centered, filtered recording
         storage_format: SigMF IQ storage datatype
+        target_center_freq: Optional centre frequency for an off-centre recording band
 
     Returns:
         dict: Result with 'success' (bool), 'data' or 'error' fields
@@ -79,6 +82,13 @@ def start_recording(
     storage_format = str(storage_format or "cf32_le").lower()
     if storage_format not in SUPPORTED_STORAGE_FORMATS:
         raise ValueError(f"Unsupported IQ storage format: {storage_format}")
+    if target_center_freq is not None:
+        try:
+            target_center_freq = float(target_center_freq)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Recording centre frequency must be a number") from exc
+        if not math.isfinite(target_center_freq) or target_center_freq <= 0:
+            raise ValueError("Recording centre frequency must be a positive finite number")
 
     # Generate timestamp
     now = datetime.now()
@@ -119,6 +129,8 @@ def start_recording(
         target_satellite_name=target_satellite_name,
         decimation_factor=decimation_factor,
         storage_format=storage_format,
+        target_center_freq=target_center_freq,
+        enable_frequency_shift=target_center_freq is not None,
     )
 
     if result:
