@@ -57,6 +57,16 @@ import RecordingDialog from '../filebrowser/recording-dialog.jsx';
 
 const PLAYBACK_COUNTDOWN_UPDATE_MS = 250;
 
+// Only these notifications can change the playback inventory. In particular,
+// list-recordings is the response to this component's own request and must not
+// initiate another request.
+const PLAYBACK_RECORDING_REFRESH_ACTIONS = new Set([
+    'recording-stopped',
+    'delete-recording',
+    'delete-observation-bundle',
+    'delete-batch',
+]);
+
 function formatBytes(bytes) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -221,11 +231,8 @@ const PlaybackAccordion = ({
         if (!socket) return;
 
         const handleFileBrowserState = (state) => {
-            // Only refresh on specific actions to avoid infinite loops
-            // Don't refresh on 'list-files' action as that's the response to our fetch
-            const action = state?.action;
-            if (action && action !== 'list-files') {
-                // Refresh files when recording starts/stops/deleted to show changes immediately.
+            if (PLAYBACK_RECORDING_REFRESH_ACTIONS.has(state?.action)) {
+                // Keep the playback inventory current after recording mutations.
                 dispatch(fetchPlaybackRecordings(getPlaybackFilesRequest()));
             }
         };
