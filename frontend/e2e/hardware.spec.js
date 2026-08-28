@@ -65,6 +65,9 @@ test.describe('Rig Configuration', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/admin/system/hardware/rigs');
     await page.waitForLoadState('domcontentloaded');
+    // Hardware controls stay behind this overlay until all Socket.IO bootstrap
+    // requests finish. Waiting for readiness avoids asserting a blank shell.
+    await expect(page.getByText(/loading initial application data/i)).toBeHidden({ timeout: 30000 });
   });
 
   test('should display rig configuration page', async ({ page }) => {

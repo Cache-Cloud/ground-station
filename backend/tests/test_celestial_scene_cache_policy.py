@@ -51,6 +51,10 @@ async def test_get_vectors_snapshot_cache_only_returns_miss_without_exact_cache(
         return None
 
     monkeypatch.setattr(scene, "_load_vectors_from_db", _stub_load_vectors_from_db)
+    # Cache-only mode falls back to the newest stale snapshot after its exact
+    # lookup. Stub both database lookups so this test does not observe data
+    # created by another test or an already-running temporary database.
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _stub_load_vectors_from_db)
 
     result = await scene._get_vectors_snapshot(
         command="Voyager 1",
