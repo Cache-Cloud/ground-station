@@ -1246,6 +1246,20 @@ export default function Layout() {
                         })}
                     </List>
                 </Box>
+                {isExpanded && (
+                    <Box
+                        sx={{
+                            px: 2,
+                            py: 0.75,
+                            overflow: 'hidden',
+                            display: 'flex',
+                            justifyContent: 'center',
+                        }}
+                        aria-label="Application version and environment"
+                    >
+                        <VersionInfo minimal={true} />
+                    </Box>
+                )}
                 <Divider />
                 <Box sx={{ p: 1 }}>
                     <Tooltip
