@@ -248,8 +248,9 @@ const StyledDataGrid = styled(DataGrid)(({theme}) => ({
         },
     },
     '& .passes-cell-status': {
-        alignItems: 'flex-start',
-        paddingTop: theme.spacing(0.4),
+        alignItems: 'center',
+        paddingTop: 0,
+        paddingBottom: 0,
     },
     '& .passes-cell-tags': {
         alignItems: 'center',
@@ -872,12 +873,22 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             valueGetter: (_value, row) => getPassStatus(row, new Date(nowMsRef.current)),
             sortComparator: (v1, v2) => getPassStatusPriority(v1) - getPassStatusPriority(v2),
             renderCell: (params) => (
-                <PassStatusCell
-                    status={params.value}
-                    isTracked={isPassTracked(params.row, trackedSatelliteNoradIds)}
-                    isScheduledForAutomaticObservation={isPassScheduledForAutomaticObservation(params.row, scheduledObservations)}
-                    targetNumber={targetNumberByNorad?.[String(params.row.norad_id)] ?? null}
-                />
+                <Box
+                    sx={{
+                        width: '100%',
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                >
+                    <PassStatusCell
+                        status={params.value}
+                        isTracked={isPassTracked(params.row, trackedSatelliteNoradIds)}
+                        isScheduledForAutomaticObservation={isPassScheduledForAutomaticObservation(params.row, scheduledObservations)}
+                        targetNumber={targetNumberByNorad?.[String(params.row.norad_id)] ?? null}
+                    />
+                </Box>
             )
         },
         {

@@ -195,6 +195,9 @@ const StyledDataGrid = styled(DataGrid)(({ theme }) => ({
     },
     '& .passes-cell-tags': {
         alignItems: 'center',
+    },
+    '& .passes-cell-status': {
+        alignItems: 'center',
     }
 }));
 
@@ -330,6 +333,21 @@ const getPassTagTooltip = (tag, t) => t(`next_passes.pass_tag_tooltips.${tag}`, 
     }[tag] || tag,
 });
 
+// Keep pass-type colors consistent with the Earth View passes table.
+const getPassTagColor = (tag) => ({
+    north_crossing: '#1971C2',
+    south_crossing: '#C2255C',
+    direction_cw: '#5F3DC4',
+    direction_ccw: '#0B7285',
+    direction_mixed: '#E67700',
+    direction_e_to_w: '#1C7ED6',
+    direction_w_to_e: '#2B8A3E',
+    elevation_low: '#C92A2A',
+    elevation_medium: '#E67700',
+    elevation_high: '#2B8A3E',
+    elevation_overhead: '#5F3DC4',
+}[tag] || '#495057');
+
 const PassTypesCell = React.memo(function PassTypesCell({tags, t}) {
     const tagList = Array.isArray(tags)
         ? tags.filter(Boolean).filter((tag) => tag !== 'elevation_medium')
@@ -359,10 +377,15 @@ const PassTypesCell = React.memo(function PassTypesCell({tags, t}) {
                     <Chip
                         label={getPassTagLabel(tag, t)}
                         size="small"
-                        variant="outlined"
+                        variant="filled"
                         sx={{
                             fontSize: '0.64rem',
                             height: 20,
+                            fontWeight: 700,
+                            backgroundColor: getPassTagColor(tag),
+                            color: 'common.white',
+                            border: '1px solid',
+                            borderColor: getPassTagColor(tag),
                             '& .MuiChip-label': {px: 0.7},
                         }}
                     />
@@ -418,13 +441,24 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             align: 'center',
             headerAlign: 'center',
             flex: 1,
+            cellClassName: 'passes-cell-status',
             valueGetter: (_value, row) => getPassStatus(row, new Date(nowMsRef.current)),
             sortComparator: (v1, v2) => getPassStatusPriority(v1) - getPassStatusPriority(v2),
             renderCell: (params) => (
-                <PassStatusCell
-                    status={params.value}
-                    isScheduledForAutomaticObservation={automaticallyObservedPassKeys.has(getPassCurveKey(params.row))}
-                />
+                <Box
+                    sx={{
+                        width: '100%',
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                >
+                    <PassStatusCell
+                        status={params.value}
+                        isScheduledForAutomaticObservation={automaticallyObservedPassKeys.has(getPassCurveKey(params.row))}
+                    />
+                </Box>
             )
         },
         {
