@@ -56,6 +56,17 @@ def _normalize_color(value: Any) -> Optional[str]:
     return color.upper()
 
 
+def _normalize_datetime(value: Any) -> Any:
+    """Accept the ISO-8601 timestamps used by API payloads for datetime fields."""
+    if not isinstance(value, str):
+        return value
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+    return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+
+
 def _hsl_to_hex(hue: float, saturation: float, lightness: float) -> str:
     red, green, blue = colorsys.hls_to_rgb(hue, lightness, saturation)
     return f"#{int(red * 255):02X}{int(green * 255):02X}{int(blue * 255):02X}"
@@ -189,7 +200,7 @@ async def add_monitored_celestial(session: AsyncSession, data: dict) -> dict:
             "body_id": body_id if target_type == "body" else None,
             "color": color,
             "enabled": bool(data.get("enabled", True)),
-            "last_refresh_at": data.get("last_refresh_at"),
+            "last_refresh_at": _normalize_datetime(data.get("last_refresh_at")),
             "last_error": data.get("last_error"),
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
@@ -268,7 +279,7 @@ async def edit_monitored_celestial(session: AsyncSession, data: dict) -> dict:
         if "enabled" in data:
             update_data["enabled"] = bool(data.get("enabled"))
         if "last_refresh_at" in data:
-            update_data["last_refresh_at"] = data.get("last_refresh_at")
+            update_data["last_refresh_at"] = _normalize_datetime(data.get("last_refresh_at"))
         if "last_error" in data:
             update_data["last_error"] = data.get("last_error")
 
@@ -394,7 +405,7 @@ async def update_monitored_celestial_refresh_state(
                 update(MonitoredCelestial)
                 .where(MonitoredCelestial.id == str(target_id))
                 .values(
-                    last_refresh_at=item.get("last_refresh_at"),
+                    last_refresh_at=_normalize_datetime(item.get("last_refresh_at")),
                     last_error=item.get("last_error"),
                     updated_at=now_utc,
                 )

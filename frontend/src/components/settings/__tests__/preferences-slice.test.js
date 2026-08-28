@@ -1,38 +1,49 @@
-/**
- * Example Redux slice test
- */
-
 import { describe, it, expect } from 'vitest';
-import { configureStore } from '@reduxjs/toolkit';
-import preferencesReducer from '../preferences-slice';
+import preferencesReducer, {
+  fetchPreferences,
+  fetchSystemPreferences,
+  setPreference,
+  updatePreferences,
+} from '../preferences-slice';
 
 describe('preferences slice', () => {
-  it('should return the initial state', () => {
-    const store = configureStore({
-      reducer: {
-        preferences: preferencesReducer,
-      },
-    });
+  it('merges persisted user preferences with defaults and retains unknown saved values', () => {
+    let state = preferencesReducer(undefined, { type: '@@INIT' });
+    state = preferencesReducer(state, fetchPreferences.pending('request'));
+    state = preferencesReducer(state, fetchPreferences.fulfilled([
+      { id: 12, name: 'language', value: 'el_GR' },
+      { id: 13, name: 'custom_preference', value: 'enabled' },
+    ], 'request'));
 
-    const state = store.getState().preferences;
-    expect(state).toBeDefined();
+    expect(state.status).toBe('succeeded');
+    expect(state.userPreferences).toEqual(expect.arrayContaining([
+      { id: 12, name: 'language', value: 'el_GR' },
+      { id: 13, name: 'custom_preference', value: 'enabled' },
+      { id: null, name: 'theme', value: 'auto' },
+    ]));
   });
 
-  // Add more tests for your actions and reducers
-  it('should handle preference updates', () => {
-    // Example test - adjust based on your actual slice actions
-    const store = configureStore({
-      reducer: {
-        preferences: preferencesReducer,
-      },
+  it('updates known preferences locally and keeps user and system failures separate', () => {
+    let state = preferencesReducer(undefined, { type: '@@INIT' });
+    state = preferencesReducer(state, setPreference({ name: 'theme', value: 'dark' }));
+    state = preferencesReducer(state, setPreference({ name: 'unknown', value: 'ignored' }));
+    state = preferencesReducer(state, updatePreferences.rejected(null, 'request', undefined, 'Could not save'));
+    state = preferencesReducer(state, fetchSystemPreferences.rejected(
+      null,
+      'request',
+      undefined,
+      'System unavailable'
+    ));
+
+    expect(state.userPreferences.find((preference) => preference.name === 'theme')).toMatchObject({
+      value: 'dark',
     });
-
-    //const initialState = store.getState().preferences;
-
-    // Dispatch an action and test the state change
-    // store.dispatch(updatePreference({ key: 'theme', value: 'dark' }));
-
-    // const newState = store.getState().preferences;
-    // expect(newState.theme).toBe('dark');
+    expect(state.preferences.find((preference) => preference.name === 'unknown')).toBeUndefined();
+    expect(state).toMatchObject({
+      status: 'failed',
+      error: 'Could not save',
+      systemStatus: 'failed',
+      systemError: 'System unavailable',
+    });
   });
 });

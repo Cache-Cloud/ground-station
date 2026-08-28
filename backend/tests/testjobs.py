@@ -1,0 +1,198 @@
+# Copyright (c) 2026 Efstratios Goudelis
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+"""Unit tests for background scheduler job orchestration."""
+
+from types import SimpleNamespace
+
+import pytest
+
+import server.scheduler as scheduler_module
+
+
+class _SessionContext:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _Scheduler:
+    def __init__(self):
+        self.jobs = []
+        self.started = False
+        self.shutdown_wait = None
+
+    def add_job(self, func, trigger, args=(), id=None, name=None, **kwargs):
+        self.jobs.append(
+            SimpleNamespace(
+                func=func,
+                trigger=trigger,
+                args=args,
+                id=id,
+                name=name,
+                kwargs=kwargs,
+                next_run_time=None,
+            )
+        )
+
+    def get_jobs(self):
+        return self.jobs
+
+    def shutdown(self, wait):
+        self.shutdown_wait = wait
+
+    def start(self):
+        self.started = True
+
+
+class _TaskManager:
+    def __init__(self, running_tasks=None):
+        self.running_tasks = running_tasks or []
+        self.started = []
+
+    def get_running_tasks(self):
+        return self.running_tasks
+
+    async def start_task(self, **kwargs):
+        self.started.append(kwargs)
+        return "task-123"
+
+
+@pytest.mark.asyncio
+async def test_orbital_sync_job_starts_registered_task(monkeypatch):
+    manager = _TaskManager()
+    task = object()
+    monkeypatch.setattr(
+        scheduler_module, "get_task", lambda name: task if name == "orbital_sync" else None
+    )
+
+    await scheduler_module.sync_satellite_data_job(manager)
+
+    assert manager.started == [
+        {
+            "func": task,
+            "args": (),
+            "kwargs": {},
+            "name": "Scheduled Orbital Data Sync",
+            "task_id": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_observations_syncs_clients_only_when_rows_change(monkeypatch):
+    emitted = []
+    synced = []
+
+    class ObservationSync:
+        async def sync_all_observations(self):
+            synced.append(True)
+            return {"success": True, "stats": {"scheduled": 2}}
+
+    async def generate(_session):
+        return {
+            "success": True,
+            "data": {"generated": 1, "updated": 0, "skipped": 0, "satellites_processed": 1},
+        }
+
+    async def emit():
+        emitted.append(True)
+
+    monkeypatch.setattr(scheduler_module, "AsyncSessionLocal", lambda: _SessionContext(object()))
+    monkeypatch.setattr(
+        scheduler_module, "generate_observations_for_monitored_satellites", generate
+    )
+    monkeypatch.setattr(scheduler_module.obs_events, "emit_scheduled_observations_changed", emit)
+    monkeypatch.setattr(scheduler_module.obs_events, "observation_sync", ObservationSync())
+
+    await scheduler_module.generate_observations_job()
+
+    assert emitted == [True]
+    assert synced == [True]
+
+
+@pytest.mark.asyncio
+async def test_celestial_sync_skips_setup_or_running_orbital_task(monkeypatch):
+    calls = []
+
+    async def setup_required(**_kwargs):
+        return True
+
+    async def refresh(**_kwargs):
+        calls.append(True)
+        return {"success": True}
+
+    monkeypatch.setattr(scheduler_module.authsvc, "is_setup_required", setup_required)
+    monkeypatch.setattr(scheduler_module, "refresh_celestial_vector_snapshots_cache", refresh)
+    await scheduler_module.sync_celestial_vector_snapshots_job(_TaskManager())
+    assert calls == []
+
+    async def setup_complete(**_kwargs):
+        return False
+
+    monkeypatch.setattr(scheduler_module.authsvc, "is_setup_required", setup_complete)
+    await scheduler_module.sync_celestial_vector_snapshots_job(
+        _TaskManager([{"name": "Orbital Data Sync", "command": "orbital_sync"}])
+    )
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_celestial_sync_resyncs_trackers_and_broadcasts_after_success(monkeypatch):
+    calls = []
+
+    async def setup_complete(**_kwargs):
+        return False
+
+    async def refresh(**_kwargs):
+        calls.append("refresh")
+        return {"success": True, "refreshed": 2, "failed": 0, "count": 2}
+
+    async def resync():
+        calls.append("resync")
+        return {"active": 1, "resynced": 1, "failed": 0}
+
+    async def broadcast(sio):
+        calls.append(("broadcast", sio))
+
+    sio = object()
+    monkeypatch.setattr(scheduler_module.authsvc, "is_setup_required", setup_complete)
+    monkeypatch.setattr(scheduler_module, "refresh_celestial_vector_snapshots_cache", refresh)
+    monkeypatch.setattr(scheduler_module, "_resync_active_non_satellite_trackers", resync)
+    monkeypatch.setattr(scheduler_module, "emit_cached_celestial_tracks_job", broadcast)
+
+    await scheduler_module.sync_celestial_vector_snapshots_job(_TaskManager(), sio=sio)
+
+    assert calls == ["refresh", "resync", ("broadcast", sio)]
+
+
+def test_start_and_stop_scheduler_register_expected_jobs(monkeypatch):
+    references = []
+    monkeypatch.setattr(scheduler_module, "AsyncIOScheduler", _Scheduler)
+    monkeypatch.setattr(scheduler_module, "set_scheduler_reference", references.append)
+    monkeypatch.setattr(scheduler_module, "scheduler", None)
+    monkeypatch.setattr(scheduler_module.arguments, "celestial_periodic_sync_enabled", False)
+
+    scheduler = scheduler_module.start_scheduler(object(), object(), _TaskManager())
+    repeated = scheduler_module.start_scheduler(object(), object(), _TaskManager())
+    scheduler_module.stop_scheduler()
+
+    assert scheduler.started is True
+    assert repeated is scheduler
+    assert {job.id for job in scheduler.jobs} == {
+        "sync_satellite_data",
+        "check_restart_decoders",
+        "generate_observations",
+        scheduler_module.CELESTIAL_TRACKS_BROADCAST_JOB_ID,
+    }
+    assert scheduler.shutdown_wait is False
+    assert references == [scheduler, None]
