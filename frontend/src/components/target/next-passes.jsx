@@ -363,34 +363,46 @@ const PassTypesCell = React.memo(function PassTypesCell({tags, t}) {
         <Box
             sx={{
                 display: 'flex',
-                alignItems: 'center',
-                alignContent: 'center',
-                gap: 0.5,
-                flexWrap: 'wrap',
                 width: '100%',
-                minHeight: '100%',
-                py: 0,
+                height: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
             }}
         >
-            {tagList.map((tag) => (
-                <Tooltip key={tag} title={getPassTagTooltip(tag, t)}>
-                    <Chip
-                        label={getPassTagLabel(tag, t)}
-                        size="small"
-                        variant="filled"
-                        sx={{
-                            fontSize: '0.64rem',
-                            height: 20,
-                            fontWeight: 700,
-                            backgroundColor: getPassTagColor(tag),
-                            color: 'common.white',
-                            border: '1px solid',
-                            borderColor: getPassTagColor(tag),
-                            '& .MuiChip-label': {px: 0.7},
-                        }}
-                    />
-                </Tooltip>
-            ))}
+            <Box
+                sx={{
+                    display: 'flex',
+                    width: '100%',
+                    minWidth: 0,
+                    gap: 0.5,
+                    flexWrap: 'nowrap',
+                    justifyContent: 'flex-start',
+                    overflow: 'hidden',
+                    WebkitMaskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
+                    maskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
+                }}
+            >
+                {tagList.map((tag) => (
+                    <Tooltip key={tag} title={getPassTagTooltip(tag, t)}>
+                        <Chip
+                            label={getPassTagLabel(tag, t)}
+                            size="small"
+                            variant="filled"
+                            sx={{
+                                fontSize: '0.64rem',
+                                height: 20,
+                                flexShrink: 0,
+                                fontWeight: 700,
+                                backgroundColor: getPassTagColor(tag),
+                                color: 'common.white',
+                                border: '1px solid',
+                                borderColor: getPassTagColor(tag),
+                                '& .MuiChip-label': {px: 0.7},
+                            }}
+                        />
+                    </Tooltip>
+                ))}
+            </Box>
         </Box>
     );
 });
