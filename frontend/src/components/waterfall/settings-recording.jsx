@@ -394,7 +394,7 @@ const RecordingAccordion = ({
                             variant={recordingBandSelectionEnabled ? 'contained' : 'outlined'}
                             color={recordingBandSelectionEnabled ? 'warning' : 'primary'}
                             onClick={onRecordingBandSelectionToggle}
-                            disabled={isRecording || !isStreaming}
+                            disabled={isRecording}
                             fullWidth
                         >
                             {recordingBandSelectionEnabled

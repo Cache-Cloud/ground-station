@@ -527,7 +527,7 @@ const WaterfallToolbar = ({
                         ? t('toolbar.disable_recording_band', 'Disable recording-band selection')
                         : t('toolbar.enable_recording_band', 'Enable recording-band selection')}
                     aria-pressed={recordingBandSelectionEnabled}
-                    disabled={!isStreaming || isRecording}
+                    disabled={isRecording}
                 >
                     <SelectAllIcon />
                 </IconButton>
