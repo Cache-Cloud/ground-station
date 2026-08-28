@@ -157,7 +157,7 @@
     "statusRecording": "Recording",
     "statusReady": "Not recording",
     "statusAriaLabel": "IQ recording {{status}}, {{rate}}",
-    "start": "RECORD",
+    "start": "REC",
     "stop": "Stop"
   },
   "playback": {

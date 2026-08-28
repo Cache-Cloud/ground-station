@@ -409,7 +409,7 @@ const RecordingAccordion = ({
                             disabled={!canStartRecording}
                             fullWidth
                         >
-                            {t('recording.start', 'RECORD')}
+                            {t('recording.start', 'REC')}
                         </Button>
                         <Button
                             variant="outlined"
