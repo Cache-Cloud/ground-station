@@ -1,5 +1,8 @@
 # Stage 1: Build the frontend
-FROM node:22-alpine AS frontend-builder
+# Alpine-based Node 22 images can make npm ci terminate with "Exit handler
+# never called". The builder is discarded after static assets are produced, so
+# use the Debian-based image to keep the runtime image unchanged.
+FROM node:22-bookworm-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
