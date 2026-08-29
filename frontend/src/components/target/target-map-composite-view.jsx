@@ -72,6 +72,7 @@ import {
     setSatelliteId,
     setTargetMapSetting,
     TARGET_VIEW_MODE_PLANETARIUM,
+    TARGET_VIEW_MODE_SOLAR_SYSTEM,
 } from './target-slice.jsx';
 import {getMapCrsByTileLayerId, getTileLayerById, normalizeMapEngine} from "../common/tile-layers.jsx";
 import {homeIcon, sunIcon, moonIcon, satelliteIcon2} from '../common/dataurl-icons.jsx';
@@ -659,11 +660,20 @@ const TargetMapCompositeView = ({}) => {
     ]);
 
     useEffect(() => {
-        if (!isSatelliteTarget && nonSatelliteTargetKey) {
-            pendingFocusTargetKeyRef.current = nonSatelliteTargetKey;
-            setFocusTargetSignal((value) => value + 1);
+        if (
+            isSatelliteTarget
+            || targetViewMode !== TARGET_VIEW_MODE_SOLAR_SYSTEM
+            || !nonSatelliteTargetKey
+        ) {
+            return;
         }
-    }, [isSatelliteTarget, nonSatelliteTargetKey]);
+
+        // SolarSystemCanvas is mounted only after the user switches away from
+        // the planetarium. Issue a fresh signal so its focus effect observes a
+        // transition instead of inheriting a signal consumed by the old canvas.
+        pendingFocusTargetKeyRef.current = nonSatelliteTargetKey;
+        setFocusTargetSignal((value) => value + 1);
+    }, [isSatelliteTarget, nonSatelliteTargetKey, targetViewMode]);
     useEffect(() => {
         const handleFullscreenChange = () => {
             const viewportElement = nonSatelliteViewportRef.current;
