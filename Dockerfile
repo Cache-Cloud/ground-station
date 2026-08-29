@@ -1,13 +1,14 @@
 # Stage 1: Build the frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
 # Copy frontend package files
 COPY frontend/package.json frontend/package-lock.json* ./
 
-# Install frontend dependencies
-RUN npm ci
+# Install frontend dependencies. Avoid the audit network request during image
+# construction, then ensure npm produced the CLI required by the next layer.
+RUN npm ci --no-audit --no-fund && test -x node_modules/.bin/vite
 
 # Copy frontend source code
 COPY frontend/ ./
