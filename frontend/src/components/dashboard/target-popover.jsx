@@ -117,6 +117,7 @@ const SatelliteInfoPopover = () => {
     const trackerViews = useSelector((state) => state.targetSatTrack?.trackerViews || {});
     const nextPassesHours = useSelector((state) => state.targetSatTrack?.nextPassesHours || 24.0);
     const fleetPassSummaryByTrackerId = useSelector((state) => state.targetSatTrack?.fleetPassSummaryByTrackerId || {});
+    const hasOnlineTargetSlots = trackerInstances.length > 0;
 
     // Keep closed-state subscriptions intentionally lightweight.
     const selectedTrackerView = (trackerId && trackerViews?.[trackerId]) || null;
@@ -468,8 +469,10 @@ const SatelliteInfoPopover = () => {
 
     const isTrackingActive = trackingState.norad_id === satelliteData.details.norad_id;
 
-    // Fleet rule for top-bar icon: green if any target is visible, otherwise red.
+    // Match the other top-bar target controls: with no online target slots,
+    // satellite status is unavailable rather than an error state.
     const getSatelliteIconColor = () => {
+        if (!hasOnlineTargetSlots) return 'text.disabled';
         return hasAnyVisibleTarget ? 'success.main' : 'error.main';
     };
 
