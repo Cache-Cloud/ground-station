@@ -39,7 +39,11 @@ import {
     Chip,
     Button,
     Tooltip,
-    IconButton
+    IconButton,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
 } from '@mui/material';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
@@ -85,6 +89,27 @@ const magnitude3 = (vector) => {
     const [x, y, z] = vector;
     if (![x, y, z].every((value) => Number.isFinite(value))) return NaN;
     return Math.sqrt(x * x + y * y + z * z);
+};
+
+const getCitationPresentation = (citation) => {
+    const text = String(citation || '').trim();
+    const match = text.match(/https?:\/\/[^\s<>"']+/i);
+    if (!match || match.index === undefined) {
+        return { text, sourceLabel: null, sourceUrl: null };
+    }
+
+    // URLs copied from prose often carry sentence punctuation which is not part of the link.
+    const sourceUrl = match[0].replace(/[.,;:!?]+$/, '');
+    try {
+        const parsedUrl = new URL(sourceUrl);
+        return {
+            text: `${text.slice(0, match.index)}${text.slice(match.index + match[0].length)}`.trim(),
+            sourceLabel: parsedUrl.hostname.replace(/^www\./i, ''),
+            sourceUrl: parsedUrl.href,
+        };
+    } catch {
+        return { text, sourceLabel: null, sourceUrl: null };
+    }
 };
 
 const responsiveMetricPanelSx = {
@@ -173,6 +198,7 @@ const TargetInfoIsland = () => {
     const transmitters = satelliteData?.transmitters || [];
     const [satelliteEditDialogOpen, setSatelliteEditDialogOpen] = React.useState(false);
     const [transmittersDialogOpen, setTransmittersDialogOpen] = React.useState(false);
+    const [citationDialogOpen, setCitationDialogOpen] = React.useState(false);
     const [satelliteCountdown, setSatelliteCountdown] = React.useState('');
     const [nonSatelliteCountdown, setNonSatelliteCountdown] = React.useState('');
     const selectedNoradId = satelliteData?.details?.norad_id || satelliteId || null;
@@ -185,6 +211,11 @@ const TargetInfoIsland = () => {
         && satelliteData['details']
         && satelliteData['details']['operator']
         && satelliteData['details']['operator'] !== 'None'
+    );
+    const citation = String(satelliteData?.details?.citation || '').trim();
+    const citationPresentation = React.useMemo(
+        () => getCitationPresentation(citation),
+        [citation],
     );
     const satelliteDialogData = {
         ...(satelliteData?.details || {}),
@@ -1191,19 +1222,85 @@ const TargetInfoIsland = () => {
                                     </Grid>
                                 </>
                             )}
-                            {satelliteData && satelliteData['details'] && satelliteData['details']['citation'] && (
+                            {citation && (
                                 <>
                                     <Grid size={12}>
                                         <Divider sx={{ my: 0.5 }} />
                                     </Grid>
                                     <Grid size={12}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Box sx={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'auto minmax(0, 1fr)',
+                                            columnGap: 1,
+                                            rowGap: 0.5,
+                                            alignItems: 'start',
+                                            minWidth: 0,
+                                        }}>
                                             <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem', textTransform: 'uppercase' }}>
                                                 Citation
                                             </Typography>
-                                            <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, fontSize: '0.65rem', fontStyle: 'italic' }}>
-                                                {satelliteData['details']['citation']}
-                                            </Typography>
+                                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5, minWidth: 0 }}>
+                                                {citationPresentation.sourceUrl && (
+                                                    <Tooltip title={citationPresentation.sourceUrl}>
+                                                        <Button
+                                                            component="a"
+                                                            href={citationPresentation.sourceUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            size="small"
+                                                            sx={{
+                                                                minWidth: 0,
+                                                                maxWidth: '100%',
+                                                                px: 0.5,
+                                                                py: 0,
+                                                                color: 'primary.main',
+                                                                fontSize: '0.65rem',
+                                                                textTransform: 'none',
+                                                                whiteSpace: 'nowrap',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                            }}
+                                                        >
+                                                            {citationPresentation.sourceLabel} ↗
+                                                        </Button>
+                                                    </Tooltip>
+                                                )}
+                                                {citationPresentation.text && (
+                                                    <Button
+                                                        size="small"
+                                                        onClick={() => setCitationDialogOpen(true)}
+                                                        sx={{
+                                                            px: 0.5,
+                                                            py: 0,
+                                                            fontSize: '0.65rem',
+                                                            textTransform: 'none',
+                                                            flexShrink: 0,
+                                                        }}
+                                                    >
+                                                        More
+                                                    </Button>
+                                                )}
+                                            </Box>
+                                            {citationPresentation.text && (
+                                                <Typography
+                                                    variant="caption"
+                                                    sx={{
+                                                        gridColumn: '1 / -1',
+                                                        minWidth: 0,
+                                                        color: 'text.primary',
+                                                        fontWeight: 600,
+                                                        fontSize: '0.65rem',
+                                                        fontStyle: 'italic',
+                                                        overflowWrap: 'anywhere',
+                                                        display: '-webkit-box',
+                                                        WebkitBoxOrient: 'vertical',
+                                                        WebkitLineClamp: 2,
+                                                        overflow: 'hidden',
+                                                    }}
+                                                >
+                                                    {citationPresentation.text}
+                                                </Typography>
+                                            )}
                                         </Box>
                                     </Grid>
                                 </>
@@ -1659,6 +1756,29 @@ const TargetInfoIsland = () => {
                     </Box>
                 </>
             )}
+            <Dialog
+                open={citationDialogOpen}
+                onClose={() => setCitationDialogOpen(false)}
+                fullWidth
+                maxWidth="sm"
+                aria-labelledby="citation-dialog-title"
+            >
+                <DialogTitle id="citation-dialog-title">Citation</DialogTitle>
+                <DialogContent>
+                    <Typography
+                        variant="body2"
+                        sx={{
+                            whiteSpace: 'pre-wrap',
+                            overflowWrap: 'anywhere',
+                        }}
+                    >
+                        {citation}
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setCitationDialogOpen(false)}>Close</Button>
+                </DialogActions>
+            </Dialog>
             <TransmittersDialog
                 open={transmittersDialogOpen}
                 onClose={() => setTransmittersDialogOpen(false)}
