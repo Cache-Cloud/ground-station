@@ -775,15 +775,15 @@ const CelestialPasses = ({
             headerAlign: 'center',
             sortable: false,
             renderCell: (params) => {
-                if (params.row?.status !== 'live') {
-                    return <span>-</span>;
-                }
                 return (
                     <ElevationDisplay
                         elevation={params.row?.currentElevationDeg}
                         trend={params.row?.elevationTrend}
                         elRate={params.row?.elevationRate}
                         timeToMaxEl={params.row?.timeToPeakSeconds}
+                        // This is the target's current sky position, not the
+                        // elevation at the pass event, so retain it below 0°.
+                        showNegative={true}
                         decimalPlaces={2}
                     />
                 );
