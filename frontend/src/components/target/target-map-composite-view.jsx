@@ -90,6 +90,7 @@ import TargetNumberIcon from '../common/target-number-icon.jsx';
 import { useTooltipOrientation } from '../common/tooltip-orientation.js';
 import TargetMapSettingsDialog from './target-map-settings-dialog.jsx';
 import TargetSkyViewSettingsDialog from './target-sky-view-settings-dialog.jsx';
+import TargetViewPicker from './target-view-picker.jsx';
 import CoordinateGrid from "../common/mercator-grid.jsx";
 import createTerminatorLine from "../common/terminator-line.jsx";
 import {getSunMoonCoords} from "../common/sunmoon.jsx";
@@ -1078,7 +1079,8 @@ const TargetMapCompositeView = ({}) => {
                             </Typography>
                         </Box>
                         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                            <Tooltip title={t('map_settings.title')}>
+                            <TargetViewPicker targetType={targetType}/>
+                            <Tooltip title={t('view_settings.customize_title', {defaultValue: 'Customize current view'})}>
                                 <span>
                                     <IconButton
                                         size="small"
@@ -1208,8 +1210,9 @@ const TargetMapCompositeView = ({}) => {
                             {t('satellite_map.title')}
                         </Typography>
                     </Box>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        <Tooltip title={t('map_settings.title')}>
+                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                        <TargetViewPicker targetType="satellite"/>
+                        <Tooltip title={t('view_settings.customize_title', {defaultValue: 'Customize current view'})}>
                             <span>
                                 <IconButton
                                     size="small"

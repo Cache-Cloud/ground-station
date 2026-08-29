@@ -48,6 +48,8 @@ import {
     setTargetMapSetting,
 } from './target-slice.jsx';
 import TargetMapSettingsDialog from './target-map-settings-dialog.jsx';
+import TargetSkyViewSettingsDialog from './target-sky-view-settings-dialog.jsx';
+import TargetViewPicker from './target-view-picker.jsx';
 import {
     satelliteDetailsSelector,
     satellitePositionSelector,
@@ -391,7 +393,8 @@ const TargetSkyPlanetariumView = () => {
                         </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                        <Tooltip title={t('map_settings.title')}>
+                        <TargetViewPicker targetType={targetType}/>
+                        <Tooltip title={t('view_settings.customize_title', {defaultValue: 'Customize current view'})}>
                             <span>
                                 <IconButton
                                     size="small"
@@ -483,10 +486,17 @@ const TargetSkyPlanetariumView = () => {
                     </Box>
                 ) : null}
             </Box>
-            <TargetMapSettingsDialog updateBackend={() => {
-                const key = 'target-map-settings';
-                dispatch(setTargetMapSetting({socket, key}));
-            }}/>
+            {isSatelliteTarget ? (
+                <TargetMapSettingsDialog updateBackend={() => {
+                    const key = 'target-map-settings';
+                    dispatch(setTargetMapSetting({socket, key}));
+                }}/>
+            ) : (
+                <TargetSkyViewSettingsDialog updateBackend={() => {
+                    const key = 'target-map-settings';
+                    dispatch(setTargetMapSetting({socket, key}));
+                }}/>
+            )}
         </Box>
     );
 };

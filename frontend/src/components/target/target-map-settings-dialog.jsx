@@ -128,7 +128,7 @@ function TargetMapSettingsDialog({updateBackend}) {
                         py: 2.2,
                     }}
                 >
-                    {t('map_settings.title')}
+                    {t('view_settings.customize_title', { defaultValue: 'Customize current view' })}
                 </DialogTitle>
                 <DialogContent
                     sx={{
@@ -162,6 +162,8 @@ function TargetMapSettingsDialog({updateBackend}) {
                         initialShowTerminatorLine={showTerminatorLine}
                         mapEngineOptions={TARGET_MAP_ENGINE_OPTIONS}
                         normalizeMapEngineValue={normalizeTargetMapEngine}
+                        showMapEngineSelector={false}
+                        showAutoSwitchPlanetariumByVisibility={false}
                         defaultSettings={{
                             lockOnTarget: true,
                             enableMapDragging: false,

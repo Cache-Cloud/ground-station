@@ -3,6 +3,22 @@
     "title": "Map Settings",
     "close": "Close"
   },
+  "view_picker": {
+    "label": "View",
+    "map": "2D map",
+    "globe": "Globe",
+    "sky": "Sky",
+    "automatic": "Auto by visibility",
+    "solar_system": "Solar system"
+  },
+  "view_settings": {
+    "customize_title": "Customize current view",
+    "interaction_title": "Interaction",
+    "interaction_description": "Control direct pointer interaction inside the current view.",
+    "map_preferences": "Map preferences",
+    "map_preferences_description": "Choose a basemap and control direct map interaction.",
+    "sky_interaction_description": "Control pointer interaction inside the sky view."
+  },
   "map_controls": {
     "map_settings": "Map settings",
     "go_home": "Go home",

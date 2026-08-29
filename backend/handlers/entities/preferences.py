@@ -19,7 +19,6 @@ from typing import Any, Dict, Optional, Union
 
 import crud
 from db import AsyncSessionLocal
-from handlers.entities.tracking import emit_tracker_data, emit_ui_tracker_values
 from handlers.routing import get_auth_context
 from tracker.runner import get_all_tracker_managers
 
@@ -178,13 +177,12 @@ async def set_map_settings(
                 "error": map_settings_reply.get("error"),
             }
 
-        # Tracker/UI tracker updates are only relevant for target-map-settings.
-        # Avoid unnecessary tracking-state DB load for unrelated map setting keys.
+        # Target-map settings apply to existing tracker workers only.
+        # The tracker worker owns live telemetry. Emitting a second snapshot here
+        # can race its in-memory ephemeris after a view-only setting change.
         if data and data.get("name") == "target-map-settings":
             managers = get_all_tracker_managers()
-            for tracker_id, manager in managers.items():
-                await emit_tracker_data(dbsession, sio, logger, tracker_id=tracker_id)
-                await emit_ui_tracker_values(dbsession, sio, logger, tracker_id=tracker_id)
+            for manager in managers.values():
                 manager.notify_map_settings_changed(data.get("value", {}))
 
         return {

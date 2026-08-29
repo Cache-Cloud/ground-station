@@ -17,7 +17,7 @@
  *
  */
 
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import Map, {Marker, Popup, Source, Layer} from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import {Box, Fab, Tooltip, IconButton, Typography, useTheme} from '@mui/material';
@@ -52,6 +52,7 @@ import {
 } from '../common/common.jsx';
 import TargetNumberIcon from '../common/target-number-icon.jsx';
 import TargetMapSettingsDialog from './target-map-settings-dialog.jsx';
+import TargetViewPicker from './target-view-picker.jsx';
 import createTerminatorLine from '../common/terminator-line.jsx';
 import {getSunMoonCoords} from '../common/sunmoon.jsx';
 import {useSocket} from '../common/socket.jsx';
@@ -120,6 +121,17 @@ const emptyFeatureCollection = () => ({
     type: 'FeatureCollection',
     features: [],
 });
+
+const hasSatelliteIdentity = (details) => Boolean(
+    String(details?.norad_id ?? details?.name ?? '').trim(),
+);
+
+// react-map-gl applies the projection prop after a style load. Camera changes
+// must wait for that handoff, otherwise fitBounds can run on the prior transform.
+export const isMapProjectionReady = (map, expectedProjection) => Boolean(
+    map?.isStyleLoaded?.()
+    && map?.getProjection?.()?.type === expectedProjection
+);
 
 function latLonToLngLat(point) {
     let lat;
@@ -286,13 +298,17 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
     const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
     const {location} = useSelector((state) => state.location);
 
-    const mapRef = useRef(null);
     const mapViewportRef = useRef(null);
     const popupRef = useRef(null);
+    const [liveMap, setLiveMap] = useState(null);
+    const [projectionRevision, setProjectionRevision] = useState(0);
     const normalizedMapEngine = useMemo(
         () => normalizeMapEngine(effectiveMapEngine || mapEngine),
         [effectiveMapEngine, mapEngine]
     );
+    // react-map-gl forwards this value to MapLibre's setProjection(), which
+    // expects a projection specification rather than a bare string.
+    const mapProjection = useMemo(() => ({type: projection}), [projection]);
 
     const targetNumber = useMemo(() => {
         const activeTrackerInstance = trackerInstances.find((instance) => instance?.tracker_id === trackerId) || null;
@@ -486,60 +502,39 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
 
     const satelliteLat = Number(satellitePosition?.lat);
     const satelliteLon = Number(satellitePosition?.lon);
-    const hasSatellitePosition = Number.isFinite(satelliteLat) && Number.isFinite(satelliteLon);
-    const liveMap = mapRef.current?.getMap();
+    // The tracking slice starts with 0°, 0° placeholder coordinates. Do not
+    // treat them as target telemetry until a satellite identity has arrived.
+    const hasSatellitePosition = hasSatelliteIdentity(satelliteDetails)
+        && Number.isFinite(satelliteLat)
+        && Number.isFinite(satelliteLon);
+    const isProjectionReady = isMapProjectionReady(liveMap, projection);
     const [tooltipDirection, setTooltipDirection] = useState(MAPLIBRE_TOOLTIP_DIRECTIONS[0]);
 
     useEffect(() => {
-        if (!liveMap || typeof liveMap.setProjection !== 'function') {
+        if (!liveMap) {
             return undefined;
         }
 
-        let cancelled = false;
-        const waitForStyle = () => {
-            if (!cancelled) {
-                liveMap.once('style.load', applyProjection);
-            }
+        // MapLibre emits projectiontransition after react-map-gl has installed the
+        // prop-owned projection. style.load covers the initial asynchronous style.
+        const handleProjectionStateChange = () => {
+            setProjectionRevision((revision) => revision + 1);
         };
-        const applyProjection = () => {
-            // React can mount this view while MapLibre is replacing its style.
-            // setProjection mutates the style and throws until that load completes.
-            if (cancelled || !liveMap.isStyleLoaded?.()) {
-                waitForStyle();
-                return;
-            }
-            try {
-                liveMap.setProjection({type: isGlobeProjection ? MAPLIBRE_PROJECTION_GLOBE : MAPLIBRE_PROJECTION_MERCATOR});
-                if (isGlobeProjection) {
-                    liveMap.setPitch?.(0);
-                    liveMap.setBearing?.(0);
-                }
-            } catch (error) {
-                // A concurrent style replacement can begin after isStyleLoaded().
-                // Retry only this known transient condition; other MapLibre failures
-                // remain visible in the console instead of looping indefinitely.
-                if (error?.message === 'Style is not done loading.') {
-                    waitForStyle();
-                    return;
-                }
-                console.warn('Target map projection update failed:', error);
-            }
-        };
-
-        if (liveMap.isStyleLoaded?.()) {
-            applyProjection();
-        } else {
-            waitForStyle();
-        }
+        liveMap.on('style.load', handleProjectionStateChange);
+        liveMap.on('projectiontransition', handleProjectionStateChange);
+        handleProjectionStateChange();
 
         return () => {
-            cancelled = true;
-            liveMap.off('style.load', applyProjection);
+            liveMap.off('style.load', handleProjectionStateChange);
+            liveMap.off('projectiontransition', handleProjectionStateChange);
         };
-    }, [isGlobeProjection, liveMap]);
+    }, [liveMap, projection]);
 
-    useEffect(() => {
-        if (!liveMap || !lockOnTarget) return;
+    useLayoutEffect(() => {
+        if (!liveMap || !lockOnTarget || !hasSatellitePosition) return;
+        if (!isProjectionReady) {
+            return;
+        }
         const lat = Number(satellitePosition?.lat);
         const lon = Number(satellitePosition?.lon);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
@@ -584,7 +579,11 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
         }
 
         liveMap.flyTo({center: [lon, lat], zoom: liveMap.getZoom(), animate: false});
-    }, [isGlobeProjection, liveMap, lockOnTarget, satelliteCoverage, satellitePosition?.lat, satellitePosition?.lon, showSatelliteCoverage]);
+    }, [hasSatellitePosition, isGlobeProjection, isProjectionReady, liveMap, lockOnTarget, projectionRevision, satelliteCoverage, satellitePosition?.lat, satellitePosition?.lon, showSatelliteCoverage]);
+
+    const handleMapRef = useCallback((map) => {
+        setLiveMap(map?.getMap?.() || null);
+    }, []);
 
     useEffect(() => {
         if (!liveMap) return undefined;
@@ -715,17 +714,20 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
                     <Typography variant="subtitle2" sx={{fontWeight: 'bold'}}>
                         {t('satellite_map.title')}
                     </Typography>
-                    <Tooltip title={t('map_settings.title')}>
-                        <span>
-                            <IconButton
-                                size="small"
-                                onClick={handleOpenSettings}
-                                sx={{padding: '2px'}}
-                            >
-                                <SettingsIcon fontSize="small"/>
-                            </IconButton>
-                        </span>
-                    </Tooltip>
+                    <Box sx={{display: 'flex', alignItems: 'center', gap: 0.5}}>
+                        <TargetViewPicker targetType="satellite"/>
+                        <Tooltip title={t('view_settings.customize_title', {defaultValue: 'Customize current view'})}>
+                            <span>
+                                <IconButton
+                                    size="small"
+                                    onClick={handleOpenSettings}
+                                    sx={{padding: '2px'}}
+                                >
+                                    <SettingsIcon fontSize="small"/>
+                                </IconButton>
+                            </span>
+                        </Tooltip>
+                    </Box>
                 </Box>
             </TitleBar>
 
@@ -763,11 +765,11 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
                 }}
             >
                 <Map
-                    ref={mapRef}
+                    ref={handleMapRef}
                     mapLib={maplibregl}
                     mapStyle={mapStyle}
                     attributionControl={false}
-                    projection={projection}
+                    projection={mapProjection}
                     initialViewState={{
                         longitude: hasSatellitePosition ? satelliteLon : 0,
                         latitude: hasSatellitePosition ? satelliteLat : 0,
@@ -778,7 +780,9 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
                     touchZoomRotate={enableMapZooming}
                     doubleClickZoom={enableMapZooming}
                     keyboard={false}
-                    renderWorldCopies={false}
+                    // A coverage footprint can cross the antimeridian. Allowing the
+                    // adjacent world copy lets fitBounds keep its center on the target.
+                    renderWorldCopies={true}
                     minZoom={MAPLIBRE_MIN_ZOOM}
                     maxZoom={10}
                     onZoomEnd={(event) => {

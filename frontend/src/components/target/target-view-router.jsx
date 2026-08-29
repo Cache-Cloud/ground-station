@@ -23,7 +23,6 @@ import {normalizeMapEngine} from "../common/tile-layers.jsx";
 import {normalizeTargetType} from './celestial-target-utils.js';
 import TargetMapCompositeView from './target-map-composite-view.jsx';
 import TargetEarthMapLibreView from './target-earth-maplibre-view.jsx';
-import TargetEarthMapLibreGlobeView from './target-earth-maplibre-globe-view.jsx';
 import TargetSkyPlanetariumView from './target-sky-planetarium-view.jsx';
 
 const MAP_ENGINE_MAPLIBRE_GLOBE = 'maplibre-globe';
@@ -112,7 +111,10 @@ const TargetViewRouter = () => {
 
     // Globe renderer is intentionally satellite-target-only on the Target page.
     if (effectiveMapEngine === MAP_ENGINE_MAPLIBRE_GLOBE && targetType === 'satellite') {
-        return <TargetEarthMapLibreGlobeView effectiveMapEngine={effectiveMapEngine}/>;
+        // Keep the MapLibre view mounted while changing projection. Replacing it
+        // with the globe wrapper briefly creates a new map at its default camera
+        // before the target-follow effect can position it.
+        return <TargetEarthMapLibreView projection="globe" effectiveMapEngine={effectiveMapEngine}/>;
     }
 
     if (normalizedMapEngine === 'maplibre' && targetType === 'satellite') {

@@ -261,7 +261,9 @@ const MapSettingsIsland = ({ initialLockOnTarget, initialEnableMapDragging, init
                             handleSatelliteCoverageColor, handleOrbitProjectionDuration, handleShowTooltip,
                                handleTileLayerID, handleMapEngine, handleShowGrid, updateBackend, onCancel, defaultSettings, open,
                                mapEngineOptions: allowedMapEngineOptions = mapEngineOptions,
-                               normalizeMapEngineValue = defaultNormalizeMapEngine}) => {
+                               normalizeMapEngineValue = defaultNormalizeMapEngine,
+                               showMapEngineSelector = true,
+                               showAutoSwitchPlanetariumByVisibility = true}) => {
 
     const { t } = useTranslation('common');
 
@@ -284,25 +286,32 @@ const MapSettingsIsland = ({ initialLockOnTarget, initialEnableMapDragging, init
     );
     const supportsAutoSwitchPlanetariumByVisibility = useMemo(
         () => (
+            showAutoSwitchPlanetariumByVisibility
+            && (
             typeof initialAutoSwitchPlanetariumByVisibility === 'boolean'
             || typeof defaultSettings?.autoSwitchPlanetariumByVisibility === 'boolean'
             || typeof handleAutoSwitchPlanetariumByVisibility === 'function'
+            )
         ),
         [
             defaultSettings?.autoSwitchPlanetariumByVisibility,
             handleAutoSwitchPlanetariumByVisibility,
             initialAutoSwitchPlanetariumByVisibility,
+            showAutoSwitchPlanetariumByVisibility,
         ]
     );
     const settingsKeys = useMemo(
         () => {
-            const keys = supportsLockOnTarget ? [...SETTINGS_KEYS, 'lockOnTarget'] : [...SETTINGS_KEYS];
+            let keys = supportsLockOnTarget ? [...SETTINGS_KEYS, 'lockOnTarget'] : [...SETTINGS_KEYS];
             if (!supportsAutoSwitchPlanetariumByVisibility) {
-                return keys.filter((key) => key !== 'autoSwitchPlanetariumByVisibility');
+                keys = keys.filter((key) => key !== 'autoSwitchPlanetariumByVisibility');
+            }
+            if (!showMapEngineSelector) {
+                keys = keys.filter((key) => key !== 'mapEngine');
             }
             return keys;
         },
-        [supportsAutoSwitchPlanetariumByVisibility, supportsLockOnTarget]
+        [showMapEngineSelector, supportsAutoSwitchPlanetariumByVisibility, supportsLockOnTarget]
     );
 
     const initialSettings = useMemo(
@@ -350,7 +359,7 @@ const MapSettingsIsland = ({ initialLockOnTarget, initialEnableMapDragging, init
         ]
     );
 
-    const defaults = useMemo(
+    const rawDefaults = useMemo(
         () => buildSettings({
             initialLockOnTarget: defaultSettings?.lockOnTarget,
             initialEnableMapDragging: defaultSettings?.enableMapDragging,
@@ -373,6 +382,18 @@ const MapSettingsIsland = ({ initialLockOnTarget, initialEnableMapDragging, init
             normalizeMapEngineValue,
         }),
         [defaultSettings, normalizeMapEngineValue]
+    );
+    const defaults = useMemo(
+        () => ({
+            ...rawDefaults,
+            // Primary view changes happen in the compact View picker. Resetting
+            // visual preferences must not silently change that primary choice.
+            ...(!showMapEngineSelector ? {mapEngine: initialSettings.mapEngine} : {}),
+            ...(!supportsAutoSwitchPlanetariumByVisibility
+                ? {autoSwitchPlanetariumByVisibility: initialSettings.autoSwitchPlanetariumByVisibility}
+                : {}),
+        }),
+        [initialSettings, rawDefaults, showMapEngineSelector, supportsAutoSwitchPlanetariumByVisibility]
     );
 
     const [draftSettings, setDraftSettings] = useState(initialSettings);
@@ -478,15 +499,22 @@ const MapSettingsIsland = ({ initialLockOnTarget, initialEnableMapDragging, init
             <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 2, pt: 2, pb: 1.5 }}>
                 <Stack spacing={1.5}>
                 <SectionBlock
-                    title={t('map_settings.section_base_map', { defaultValue: 'Base Map' })}
+                    title={showMapEngineSelector
+                        ? t('map_settings.section_base_map', { defaultValue: 'Base Map' })
+                        : t('view_settings.map_preferences', { defaultValue: 'Map preferences' })}
                     subtitle={
                         isPlanetariumEngine
-                            ? t('map_settings.section_base_map_planetarium_desc', {
-                                defaultValue: 'Select the active rendering engine and pointer interaction behavior.',
+                            ? t('view_settings.sky_interaction_description', {
+                                defaultValue: 'Control pointer interaction inside the sky view.',
                             })
-                            : t('map_settings.section_base_map_desc', { defaultValue: 'Choose a basemap and projection.' })
+                            : (showMapEngineSelector
+                                ? t('map_settings.section_base_map_desc', { defaultValue: 'Choose a basemap and projection.' })
+                                : t('view_settings.map_preferences_description', {
+                                    defaultValue: 'Choose a basemap and control direct map interaction.',
+                                }))
                     }
                 >
+                    {showMapEngineSelector ? (
                     <FormControl fullWidth size="small" variant="outlined">
                         <InputLabel id="map-engine-label">{t('map_settings.map_engine', { defaultValue: 'Map Engine' })}</InputLabel>
                         <Select
@@ -509,6 +537,7 @@ const MapSettingsIsland = ({ initialLockOnTarget, initialEnableMapDragging, init
                             ))}
                         </Select>
                     </FormControl>
+                    ) : null}
 
                     {!isPlanetariumEngine ? (
                         <FormControl fullWidth size="small" variant="outlined">
