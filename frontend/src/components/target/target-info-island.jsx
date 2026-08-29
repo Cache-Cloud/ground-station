@@ -87,6 +87,65 @@ const magnitude3 = (vector) => {
     return Math.sqrt(x * x + y * y + z * z);
 };
 
+const responsiveMetricPanelSx = {
+    mb: 1.5,
+    p: 1.25,
+    bgcolor: 'overlay.light',
+    borderRadius: 1,
+    // This island can be resized independently of the viewport, so its
+    // telemetry needs to respond to the island width rather than a page breakpoint.
+    containerType: 'inline-size',
+    containerName: 'target-metrics',
+    '& .target-metric-grid': {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+        gap: 1,
+    },
+    '& .target-metric-card': {
+        minWidth: 0,
+    },
+    '& .target-metric-label-short': {
+        display: 'none',
+    },
+    '@container target-metrics (max-width: 360px)': {
+        '& .target-metric-card': {
+            p: 0.75,
+        },
+        '& .target-metric-label-full': {
+            display: 'none',
+        },
+        '& .target-metric-label-short': {
+            display: 'inline',
+        },
+        '& .target-metric-secondary': {
+            display: 'none',
+        },
+        '& .target-metric-value': {
+            fontSize: '1.1rem',
+        },
+    },
+    '@container target-metrics (max-width: 280px)': {
+        '& .target-metric-grid': {
+            gridTemplateColumns: 'minmax(0, 1fr)',
+        },
+        '& .target-metric-card': {
+            p: 1,
+        },
+        '& .target-metric-label-full': {
+            display: 'inline',
+        },
+        '& .target-metric-label-short': {
+            display: 'none',
+        },
+        '& .target-metric-secondary': {
+            display: 'block',
+        },
+        '& .target-metric-value': {
+            fontSize: '1.25rem',
+        },
+    },
+};
+
 const formatCountdownDiff = (diffMs) => {
     if (!Number.isFinite(diffMs) || diffMs <= 0) return '0s';
     const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -724,15 +783,9 @@ const TargetInfoIsland = () => {
                         Real-Time Position
                     </Typography>
                 </Box>
-                <Box sx={{
-                    mb: 1.5,
-                    p: 1.25,
-                    bgcolor: 'overlay.light',
-                    borderRadius: 1
-                }}>
-                    <Grid container spacing={1}>
-                        <Grid size={6}>
-                            <Box sx={{
+                <Box sx={responsiveMetricPanelSx}>
+                    <Box className="target-metric-grid">
+                        <Box className="target-metric-card" sx={{
                                 textAlign: 'center',
                                 p: 1,
                                 bgcolor: 'background.paper',
@@ -740,18 +793,17 @@ const TargetInfoIsland = () => {
                                 border: '1px solid',
                                 borderColor: 'divider'
                             }}>
-                                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
-                                    Elevation
+                                <Typography aria-label="Elevation" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
+                                    <span className="target-metric-label-full">Elevation</span>
+                                    <span className="target-metric-label-short">EL</span>
                                 </Typography>
-                                <Typography variant="h4" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace', lineHeight: 1, fontSize: '1.5rem' }}>
+                                <Typography className="target-metric-value" variant="h4" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace', lineHeight: 1, fontSize: '1.5rem', whiteSpace: 'nowrap' }}>
                                     {Number.isFinite(satelliteElevation)
                                         ? `${satelliteElevation.toFixed(2)}°`
                                         : '--'}
                                 </Typography>
-                            </Box>
-                        </Grid>
-                        <Grid size={6}>
-                            <Box sx={{
+                        </Box>
+                        <Box className="target-metric-card" sx={{
                                 textAlign: 'center',
                                 p: 1,
                                 bgcolor: 'background.paper',
@@ -759,16 +811,15 @@ const TargetInfoIsland = () => {
                                 border: '1px solid',
                                 borderColor: 'divider'
                             }}>
-                                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
-                                    Azimuth
+                                <Typography aria-label="Azimuth" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
+                                    <span className="target-metric-label-full">Azimuth</span>
+                                    <span className="target-metric-label-short">AZ</span>
                                 </Typography>
-                                <Typography variant="h4" sx={{ fontWeight: 700, color: 'secondary.main', fontFamily: 'monospace', lineHeight: 1, fontSize: '1.5rem' }}>
+                                <Typography className="target-metric-value" variant="h4" sx={{ fontWeight: 700, color: 'secondary.main', fontFamily: 'monospace', lineHeight: 1, fontSize: '1.5rem', whiteSpace: 'nowrap' }}>
                                     {Number.isFinite(satelliteAzimuth) ? `${satelliteAzimuth.toFixed(2)}°` : '--'}
                                 </Typography>
-                            </Box>
-                        </Grid>
-                        <Grid size={6}>
-                            <Box sx={{
+                        </Box>
+                        <Box className="target-metric-card" sx={{
                                 textAlign: 'center',
                                 p: 1,
                                 bgcolor: 'background.paper',
@@ -776,20 +827,19 @@ const TargetInfoIsland = () => {
                                 border: '1px solid',
                                 borderColor: 'divider'
                             }}>
-                                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
-                                    Altitude
+                                <Typography aria-label="Altitude, kilometres" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
+                                    <span className="target-metric-label-full">Altitude</span>
+                                    <span className="target-metric-label-short">ALT · km</span>
                                 </Typography>
-                                <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace', lineHeight: 1 }}>
+                                <Typography className="target-metric-value" variant="h5" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace', lineHeight: 1, whiteSpace: 'nowrap' }}>
                                     {satelliteData && satelliteData['position'] ? humanizeAltitude(satelliteData['position']['alt'], 0) : '--'}
                                     <Typography component="span" sx={{ ml: 0.5, fontSize: '0.7rem', color: 'text.secondary' }}>km</Typography>
                                 </Typography>
-                                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.62rem' }}>
+                                <Typography className="target-metric-secondary" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.62rem' }}>
                                     {Number.isFinite(satelliteAltitudeMi) ? `${satelliteAltitudeMi.toFixed(1)} mi` : ''}
                                 </Typography>
-                            </Box>
-                        </Grid>
-                        <Grid size={6}>
-                            <Box sx={{
+                        </Box>
+                        <Box className="target-metric-card" sx={{
                                 textAlign: 'center',
                                 p: 1,
                                 bgcolor: 'background.paper',
@@ -797,19 +847,19 @@ const TargetInfoIsland = () => {
                                 border: '1px solid',
                                 borderColor: 'divider'
                             }}>
-                                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
-                                    Velocity
+                                <Typography aria-label="Velocity, kilometres per second" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
+                                    <span className="target-metric-label-full">Velocity</span>
+                                    <span className="target-metric-label-short">VEL · km/s</span>
                                 </Typography>
-                                <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace', lineHeight: 1 }}>
+                                <Typography className="target-metric-value" variant="h5" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace', lineHeight: 1, whiteSpace: 'nowrap' }}>
                                     {satelliteData && satelliteData['position'] ? humanizeVelocity(satelliteData['position']['vel']) : '--'}
                                     <Typography component="span" sx={{ ml: 0.5, fontSize: '0.7rem', color: 'text.secondary' }}>km/s</Typography>
                                 </Typography>
-                                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.62rem' }}>
+                                <Typography className="target-metric-secondary" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.62rem' }}>
                                     {Number.isFinite(satelliteVelocityMiS) ? `${satelliteVelocityMiS.toFixed(3)} mi/s` : ''}
                                 </Typography>
-                            </Box>
-                        </Grid>
-                    </Grid>
+                        </Box>
+                    </Box>
                 </Box>
 
                 {/* Geographic Position */}
@@ -1359,10 +1409,9 @@ const TargetInfoIsland = () => {
                                 Real-Time Position
                             </Typography>
                         </Box>
-                        <Box sx={{ mb: 1.5, p: 1.25, bgcolor: 'overlay.light', borderRadius: 1 }}>
-                            <Grid container spacing={1}>
-                                <Grid size={6}>
-                                    <Box sx={{
+                        <Box sx={responsiveMetricPanelSx}>
+                            <Box className="target-metric-grid">
+                                <Box className="target-metric-card" sx={{
                                         textAlign: 'center',
                                         p: 1,
                                         bgcolor: 'background.paper',
@@ -1370,16 +1419,15 @@ const TargetInfoIsland = () => {
                                         border: '1px solid',
                                         borderColor: 'divider',
                                     }}>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
-                                            Elevation
+                                        <Typography aria-label="Elevation" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
+                                            <span className="target-metric-label-full">Elevation</span>
+                                            <span className="target-metric-label-short">EL</span>
                                         </Typography>
-                                        <Typography variant="h4" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace', lineHeight: 1, fontSize: '1.5rem' }}>
+                                        <Typography className="target-metric-value" variant="h4" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace', lineHeight: 1, fontSize: '1.5rem', whiteSpace: 'nowrap' }}>
                                             {formatAngle(nonSatelliteElevation)}
                                         </Typography>
-                                    </Box>
-                                </Grid>
-                                <Grid size={6}>
-                                    <Box sx={{
+                                </Box>
+                                <Box className="target-metric-card" sx={{
                                         textAlign: 'center',
                                         p: 1,
                                         bgcolor: 'background.paper',
@@ -1387,16 +1435,15 @@ const TargetInfoIsland = () => {
                                         border: '1px solid',
                                         borderColor: 'divider',
                                     }}>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
-                                            Azimuth
+                                        <Typography aria-label="Azimuth" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
+                                            <span className="target-metric-label-full">Azimuth</span>
+                                            <span className="target-metric-label-short">AZ</span>
                                         </Typography>
-                                        <Typography variant="h4" sx={{ fontWeight: 700, color: 'secondary.main', fontFamily: 'monospace', lineHeight: 1, fontSize: '1.5rem' }}>
+                                        <Typography className="target-metric-value" variant="h4" sx={{ fontWeight: 700, color: 'secondary.main', fontFamily: 'monospace', lineHeight: 1, fontSize: '1.5rem', whiteSpace: 'nowrap' }}>
                                             {formatAngle(nonSatelliteAzimuth)}
                                         </Typography>
-                                    </Box>
-                                </Grid>
-                                <Grid size={6}>
-                                    <Box sx={{
+                                </Box>
+                                <Box className="target-metric-card" sx={{
                                         textAlign: 'center',
                                         p: 1,
                                         bgcolor: 'background.paper',
@@ -1404,19 +1451,18 @@ const TargetInfoIsland = () => {
                                         border: '1px solid',
                                         borderColor: 'divider',
                                     }}>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
-                                            Distance from Sun
+                                        <Typography aria-label="Distance from Sun" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
+                                            <span className="target-metric-label-full">Distance from Sun</span>
+                                            <span className="target-metric-label-short">SUN · AU</span>
                                         </Typography>
-                                        <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace', lineHeight: 1 }}>
+                                        <Typography className="target-metric-value" variant="h5" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace', lineHeight: 1, whiteSpace: 'nowrap' }}>
                                             {Number.isFinite(nonSatelliteDistanceAu) ? `${nonSatelliteDistanceAu.toFixed(2)} AU` : '--'}
                                         </Typography>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.62rem' }}>
+                                        <Typography className="target-metric-secondary" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.62rem' }}>
                                             {Number.isFinite(nonSatelliteDistanceKm) ? `${(nonSatelliteDistanceKm / 1e6).toFixed(2)}M km` : ''}
                                         </Typography>
-                                    </Box>
-                                </Grid>
-                                <Grid size={6}>
-                                    <Box sx={{
+                                </Box>
+                                <Box className="target-metric-card" sx={{
                                         textAlign: 'center',
                                         p: 1,
                                         bgcolor: 'background.paper',
@@ -1424,19 +1470,19 @@ const TargetInfoIsland = () => {
                                         border: '1px solid',
                                         borderColor: 'divider',
                                     }}>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
-                                            Speed
+                                        <Typography aria-label="Speed, kilometres per second" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', mb: 0.5 }}>
+                                            <span className="target-metric-label-full">Speed</span>
+                                            <span className="target-metric-label-short">SPD · km/s</span>
                                         </Typography>
-                                        <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace', lineHeight: 1 }}>
+                                        <Typography className="target-metric-value" variant="h5" sx={{ fontWeight: 700, color: 'text.primary', fontFamily: 'monospace', lineHeight: 1, whiteSpace: 'nowrap' }}>
                                             {Number.isFinite(nonSatelliteSpeedKmS) ? nonSatelliteSpeedKmS.toFixed(3) : '--'}
                                             <Typography component="span" sx={{ ml: 0.5, fontSize: '0.7rem', color: 'text.secondary' }}>km/s</Typography>
                                         </Typography>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.62rem' }}>
+                                        <Typography className="target-metric-secondary" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.62rem' }}>
                                             {Number.isFinite(nonSatelliteSpeedMiS) ? `${nonSatelliteSpeedMiS.toFixed(3)} mi/s` : ''}
                                         </Typography>
-                                    </Box>
-                                </Grid>
-                            </Grid>
+                                </Box>
+                            </Box>
                         </Box>
 
                         <Section title="Target Geometry" icon={TrackChangesIcon}>
