@@ -219,20 +219,28 @@ const normalizeSkyObject = (entry, kind, fallbackLabel = 'Target') => {
         az: normalizeDegrees(az),
         el,
         visible,
-        color: normalizeColor(entry?.color || entry?.color_hex, kind === 'planet' ? '#7aa7ff' : '#ffb84d'),
+        color: normalizeColor(
+            entry?.color || entry?.color_hex,
+            kind === 'observer' ? '#fbbf24' : (kind === 'planet' ? '#7aa7ff' : '#ffb84d'),
+        ),
     };
 };
 
-const buildSkyObjects = (scene = {}, fallbackLabel = 'Target') => {
+export const buildSkyObjects = (scene = {}, fallbackLabel = 'Target') => {
+    const observerObjects = (Array.isArray(scene.observer_bodies) ? scene.observer_bodies : [])
+        .map((entry) => normalizeSkyObject(entry, 'observer', fallbackLabel))
+        // Observer bodies are visual-only context. Do not render the Sun once
+        // it has set below the horizon, even as a dimmed ghost marker.
+        .filter((item) => item && item.el > 0 && item.visible);
     const targetObjects = (Array.isArray(scene.celestial) ? scene.celestial : [])
         .map((entry) => normalizeSkyObject(entry, 'target', fallbackLabel))
         .filter(Boolean);
-    const existingTargetKeys = new Set(targetObjects.map((item) => item.key));
+    const existingTargetKeys = new Set([...observerObjects, ...targetObjects].map((item) => item.key));
     const planetObjects = (Array.isArray(scene.planets) ? scene.planets : [])
         .map((entry) => normalizeSkyObject(entry, 'planet', fallbackLabel))
         .filter((item) => item && !existingTargetKeys.has(item.key));
 
-    return [...planetObjects, ...targetObjects];
+    return [...planetObjects, ...observerObjects, ...targetObjects];
 };
 
 const buildPassCurves = (scene = {}) => {
@@ -841,7 +849,7 @@ function PlanetariumCanvas({
             if (!projected) return;
             if (projected.x < -30 || projected.x > size.width + 30 || projected.y < -30 || projected.y > size.height + 30) return;
 
-            const markerRadius = isSelected ? 7 : (object.kind === 'target' ? 5 : 4);
+            const markerRadius = isSelected ? 7 : (object.kind === 'target' ? 5 : (object.kind === 'observer' ? 6 : 4));
             const belowHorizonColor = theme.palette.mode === 'dark' ? '#9aa3b2' : '#687386';
             const markerColor = isSelected && isBelowHorizon ? belowHorizonColor : object.color;
             const outlineColor = isSelected && isBelowHorizon ? belowHorizonColor : (isSelected ? theme.palette.warning.main : textColor);
@@ -875,7 +883,7 @@ function PlanetariumCanvas({
             }
             ctx.restore();
 
-            const shouldShowObjectLabel = object.kind === 'planet'
+            const shouldShowObjectLabel = object.kind === 'planet' || object.kind === 'observer'
                 ? effectiveDisplayOptions.showPlanetLabels
                 : effectiveDisplayOptions.showTargetLabels;
             if (shouldShowObjectLabel) {

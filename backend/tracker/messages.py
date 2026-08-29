@@ -17,8 +17,10 @@
 
 import asyncio
 import logging
+import time
 from typing import Any, Dict
 
+from celestial.scene import build_observer_sky_bodies
 from common.constants import SocketEvents
 from tracker.contracts import InvalidTrackerIdError, require_tracker_id
 from tracker.runner import get_existing_tracker_manager, queue_from_tracker
@@ -28,6 +30,31 @@ logger = logging.getLogger(__name__)
 
 # Global storage for tracker stats (accessed by performance monitor)
 tracker_stats: Dict[str, Any] = {}
+_observer_bodies_cache: list[Dict[str, Any]] = []
+_observer_bodies_cache_updated_at = 0.0
+OBSERVER_BODIES_CACHE_SECONDS = 15.0
+
+
+async def _get_live_observer_bodies() -> list[Dict[str, Any]]:
+    """Cache the Sun briefly so every tracker event carries useful sky context."""
+    global _observer_bodies_cache, _observer_bodies_cache_updated_at
+
+    now = time.monotonic()
+    if (
+        _observer_bodies_cache
+        and now - _observer_bodies_cache_updated_at < OBSERVER_BODIES_CACHE_SECONDS
+    ):
+        return _observer_bodies_cache
+
+    try:
+        _observer_bodies_cache = await build_observer_sky_bodies(
+            data={"past_hours": 0, "future_hours": 1, "step_minutes": 60},
+            logger=logger,
+        )
+        _observer_bodies_cache_updated_at = now
+    except Exception as exc:  # pragma: no cover - observer context must not block tracking updates
+        logger.warning("Unable to calculate live observer bodies: %s", exc)
+    return _observer_bodies_cache
 
 
 async def handle_tracker_messages(sockio):
@@ -70,6 +97,10 @@ async def handle_tracker_messages(sockio):
                         await asyncio.sleep(0)
                         continue
                     data["tracker_id"] = tracker_id
+                    if event == SocketEvents.SATELLITE_TRACKING and not data.get("observer_bodies"):
+                        # Satellites do not carry heliocentric Earth vectors in
+                        # their worker payload, so attach the shared live Sun here.
+                        data["observer_bodies"] = await _get_live_observer_bodies()
                     await sockio.emit(event, data)
                     if event == SocketEvents.SATELLITE_TRACKING:
                         await sockio.emit(SocketEvents.SATELLITE_TRACKING_V2, data)

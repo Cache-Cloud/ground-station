@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveEffectiveMapEngine } from '../target-view-router.jsx';
+import { resolveEffectiveMapEngine, shouldRenderNoTargetView } from '../target-view-router.jsx';
 
 describe('resolveEffectiveMapEngine', () => {
   it('returns current map engine when auto-switch is disabled', () => {
@@ -63,4 +63,14 @@ describe('resolveEffectiveMapEngine', () => {
 
     expect(result).toBe('leaflet');
   });
+});
+
+describe('shouldRenderNoTargetView', () => {
+    it.each(['planetarium', 'maplibre-globe'])('shows the empty state for %s without targets', (effectiveMapEngine) => {
+        expect(shouldRenderNoTargetView({hasTargets: false, effectiveMapEngine})).toBe(true);
+    });
+
+    it('keeps a target view when at least one target slot exists', () => {
+        expect(shouldRenderNoTargetView({hasTargets: true, effectiveMapEngine: 'planetarium'})).toBe(false);
+    });
 });

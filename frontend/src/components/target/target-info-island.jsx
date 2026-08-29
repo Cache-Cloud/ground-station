@@ -68,6 +68,7 @@ import SatelliteIcon from "../celestial/satellite-icon.jsx";
 import { targetIdentifierSelector, targetTypeSelector, trackingStateSelector } from "./state-selectors.jsx";
 import {
     buildTargetKeyFromTrackingState,
+    buildTargetSceneRequestKey,
     normalizeTargetType as normalizeTrackingTargetType,
     resolveTargetDisplayName,
 } from './celestial-target-utils.js';
@@ -103,11 +104,10 @@ const TargetInfoIsland = () => {
     const { t: tSat } = useTranslation('satellites');
     const dispatch = useDispatch();
     const { socket } = useSocket();
-    const { satelliteData, gridEditable, satelliteId, satellitePasses } = useSelector((state) => state.targetSatTrack);
+    const { satelliteData, gridEditable, satelliteId, satellitePasses, nextPassesHours } = useSelector((state) => state.targetSatTrack);
     const targetType = useSelector(targetTypeSelector);
     const targetIdentifier = useSelector(targetIdentifierSelector);
     const trackingState = useSelector(trackingStateSelector);
-    const celestialState = useSelector((state) => state.celestial || {});
     const monitoredRows = useSelector((state) => state.celestialMonitored?.monitored || []);
     const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
     const navigate = useNavigate();
@@ -140,14 +140,21 @@ const TargetInfoIsland = () => {
         () => buildTargetKeyFromTrackingState(trackingState),
         [trackingState],
     );
+    const nonSatelliteSceneRequestKey = React.useMemo(
+        () => buildTargetSceneRequestKey({ trackingState, nextPassesHours }),
+        [nextPassesHours, trackingState],
+    );
+    const targetScene = useSelector((state) => (
+        state.celestial?.targetScenesByKey?.[nonSatelliteSceneRequestKey] || null
+    ));
     const hasNonSatelliteTargetKey = Boolean(nonSatelliteTargetKey);
     const celestialRows = React.useMemo(
-        () => (Array.isArray(celestialState?.celestialTracks?.celestial) ? celestialState.celestialTracks.celestial : []),
-        [celestialState?.celestialTracks?.celestial],
+        () => (Array.isArray(targetScene?.celestialTracks?.celestial) ? targetScene.celestialTracks.celestial : []),
+        [targetScene?.celestialTracks?.celestial],
     );
     const celestialPassRows = React.useMemo(
-        () => (Array.isArray(celestialState?.celestialTracks?.celestial_passes) ? celestialState.celestialTracks.celestial_passes : []),
-        [celestialState?.celestialTracks?.celestial_passes],
+        () => (Array.isArray(targetScene?.celestialTracks?.celestial_passes) ? targetScene.celestialTracks.celestial_passes : []),
+        [targetScene?.celestialTracks?.celestial_passes],
     );
     // Keep the info card resilient: prefer exact target_key, then fall back to command/body lookups.
     const nonSatelliteTrack = React.useMemo(() => {

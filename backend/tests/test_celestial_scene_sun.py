@@ -1,5 +1,5 @@
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -18,6 +18,43 @@ class _DummyLogger:
 
     def error(self, *_args, **_kwargs):
         return None
+
+
+@pytest.mark.asyncio
+async def test_load_earth_observer_vectors_interpolates_to_scene_epoch(monkeypatch):
+    epoch = datetime(2026, 6, 21, 10, 30, tzinfo=timezone.utc)
+    sample_start = epoch - timedelta(hours=1)
+    sample_end = epoch + timedelta(hours=1)
+
+    async def _stub_vectors_snapshot(**_kwargs):
+        return {
+            "payload": {
+                # The stored current vector belongs to a previous fetch, while
+                # the orbit samples cover the scene's requested epoch.
+                "position_xyz_au": [0.0, 0.0, 0.0],
+                "orbit_samples_xyz_au": [[0.0, 0.0, 0.0], [2.0, 4.0, 6.0]],
+                "orbit_sample_times_utc": [sample_start.isoformat(), sample_end.isoformat()],
+            },
+            "cache": "db-hit",
+            "stale": False,
+            "error": None,
+        }
+
+    monkeypatch.setattr(scene, "_get_vectors_snapshot", _stub_vectors_snapshot)
+
+    position, samples = await scene._load_earth_observer_vectors(
+        epoch=epoch,
+        past_hours=1,
+        future_hours=1,
+        step_minutes=60,
+        observer_location=None,
+        force_refresh=False,
+        allow_network_fetch=False,
+        logger=_DummyLogger(),
+    )
+
+    assert position == [1.0, 2.0, 3.0]
+    assert len(samples) == 2
 
 
 @pytest.mark.asyncio
@@ -60,6 +97,11 @@ async def test_build_celestial_tracks_supports_sun_body_target(monkeypatch):
     sky_position = row.get("sky_position") or {}
     assert math.isfinite(float(sky_position.get("az_deg")))
     assert math.isfinite(float(sky_position.get("el_deg")))
+
+    observer_bodies = data.get("observer_bodies") or []
+    assert len(observer_bodies) == 1
+    assert observer_bodies[0].get("target_key") == "observer:sun"
+    assert observer_bodies[0].get("target_type") == "observer"
 
 
 @pytest.mark.asyncio

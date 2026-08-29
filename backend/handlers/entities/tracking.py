@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import crud
 from celestial.bodycatalog import get_celestial_body
+from celestial.scene import build_observer_sky_bodies
 from common.arguments import arguments
 from common.constants import (
     RigStates,
@@ -290,6 +291,12 @@ async def emit_tracker_data(dbsession, sio, logger, tracker_id: str):
             "tracker_id": tracker_id,
             "satellite_data": satellite_data,
             "tracking_state": tracking_value,
+            # The Sun is visual context for the planetarium, never a selected
+            # tracking target or a pass-table row.
+            "observer_bodies": await build_observer_sky_bodies(
+                data={"past_hours": 0, "future_hours": 1, "step_minutes": 60},
+                logger=logger,
+            ),
         }
         await sio.emit("satellite-tracking", data)
         await sio.emit(SocketEvents.SATELLITE_TRACKING_V2, data)

@@ -752,6 +752,11 @@ async def _load_earth_observer_vectors(
             past_hours=past_hours,
             future_hours=future_hours,
         )
+        # Vector snapshots are reused for hours, but observer coordinates must
+        # use Earth's position at this response's epoch, just like target rows.
+        interpolated = _interpolate_position_from_samples(earth_samples, epoch)
+        if interpolated:
+            return interpolated, earth_samples
         position_obj = payload.get("position_xyz_au")
         if isinstance(position_obj, list) and len(position_obj) >= 3:
             try:
@@ -761,9 +766,6 @@ async def _load_earth_observer_vectors(
                 )
             except (TypeError, ValueError):
                 pass
-        interpolated = _interpolate_position_from_samples(earth_samples, epoch)
-        if interpolated:
-            return interpolated, earth_samples
         logger.warning(
             "Earth Horizons payload is missing usable observer vectors (cache=%s)",
             earth_snapshot.get("cache"),
@@ -984,6 +986,66 @@ def _attach_observer_view_local(
             "horizon_threshold_deg": 0.0,
             "error": str(exc),
         }
+
+
+def _build_observer_sun(
+    *,
+    epoch: datetime,
+    observer_location: Optional[Dict[str, Any]],
+    earth_position_xyz_au: Optional[List[float]],
+    logger: Any,
+) -> Dict[str, Any]:
+    """Build the Sun's local-sky row without treating it as a trackable target."""
+    sun = {
+        "id": "sun",
+        "target_key": "observer:sun",
+        "target_type": "observer",
+        "body_id": "sun",
+        "name": "Sun",
+        "body_type": "star",
+        # The Sun is the origin of the heliocentric frame used by observer math.
+        "position_xyz_au": [0.0, 0.0, 0.0],
+        "source": "observer-math",
+        "color": "#fbbf24",
+    }
+    _attach_observer_view_local(
+        sun,
+        epoch,
+        observer_location,
+        earth_position_xyz_au,
+        logger,
+    )
+    return sun
+
+
+async def build_observer_sky_bodies(
+    data: Optional[Dict[str, Any]],
+    logger: Any,
+    *,
+    allow_network_fetch: bool = True,
+) -> List[Dict[str, Any]]:
+    """Return visual-only observer bodies for live tracker emissions and scene responses."""
+    epoch = _parse_epoch(data)
+    past_hours, future_hours, step_minutes = _parse_projection_options(data)
+    observer_location = await _load_observer_location()
+    earth_position_xyz_au, _earth_orbit_samples = await _load_earth_observer_vectors(
+        epoch=epoch,
+        past_hours=past_hours,
+        future_hours=future_hours,
+        step_minutes=step_minutes,
+        observer_location=observer_location,
+        force_refresh=False,
+        allow_network_fetch=allow_network_fetch,
+        logger=logger,
+    )
+    return [
+        _build_observer_sun(
+            epoch=epoch,
+            observer_location=observer_location,
+            earth_position_xyz_au=earth_position_xyz_au,
+            logger=logger,
+        )
+    ]
 
 
 def _interpolate_crossing_point(
@@ -1511,6 +1573,24 @@ async def _load_latest_vectors_from_db(
     return row if isinstance(row, dict) else None
 
 
+async def _load_latest_vectors_for_target_from_db(
+    target_key: str,
+    valid_only: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """Load the freshest snapshot regardless of the requested projection window."""
+    async with AsyncSessionLocal() as dbsession:
+        result = await crud_celestial_vectors.fetch_latest_celestial_vector_snapshot_for_target(
+            dbsession,
+            target_id=target_key,
+            valid_only=valid_only,
+            as_of=datetime.now(timezone.utc),
+        )
+    if not result.get("success"):
+        return None
+    row = result.get("data")
+    return row if isinstance(row, dict) else None
+
+
 async def _store_vectors_in_db(
     target_key: str,
     epoch_bucket_utc: datetime,
@@ -1625,6 +1705,28 @@ async def _get_vectors_snapshot(
             return {
                 "payload": payload,
                 "cache": "db-latest-hit",
+                "stale": False,
+                "error": None,
+            }
+        # Target views use a shorter projection than the scheduled sync. Their
+        # current sky position is still valid when it is interpolated from the
+        # fresh scheduled samples, so do not fall back to an older exact-window
+        # snapshot solely because the projection dimensions differ.
+        compatible_cached = await _load_latest_vectors_for_target_from_db(
+            target_key=normalized_target_key,
+            valid_only=True,
+        )
+        if compatible_cached and isinstance(compatible_cached.get("payload"), dict):
+            payload = dict(compatible_cached["payload"])
+            _refresh_payload_dynamics_at_epoch(
+                payload=payload,
+                epoch=epoch,
+                past_hours=past_hours,
+                future_hours=future_hours,
+            )
+            return {
+                "payload": payload,
+                "cache": "db-compatible-hit",
                 "stale": False,
                 "error": None,
             }
@@ -2035,6 +2137,14 @@ async def build_celestial_scene(
         earth_orbit_samples=earth_orbit_samples,
         logger=logger,
     )
+    observer_bodies = [
+        _build_observer_sun(
+            epoch=epoch,
+            observer_location=observer_location,
+            earth_position_xyz_au=earth_position_xyz_au,
+            logger=logger,
+        )
+    ]
 
     return {
         "success": True,
@@ -2048,6 +2158,7 @@ async def build_celestial_scene(
             },
             "planets": planets,
             "celestial": celestial,
+            "observer_bodies": observer_bodies,
             "celestial_passes": celestial_passes,
             "asteroid_zones": asteroid_zones,
             "asteroid_resonance_gaps": asteroid_resonance_gaps,
@@ -2176,6 +2287,14 @@ async def build_celestial_tracks(
         earth_orbit_samples=earth_orbit_samples,
         logger=logger,
     )
+    observer_bodies = [
+        _build_observer_sun(
+            epoch=epoch,
+            observer_location=observer_location,
+            earth_position_xyz_au=earth_position_xyz_au,
+            logger=logger,
+        )
+    ]
 
     return {
         "success": True,
@@ -2188,6 +2307,7 @@ async def build_celestial_tracks(
                 "velocity": "au/day",
             },
             "celestial": celestial,
+            "observer_bodies": observer_bodies,
             "celestial_passes": celestial_passes,
             "meta": {
                 "celestial_source": "horizons",

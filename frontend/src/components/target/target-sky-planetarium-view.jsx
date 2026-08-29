@@ -32,12 +32,12 @@ import {useSocket} from '../common/socket.jsx';
 import PlanetariumCanvas from '../celestial/planetarium-canvas.jsx';
 import CelestialToolbar from '../celestial/celestial-toolbar.jsx';
 import {
-    fetchCelestialTracks,
-    fetchSolarSystemScene,
+    fetchTargetCelestialScene,
 } from '../celestial/celestial-slice.jsx';
 import {
     buildTargetCelestialPayload,
     buildTargetKeyFromTrackingState,
+    buildTargetSceneRequestKey,
     clampTargetPassHours,
     filterPassesForTargetWindow,
     normalizeTargetType,
@@ -115,7 +115,6 @@ const TargetSkyPlanetariumView = () => {
     } = useSelector((state) => state.targetSatTrack);
     const satellitePosition = useSelector(satellitePositionSelector);
     const satelliteDetails = useSelector(satelliteDetailsSelector);
-    const celestialState = useSelector((state) => state.celestial || {});
     const monitoredRows = useSelector((state) => state.celestialMonitored?.monitored || []);
     const {location} = useSelector((state) => state.location);
     const [fitAllSignal, setFitAllSignal] = useState(0);
@@ -139,12 +138,20 @@ const TargetSkyPlanetariumView = () => {
         () => buildTargetKeyFromTrackingState(trackingState),
         [trackingState],
     );
+    const nonSatelliteSceneRequestKey = useMemo(
+        () => buildTargetSceneRequestKey({ trackingState, nextPassesHours }),
+        [nextPassesHours, trackingState],
+    );
+    const targetScene = useSelector((state) => (
+        state.celestial?.targetScenesByKey?.[nonSatelliteSceneRequestKey] || null
+    ));
+    const observerSkyBodies = useSelector((state) => state.celestial?.observerSkyBodies || []);
     const targetName = useMemo(() => resolveTargetDisplayName({
         trackingState,
         satelliteDetails,
         monitoredRows,
-        celestialRows: celestialState?.celestialTracks?.celestial || [],
-    }), [celestialState?.celestialTracks?.celestial, monitoredRows, satelliteDetails, trackingState]);
+        celestialRows: targetScene?.celestialTracks?.celestial || [],
+    }), [monitoredRows, satelliteDetails, targetScene?.celestialTracks?.celestial, trackingState]);
     const nonSatellitePayload = useMemo(
         () => buildTargetCelestialPayload({
             trackingState: {
@@ -166,11 +173,12 @@ const TargetSkyPlanetariumView = () => {
 
     const handleRefreshNonSatelliteScene = useCallback(async () => {
         if (!socket || !nonSatellitePayload) return;
-        await Promise.all([
-            dispatch(fetchSolarSystemScene({socket, payload: nonSatellitePayload})),
-            dispatch(fetchCelestialTracks({socket, payload: nonSatellitePayload})),
-        ]);
-    }, [dispatch, nonSatellitePayload, socket]);
+        await dispatch(fetchTargetCelestialScene({
+            socket,
+            payload: nonSatellitePayload,
+            requestKey: nonSatelliteSceneRequestKey,
+        }));
+    }, [dispatch, nonSatellitePayload, nonSatelliteSceneRequestKey, socket]);
 
     useEffect(() => {
         if (!nonSatelliteFetchSignature || isSatelliteTarget || !nonSatellitePayload) {
@@ -215,8 +223,8 @@ const TargetSkyPlanetariumView = () => {
     }, []);
 
     const nonSatelliteScene = useMemo(() => {
-        const solarScene = celestialState?.solarScene || {};
-        const tracksScene = celestialState?.celestialTracks || {};
+        const solarScene = targetScene?.solarScene || {};
+        const tracksScene = targetScene?.celestialTracks || {};
         const rawCelestialRows = Array.isArray(tracksScene?.celestial) ? tracksScene.celestial : [];
         const rawPasses = Array.isArray(tracksScene?.celestial_passes) ? tracksScene.celestial_passes : [];
         const scopedRows = nonSatelliteTargetKey
@@ -232,10 +240,13 @@ const TargetSkyPlanetariumView = () => {
             ...solarScene,
             ...tracksScene,
             planets: Array.isArray(solarScene?.planets) ? solarScene.planets : [],
+            observer_bodies: observerSkyBodies.length > 0
+                ? observerSkyBodies
+                : (Array.isArray(tracksScene?.observer_bodies) ? tracksScene.observer_bodies : []),
             celestial: scopedRows,
             celestial_passes: scopedPasses,
         };
-    }, [celestialState?.celestialTracks, celestialState?.solarScene, nonSatelliteTargetKey, nextPassesHours]);
+    }, [nextPassesHours, nonSatelliteTargetKey, observerSkyBodies, targetScene?.celestialTracks, targetScene?.solarScene]);
 
     const satelliteTargetKey = useMemo(
         () => {
@@ -293,12 +304,14 @@ const TargetSkyPlanetariumView = () => {
                     : null,
             },
             planets: [],
+            observer_bodies: observerSkyBodies,
             celestial: celestialRows,
             celestial_passes: scopedPasses,
         };
     }, [
         location,
         nextPassesHours,
+        observerSkyBodies,
         satelliteDetails?.name,
         satelliteDetails?.norad_id,
         satellitePasses,
@@ -337,17 +350,7 @@ const TargetSkyPlanetariumView = () => {
         effectiveRotatorData?.connected,
         effectiveRotatorData?.minel,
     ]);
-    const tracksProgress = celestialState?.tracksProgress || null;
-    const tracksProgressText = useMemo(() => {
-        if (!celestialState?.tracksLoading) return '';
-        const current = Number(tracksProgress?.current);
-        const total = Number(tracksProgress?.total);
-        if (Number.isFinite(current) && Number.isFinite(total) && total > 0) {
-            return `${Math.max(0, Math.min(current, total))}/${total}`;
-        }
-        return 'Loading...';
-    }, [celestialState?.tracksLoading, tracksProgress?.current, tracksProgress?.total]);
-    const loading = !isSatelliteTarget && Boolean(celestialState?.tracksLoading);
+    const loading = !isSatelliteTarget && Boolean(targetScene?.loading);
     const hasRenderableTarget = Array.isArray(scene?.celestial) && scene.celestial.length > 0;
 
     const handleOpenSettings = useCallback(() => {
@@ -405,7 +408,7 @@ const TargetSkyPlanetariumView = () => {
                                     <IconButton
                                         size="small"
                                         onClick={handleRefreshNonSatelliteScene}
-                                        disabled={!socket || !nonSatellitePayload || celestialState?.tracksLoading}
+                                        disabled={!socket || !nonSatellitePayload || loading}
                                         sx={{padding: '2px'}}
                                     >
                                         <RefreshIcon fontSize="small"/>
@@ -424,7 +427,7 @@ const TargetSkyPlanetariumView = () => {
                 onCenterSun={() => setCenterSunSignal((value) => value + 1)}
                 onRefresh={!isSatelliteTarget ? handleRefreshNonSatelliteScene : undefined}
                 loading={loading}
-                loadingText={tracksProgressText}
+                loadingText={loading ? 'Loading...' : ''}
                 disabled={!isSatelliteTarget && (!socket || !nonSatellitePayload)}
                 onToggleFullscreen={handleToggleFullscreen}
                 fullscreen={isFullscreen}

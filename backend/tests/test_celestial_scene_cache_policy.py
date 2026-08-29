@@ -75,6 +75,51 @@ async def test_get_vectors_snapshot_cache_only_returns_miss_without_exact_cache(
 
 
 @pytest.mark.asyncio
+async def test_get_vectors_snapshot_uses_fresh_snapshot_with_different_projection(monkeypatch):
+    epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    compatible_payload = {
+        "command": "Venus",
+        "position_xyz_au": [0.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [[1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        "orbit_sample_times_utc": [
+            datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc).isoformat(),
+            datetime(2026, 1, 1, 13, 0, tzinfo=timezone.utc).isoformat(),
+        ],
+    }
+
+    async def _no_projection_match(*_args, **_kwargs):
+        return None
+
+    async def _fresh_compatible_snapshot(*_args, **_kwargs):
+        return {"payload": compatible_payload}
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(
+        scene,
+        "_load_latest_vectors_for_target_from_db",
+        _fresh_compatible_snapshot,
+    )
+
+    result = await scene._get_vectors_snapshot(
+        command="Venus",
+        target_key="body:venus",
+        epoch=epoch,
+        past_hours=0,
+        future_hours=24,
+        step_minutes=60,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        force_refresh=False,
+        logger=_DummyLogger(),
+        allow_network_fetch=False,
+    )
+
+    assert result["cache"] == "db-compatible-hit"
+    assert result["stale"] is False
+    assert result["payload"]["position_xyz_au"] == [2.0, 0.0, 0.0]
+
+
+@pytest.mark.asyncio
 async def test_get_vectors_snapshot_fetches_and_stores_on_cache_miss(monkeypatch):
     epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     calls = {"fetch": 0, "store": 0}
@@ -100,6 +145,11 @@ async def test_get_vectors_snapshot_fetches_and_stores_on_cache_miss(monkeypatch
         return None
 
     monkeypatch.setattr(scene, "_load_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(
+        scene,
+        "_load_latest_vectors_for_target_from_db",
+        _stub_load_vectors_from_db,
+    )
     monkeypatch.setattr(scene, "fetch_celestial_vectors", _stub_fetch_celestial_vectors)
     monkeypatch.setattr(scene, "_store_vectors_in_db", _stub_store_vectors_in_db)
 

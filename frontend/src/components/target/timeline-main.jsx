@@ -4,10 +4,11 @@ import { useDispatch, useSelector } from 'react-redux';
 import PassTimeline from '../passes/timeline/pass-timeline.jsx';
 import CelestialPassTimeline from '../celestial/celestial-pass-timeline.jsx';
 import { useSocket } from '../common/socket.jsx';
-import { fetchCelestialTracks, fetchSolarSystemScene } from '../celestial/celestial-slice.jsx';
+import { fetchTargetCelestialScene } from '../celestial/celestial-slice.jsx';
 import {
     buildTargetCelestialPayload,
     buildTargetKeyFromTrackingState,
+    buildTargetSceneRequestKey,
     clampTargetPassHours,
     filterPassesForTargetWindow,
     normalizeTargetType,
@@ -24,7 +25,6 @@ const TargetPassTimelineComponent = (props) => {
     const satelliteDetails = useSelector((state) => state.targetSatTrack.satelliteData?.details || {});
     const trackerInstances = useSelector((state) => state.trackerInstances?.instances || []);
     const nextPassesHours = useSelector((state) => state.targetSatTrack.nextPassesHours || 24.0);
-    const celestialState = useSelector((state) => state.celestial || {});
     const monitoredRows = useSelector((state) => state.celestialMonitored?.monitored || []);
     const groundStationLocation = useSelector((state) => state.location.location);
     const timezone = useSelector(
@@ -40,14 +40,21 @@ const TargetPassTimelineComponent = (props) => {
         () => buildTargetKeyFromTrackingState(trackingState),
         [trackingState],
     );
+    const nonSatelliteSceneRequestKey = useMemo(
+        () => buildTargetSceneRequestKey({ trackingState, nextPassesHours }),
+        [nextPassesHours, trackingState],
+    );
+    const targetScene = useSelector((state) => (
+        state.celestial?.targetScenesByKey?.[nonSatelliteSceneRequestKey] || null
+    ));
     const targetName = useMemo(() => {
         return resolveTargetDisplayName({
             trackingState,
             satelliteDetails,
             monitoredRows,
-            celestialRows: celestialState?.celestialTracks?.celestial || [],
+            celestialRows: targetScene?.celestialTracks?.celestial || [],
         });
-    }, [celestialState?.celestialTracks?.celestial, monitoredRows, satelliteDetails, trackingState]);
+    }, [monitoredRows, satelliteDetails, targetScene?.celestialTracks?.celestial, trackingState]);
     const nonSatellitePayload = useMemo(
         () => buildTargetCelestialPayload({
             trackingState,
@@ -58,25 +65,26 @@ const TargetPassTimelineComponent = (props) => {
     );
     const nonSatellitePasses = useMemo(
         () => filterPassesForTargetWindow({
-            passes: celestialState?.celestialTracks?.celestial_passes || [],
+            passes: targetScene?.celestialTracks?.celestial_passes || [],
             targetKey,
             nextPassesHours,
         }),
-        [celestialState?.celestialTracks?.celestial_passes, nextPassesHours, targetKey],
+        [nextPassesHours, targetKey, targetScene?.celestialTracks?.celestial_passes],
     );
     const handleRefreshNonSatelliteTimeline = useCallback(async () => {
         if (!socket || !nonSatellitePayload) return;
-        await Promise.all([
-            dispatch(fetchSolarSystemScene({ socket, payload: nonSatellitePayload })),
-            dispatch(fetchCelestialTracks({ socket, payload: nonSatellitePayload })),
-        ]);
-    }, [dispatch, nonSatellitePayload, socket]);
+        await dispatch(fetchTargetCelestialScene({
+            socket,
+            payload: nonSatellitePayload,
+            requestKey: nonSatelliteSceneRequestKey,
+        }));
+    }, [dispatch, nonSatellitePayload, nonSatelliteSceneRequestKey, socket]);
 
     if (!isSatelliteTarget) {
         return (
             <CelestialPassTimeline
                 passes={nonSatellitePasses}
-                loading={Boolean(celestialState?.tracksLoading)}
+                loading={Boolean(targetScene?.loading)}
                 gridEditable={gridEditable}
                 projectionFutureHours={clampTargetPassHours(nextPassesHours)}
                 selectedTargetKey={targetKey}

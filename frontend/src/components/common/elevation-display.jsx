@@ -32,13 +32,15 @@ import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule';
  * @param {number} timeToMaxEl - Time to maximum elevation in seconds (optional)
  * @param {number} elRate - Rate of elevation change in degrees per update (optional)
  * @param {boolean} showNegative - Whether to show negative elevations (default: false, for tables. Set true for info card)
+ * @param {number} decimalPlaces - Number of fractional digits to display (default: 1)
  */
 const ElevationDisplay = React.memo(function ElevationDisplay({
     elevation,
     trend,
     timeToMaxEl,
     elRate,
-    showNegative = false
+    showNegative = false,
+    decimalPlaces = 1,
 }) {
     // Handle null/undefined elevation
     if (elevation === null || elevation === undefined) {
@@ -127,7 +129,7 @@ const ElevationDisplay = React.memo(function ElevationDisplay({
                 fontWeight: 'bold'
             }}
         >
-            {elevation.toFixed(1)}°
+            {elevation.toFixed(decimalPlaces)}°
             {TrendIcon && (
                 <TrendIcon
                     sx={{

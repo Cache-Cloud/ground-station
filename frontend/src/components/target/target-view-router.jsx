@@ -18,6 +18,7 @@
  */
 
 import {useSelector} from "react-redux";
+import {Box, Typography} from '@mui/material';
 import {normalizeMapEngine} from "../common/tile-layers.jsx";
 import {normalizeTargetType} from './celestial-target-utils.js';
 import TargetMapCompositeView from './target-map-composite-view.jsx';
@@ -53,6 +54,33 @@ export const resolveEffectiveMapEngine = ({
     return elevation > 0 ? MAP_ENGINE_PLANETARIUM : MAP_ENGINE_MAPLIBRE_GLOBE;
 };
 
+export const shouldRenderNoTargetView = ({hasTargets, effectiveMapEngine}) => (
+    !hasTargets
+    && (effectiveMapEngine === MAP_ENGINE_PLANETARIUM || effectiveMapEngine === MAP_ENGINE_MAPLIBRE_GLOBE)
+);
+
+const NoTargetMapView = () => (
+    <Box
+        sx={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 0.75,
+            p: 3,
+            textAlign: 'center',
+        }}
+    >
+        <Typography variant="subtitle2" sx={{fontWeight: 700}}>
+            No targets configured
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+            Add a target to view the planetarium or globe.
+        </Typography>
+    </Box>
+);
+
 const TargetViewRouter = () => {
     const mapEngine = useSelector((state) => state.targetSatTrack?.mapEngine);
     const autoSwitchPlanetariumByVisibility = useSelector(
@@ -62,6 +90,7 @@ const TargetViewRouter = () => {
         (state) => state.targetSatTrack?.satelliteData?.position?.el
     );
     const trackingState = useSelector((state) => state.targetSatTrack?.trackingState || {});
+    const hasTargets = useSelector((state) => (state.trackerInstances?.instances || []).length > 0);
     const targetType = normalizeTargetType(trackingState);
     const effectiveMapEngine = resolveEffectiveMapEngine({
         mapEngine,
@@ -70,6 +99,12 @@ const TargetViewRouter = () => {
         targetElevation,
     });
     const normalizedMapEngine = normalizeMapEngine(effectiveMapEngine);
+
+    // A deleted final slot can leave stale target telemetry in Redux briefly.
+    // Slot inventory is the authoritative source for whether a target view exists.
+    if (shouldRenderNoTargetView({hasTargets, effectiveMapEngine})) {
+        return <NoTargetMapView/>;
+    }
 
     if (effectiveMapEngine === MAP_ENGINE_PLANETARIUM) {
         return <TargetSkyPlanetariumView/>;

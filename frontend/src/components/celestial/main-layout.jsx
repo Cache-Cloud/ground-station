@@ -451,6 +451,7 @@ const CelestialMainLayout = () => {
             ...solar,
             ...tracks,
             planets: solar.planets || [],
+            observer_bodies: tracks.observer_bodies || [],
             celestial: tracks.celestial || [],
             celestial_passes: tracks.celestial_passes || [],
             meta: {

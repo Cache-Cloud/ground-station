@@ -96,7 +96,7 @@ import {getSunMoonCoords} from "../common/sunmoon.jsx";
 import SolarSystemCanvas from "../celestial/solarsystem-canvas.jsx";
 import PlanetariumCanvas from "../celestial/planetarium-canvas.jsx";
 import CelestialToolbar from '../celestial/celestial-toolbar.jsx';
-import { fetchCelestialTracks, fetchSolarSystemScene } from "../celestial/celestial-slice.jsx";
+import { fetchTargetCelestialScene } from "../celestial/celestial-slice.jsx";
 import {
     satelliteCoverageSelector,
     satelliteDetailsSelector,
@@ -112,6 +112,7 @@ import {useSocket} from "../common/socket.jsx";
 import {
     buildTargetCelestialPayload,
     buildTargetKeyFromTrackingState,
+    buildTargetSceneRequestKey,
     clampTargetPassHours,
     filterPassesForTargetWindow,
     normalizeTargetType,
@@ -547,14 +548,21 @@ const TargetMapCompositeView = ({}) => {
         () => buildTargetKeyFromTrackingState(trackingState),
         [trackingState],
     );
+    const nonSatelliteSceneRequestKey = useMemo(
+        () => buildTargetSceneRequestKey({ trackingState, nextPassesHours }),
+        [nextPassesHours, trackingState],
+    );
+    const targetScene = useSelector((state) => (
+        state.celestial?.targetScenesByKey?.[nonSatelliteSceneRequestKey] || null
+    ));
     const nonSatelliteTargetName = useMemo(() => {
         return resolveTargetDisplayName({
             trackingState,
             satelliteDetails,
             monitoredRows,
-            celestialRows: celestialState?.celestialTracks?.celestial || [],
+            celestialRows: targetScene?.celestialTracks?.celestial || [],
         }) || String(targetIdentifier || '').trim();
-    }, [celestialState?.celestialTracks?.celestial, monitoredRows, satelliteDetails, targetIdentifier, trackingState]);
+    }, [monitoredRows, satelliteDetails, targetIdentifier, targetScene?.celestialTracks?.celestial, trackingState]);
     const nonSatellitePayload = useMemo(
         () => buildTargetCelestialPayload({
             // Keep payload dependencies scoped to stable target identity fields.
@@ -620,16 +628,17 @@ const TargetMapCompositeView = ({}) => {
     }, [dispatch]);
     const handleRefreshNonSatelliteScene = useCallback(async () => {
         if (!socket || !nonSatellitePayload) return;
-        await Promise.all([
-            dispatch(fetchSolarSystemScene({ socket, payload: nonSatellitePayload })),
-            dispatch(fetchCelestialTracks({ socket, payload: nonSatellitePayload })),
-        ]);
-    }, [dispatch, nonSatellitePayload, socket]);
+        await dispatch(fetchTargetCelestialScene({
+            socket,
+            payload: nonSatellitePayload,
+            requestKey: nonSatelliteSceneRequestKey,
+        }));
+    }, [dispatch, nonSatellitePayload, nonSatelliteSceneRequestKey, socket]);
     const nonSatelliteFetchSignature = useMemo(() => {
         if (isSatelliteTarget || !nonSatellitePayload) return '';
         const futureHours = clampTargetPassHours(nextPassesHours);
-        return `${targetType}:${targetIdentifier}:${futureHours}`;
-    }, [isSatelliteTarget, nextPassesHours, nonSatellitePayload, targetIdentifier, targetType]);
+        return `${nonSatelliteSceneRequestKey}:${futureHours}`;
+    }, [isSatelliteTarget, nextPassesHours, nonSatellitePayload, nonSatelliteSceneRequestKey]);
 
     useEffect(() => {
         if (!nonSatelliteFetchSignature || isSatelliteTarget || !nonSatellitePayload) {
@@ -977,8 +986,8 @@ const TargetMapCompositeView = ({}) => {
     }, [noradId, isSatelliteTarget]);
 
     const nonSatelliteScene = useMemo(() => {
-        const solarScene = celestialState?.solarScene || {};
-        const tracksScene = celestialState?.celestialTracks || {};
+        const solarScene = targetScene?.solarScene || {};
+        const tracksScene = targetScene?.celestialTracks || {};
         const rawCelestialRows = Array.isArray(tracksScene?.celestial) ? tracksScene.celestial : [];
         const rawPasses = Array.isArray(tracksScene?.celestial_passes) ? tracksScene.celestial_passes : [];
         const scopedRows = nonSatelliteTargetKey
@@ -994,10 +1003,14 @@ const TargetMapCompositeView = ({}) => {
             ...solarScene,
             ...tracksScene,
             planets: Array.isArray(solarScene?.planets) ? solarScene.planets : [],
+            observer_bodies: Array.isArray(celestialState?.observerSkyBodies)
+                && celestialState.observerSkyBodies.length > 0
+                ? celestialState.observerSkyBodies
+                : (Array.isArray(tracksScene?.observer_bodies) ? tracksScene.observer_bodies : []),
             celestial: scopedRows,
             celestial_passes: scopedPasses,
         };
-    }, [celestialState?.celestialTracks, celestialState?.solarScene, nonSatelliteTargetKey, nextPassesHours]);
+    }, [celestialState?.observerSkyBodies, nextPassesHours, nonSatelliteTargetKey, targetScene?.celestialTracks, targetScene?.solarScene]);
     const nonSatelliteHasFocusedTargetRow = useMemo(() => {
         if (!nonSatelliteTargetKey) return false;
         const scopedRows = Array.isArray(nonSatelliteScene?.celestial) ? nonSatelliteScene.celestial : [];
@@ -1027,16 +1040,7 @@ const TargetMapCompositeView = ({}) => {
         }
         requestFullscreen(viewportElement);
     }, []);
-    const tracksProgress = celestialState?.tracksProgress || null;
-    const tracksProgressText = useMemo(() => {
-        if (!celestialState?.tracksLoading) return '';
-        const current = Number(tracksProgress?.current);
-        const total = Number(tracksProgress?.total);
-        if (Number.isFinite(current) && Number.isFinite(total) && total > 0) {
-            return `${Math.max(0, Math.min(current, total))}/${total}`;
-        }
-        return 'Loading...';
-    }, [celestialState?.tracksLoading, tracksProgress?.current, tracksProgress?.total]);
+    const targetSceneLoading = Boolean(targetScene?.loading);
     if (!isSatelliteTarget) {
         const nonSatelliteTitle = targetType === 'mission' ? 'Target Map · Mission' : 'Target Map · Body';
 
@@ -1090,7 +1094,7 @@ const TargetMapCompositeView = ({}) => {
                                     <IconButton
                                         size="small"
                                         onClick={handleRefreshNonSatelliteScene}
-                                        disabled={!socket || !nonSatellitePayload || celestialState?.tracksLoading}
+                                        disabled={!socket || !nonSatellitePayload || targetSceneLoading}
                                         sx={{ padding: '2px' }}
                                     >
                                         <RefreshIcon fontSize="small" />
@@ -1111,8 +1115,8 @@ const TargetMapCompositeView = ({}) => {
                     onZoomReset={() => setNonSatelliteResetZoomSignal((value) => value + 1)}
                     onCenterSun={() => setNonSatelliteCenterSignal((value) => value + 1)}
                     onRefresh={handleRefreshNonSatelliteScene}
-                    loading={celestialState?.tracksLoading}
-                    loadingText={tracksProgressText}
+                    loading={targetSceneLoading}
+                    loadingText={targetSceneLoading ? 'Loading...' : ''}
                     disabled={!socket || !nonSatellitePayload}
                     onToggleFullscreen={handleToggleNonSatelliteFullscreen}
                     fullscreen={nonSatelliteFullscreen}
@@ -1161,7 +1165,7 @@ const TargetMapCompositeView = ({}) => {
                                     enableMapZooming={targetViewEnableZooming}
                                 />
                             )}
-                            {celestialState?.tracksLoading ? (
+                            {targetSceneLoading ? (
                                 <Box
                                     sx={{
                                         position: 'absolute',

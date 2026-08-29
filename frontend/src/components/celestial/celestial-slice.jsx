@@ -43,6 +43,39 @@ export const CELESTIAL_PASSES_DEFAULT_SORT_MODEL = [
 ];
 export const CELESTIAL_PASSES_DEFAULTS_VERSION = 3;
 
+const mergeLivePointingIntoTracks = (tracks, livePointing) => {
+    if (!tracks || !livePointing?.targetKey) return tracks;
+    const rows = Array.isArray(tracks.celestial) ? tracks.celestial : [];
+    const targetIndex = rows.findIndex(
+        (row) => String(row?.target_key || '').trim() === livePointing.targetKey,
+    );
+    if (targetIndex < 0) return tracks;
+
+    const target = rows[targetIndex] || {};
+    const nextRows = [...rows];
+    nextRows[targetIndex] = {
+        ...target,
+        sky_position: {
+            ...(target.sky_position || {}),
+            az_deg: livePointing.azDeg,
+            el_deg: livePointing.elDeg,
+        },
+        visibility: {
+            ...(target.visibility || {}),
+            above_horizon: livePointing.elDeg > 0,
+            visible: livePointing.elDeg > 0,
+        },
+    };
+
+    return {
+        ...tracks,
+        celestial: nextRows,
+        // Keep the planetarium's star field and pass-current indicator aligned
+        // with the tracker emission that supplied the live target coordinates.
+        timestamp_utc: livePointing.timestampUtc || tracks.timestamp_utc,
+    };
+};
+
 export const fetchCelestialScene = createAsyncThunk(
     'celestial/fetchScene',
     async ({ socket, payload = {} }, { rejectWithValue }) => {
@@ -95,6 +128,48 @@ export const fetchCelestialTracks = createAsyncThunk(
 });
         });
     }
+);
+
+export const fetchTargetCelestialScene = createAsyncThunk(
+    'celestial/fetchTargetScene',
+    async ({ socket, payload = {}, requestKey }, { rejectWithValue }) => {
+        try {
+            const [solarScene, celestialTracks] = await Promise.all([
+                new Promise((resolve, reject) => {
+                    socket.emit('api.call', {
+                        cmd: 'get-solar-system-scene',
+                        data: payload,
+                    }, (response) => {
+                        if (response?.success) {
+                            resolve(response.data);
+                        } else {
+                            reject(new Error(response?.error || 'Failed to fetch solar system scene'));
+                        }
+                    });
+                }),
+                new Promise((resolve, reject) => {
+                    socket.emit('api.call', {
+                        cmd: 'get-celestial-tracks',
+                        data: payload,
+                    }, (response) => {
+                        if (response?.success) {
+                            resolve(response.data);
+                        } else {
+                            reject(new Error(response?.error || 'Failed to fetch celestial tracks'));
+                        }
+                    });
+                }),
+            ]);
+            return { requestKey, solarScene, celestialTracks };
+        } catch (error) {
+            return rejectWithValue(error?.message || 'Failed to fetch target celestial scene');
+        }
+    },
+    {
+        // Several target islands render at once; let the first request populate their shared entry.
+        condition: ({ requestKey }, { getState }) => Boolean(requestKey)
+            && !getState()?.celestial?.targetScenesByKey?.[requestKey]?.loading,
+    },
 );
 
 export const refreshCelestialScene = createAsyncThunk(
@@ -197,6 +272,9 @@ const celestialSlice = createSlice({
     initialState: {
         solarScene: null,
         celestialTracks: null,
+        observerSkyBodies: [],
+        // Target-page requests are isolated from the live monitored-target broadcast.
+        targetScenesByKey: {},
         tracksProgress: null,
         mapSettings: null,
         passesTableColumnVisibility: { ...CELESTIAL_PASSES_DEFAULT_COLUMN_VISIBILITY },
@@ -286,6 +364,46 @@ const celestialSlice = createSlice({
             state.error = null;
             state.lastUpdated = new Date().toISOString();
         },
+        setTargetCelestialLivePointing: (state, action) => {
+            const payload = action.payload || {};
+            const targetKey = String(payload.targetKey || '').trim();
+            const azDeg = Number(payload.azDeg);
+            const elDeg = Number(payload.elDeg);
+            if (!targetKey || !Number.isFinite(azDeg) || !Number.isFinite(elDeg)) return;
+
+            const livePointing = {
+                targetKey,
+                azDeg,
+                elDeg,
+                timestampUtc: String(payload.timestampUtc || new Date().toISOString()),
+            };
+
+            Object.entries(state.targetScenesByKey).forEach(([requestKey, entry]) => {
+                const isTargetRequest = requestKey === targetKey
+                    || requestKey.startsWith(`${targetKey}:`);
+                if (!entry?.celestialTracks) {
+                    // Preserve a tracker update that arrives while the initial
+                    // scene request is still in flight; the fulfilled handler
+                    // applies it to the newly received target row.
+                    if (isTargetRequest) {
+                        state.targetScenesByKey[requestKey] = { ...entry, livePointing };
+                    }
+                    return;
+                }
+                const celestialTracks = mergeLivePointingIntoTracks(entry?.celestialTracks, livePointing);
+                // A page can cache multiple windows for the same target. Only
+                // touch entries that actually contain this target's scene row.
+                if (celestialTracks === entry?.celestialTracks) return;
+                state.targetScenesByKey[requestKey] = {
+                    ...entry,
+                    celestialTracks,
+                    livePointing,
+                };
+            });
+        },
+        setObserverSkyBodies: (state, action) => {
+            state.observerSkyBodies = Array.isArray(action.payload) ? action.payload : [];
+        },
         setCelestialPassesTableColumnVisibility: (state, action) => {
             state.passesTableColumnVisibility = action.payload || {};
         },
@@ -350,6 +468,46 @@ const celestialSlice = createSlice({
             .addCase(fetchCelestialTracks.rejected, (state, action) => {
                 state.tracksLoading = false;
                 state.error = action.payload || action.error?.message || 'Unknown error';
+            })
+            .addCase(fetchTargetCelestialScene.pending, (state, action) => {
+                const requestKey = action.meta.arg?.requestKey;
+                if (!requestKey) return;
+                const currentEntry = state.targetScenesByKey[requestKey] || {};
+                state.targetScenesByKey[requestKey] = {
+                    ...currentEntry,
+                    loading: true,
+                    error: null,
+                    requestId: action.meta.requestId,
+                };
+            })
+            .addCase(fetchTargetCelestialScene.fulfilled, (state, action) => {
+                const requestKey = action.payload?.requestKey;
+                const currentEntry = state.targetScenesByKey[requestKey];
+                // Ignore an older response that completed after a newer request for the same view.
+                if (!requestKey || currentEntry?.requestId !== action.meta.requestId) return;
+                const livePointing = currentEntry.livePointing;
+                state.targetScenesByKey[requestKey] = {
+                    solarScene: normalizeScenePayload(action.payload?.solarScene),
+                    celestialTracks: mergeLivePointingIntoTracks(
+                        normalizeScenePayload(action.payload?.celestialTracks),
+                        livePointing,
+                    ),
+                    loading: false,
+                    error: null,
+                    requestId: action.meta.requestId,
+                    updatedAt: new Date().toISOString(),
+                    livePointing,
+                };
+            })
+            .addCase(fetchTargetCelestialScene.rejected, (state, action) => {
+                const requestKey = action.meta.arg?.requestKey;
+                const currentEntry = state.targetScenesByKey[requestKey];
+                if (!requestKey || currentEntry?.requestId !== action.meta.requestId) return;
+                state.targetScenesByKey[requestKey] = {
+                    ...currentEntry,
+                    loading: false,
+                    error: action.payload || action.error?.message || 'Unknown error',
+                };
             })
             .addCase(refreshCelestialScene.pending, (state) => {
                 state.solarLoading = true;
@@ -453,6 +611,8 @@ export const {
     setSolarSceneLive,
     setCelestialTracksLive,
     upsertCelestialTrackRowLive,
+    setTargetCelestialLivePointing,
+    setObserverSkyBodies,
     setCelestialPassesTableColumnVisibility,
     setCelestialPassesTablePageSize,
     setCelestialPassesTableSortModel,

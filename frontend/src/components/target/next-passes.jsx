@@ -53,10 +53,11 @@ import {calculateElevationCurvesForPasses} from '../../utils/elevation-curve-cal
 import TargetPassesTableSettingsDialog from './target-passes-table-settings-dialog.jsx';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
 import CelestialPasses from '../celestial/celestial-passes.jsx';
-import { fetchCelestialTracks, fetchSolarSystemScene } from '../celestial/celestial-slice.jsx';
+import { fetchTargetCelestialScene } from '../celestial/celestial-slice.jsx';
 import {
     buildTargetCelestialPayload,
     buildTargetKeyFromTrackingState,
+    buildTargetSceneRequestKey,
     filterPassesForTargetWindow,
     normalizeTargetType,
     resolveTargetDisplayName,
@@ -715,7 +716,6 @@ const NextPassesIsland = React.memo(function NextPassesIsland() {
     const scheduledObservations = useSelector((state) => state.scheduler?.observations || []);
     const trackingState = useSelector((state) => state.targetSatTrack?.trackingState || {});
     const satelliteDetails = useSelector((state) => state.targetSatTrack?.satelliteData?.details || {});
-    const celestialState = useSelector((state) => state.celestial || {});
     const monitoredRows = useSelector((state) => state.celestialMonitored?.monitored || []);
     const [containerHeight, setContainerHeight] = useState(0);
     const containerRef = useRef(null);
@@ -739,14 +739,21 @@ const NextPassesIsland = React.memo(function NextPassesIsland() {
         () => buildTargetKeyFromTrackingState(trackingState),
         [trackingState],
     );
+    const nonSatelliteSceneRequestKey = useMemo(
+        () => buildTargetSceneRequestKey({ trackingState, nextPassesHours }),
+        [nextPassesHours, trackingState],
+    );
+    const targetScene = useSelector((state) => (
+        state.celestial?.targetScenesByKey?.[nonSatelliteSceneRequestKey] || null
+    ));
     const nonSatelliteTargetName = useMemo(() => {
         return resolveTargetDisplayName({
             trackingState,
             satelliteDetails,
             monitoredRows,
-            celestialRows: celestialState?.celestialTracks?.celestial || [],
+            celestialRows: targetScene?.celestialTracks?.celestial || [],
         });
-    }, [celestialState?.celestialTracks?.celestial, monitoredRows, satelliteDetails, trackingState]);
+    }, [monitoredRows, satelliteDetails, targetScene?.celestialTracks?.celestial, trackingState]);
     const minHeight = 200;
     const maxHeight = 400;
     const hasLoadedFromStorageRef = useRef(false);
@@ -766,20 +773,20 @@ const NextPassesIsland = React.memo(function NextPassesIsland() {
     );
     const nonSatellitePasses = useMemo(
         () => filterPassesForTargetWindow({
-            passes: celestialState?.celestialTracks?.celestial_passes || [],
+            passes: targetScene?.celestialTracks?.celestial_passes || [],
             targetKey,
             nextPassesHours,
             nowMs: filterNowMs,
         }),
-        [celestialState?.celestialTracks?.celestial_passes, filterNowMs, nextPassesHours, targetKey],
+        [filterNowMs, nextPassesHours, targetKey, targetScene?.celestialTracks?.celestial_passes],
     );
     const nonSatelliteTracks = useMemo(() => {
-        const rows = Array.isArray(celestialState?.celestialTracks?.celestial)
-            ? celestialState.celestialTracks.celestial
+        const rows = Array.isArray(targetScene?.celestialTracks?.celestial)
+            ? targetScene.celestialTracks.celestial
             : [];
         if (!targetKey) return [];
         return rows.filter((row) => String(row?.target_key || '').trim() === targetKey);
-    }, [celestialState?.celestialTracks?.celestial, targetKey]);
+    }, [targetKey, targetScene?.celestialTracks?.celestial]);
 
     // Load column visibility from localStorage on mount
     useEffect(() => {
@@ -847,10 +854,11 @@ const NextPassesIsland = React.memo(function NextPassesIsland() {
             return;
         }
         if (!isSatelliteTarget && nonSatellitePayload) {
-            Promise.all([
-                dispatch(fetchSolarSystemScene({ socket, payload: nonSatellitePayload })),
-                dispatch(fetchCelestialTracks({ socket, payload: nonSatellitePayload })),
-            ]);
+            dispatch(fetchTargetCelestialScene({
+                socket,
+                payload: nonSatellitePayload,
+                requestKey: nonSatelliteSceneRequestKey,
+            }));
         }
     };
 
@@ -1076,10 +1084,10 @@ const NextPassesIsland = React.memo(function NextPassesIsland() {
             <CelestialPasses
                 passes={nonSatellitePasses}
                 tracks={nonSatelliteTracks}
-                loading={Boolean(celestialState?.tracksLoading)}
+                loading={Boolean(targetScene?.loading)}
                 gridEditable={gridEditable}
                 onRefresh={handleRefreshPasses}
-                refreshDisabled={!socket || !nonSatellitePayload || Boolean(celestialState?.tracksLoading)}
+                refreshDisabled={!socket || !nonSatellitePayload || Boolean(targetScene?.loading)}
             />
         );
     }

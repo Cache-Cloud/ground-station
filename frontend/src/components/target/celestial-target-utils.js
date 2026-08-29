@@ -211,6 +211,15 @@ export const buildTargetKeyFromTrackingState = (trackingState = {}) => {
     return '';
 };
 
+export const buildTargetSceneRequestKey = ({
+    trackingState = {},
+    nextPassesHours = MAX_TARGET_PASS_HOURS,
+} = {}) => {
+    const targetKey = buildTargetKeyFromTrackingState(trackingState);
+    if (!targetKey) return '';
+    return `${targetKey}:0:${clampTargetPassHours(nextPassesHours)}:60`;
+};
+
 export const buildTargetSlotNumberByTargetKey = (trackerInstances = []) => {
     const mapping = {};
     const instances = Array.isArray(trackerInstances) ? trackerInstances : [];

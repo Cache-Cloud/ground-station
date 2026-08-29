@@ -492,6 +492,35 @@ class SatelliteTracker:
             "error": False,
         }
 
+    @staticmethod
+    def _build_observer_sun(
+        *,
+        earth_position_xyz_au: List[float],
+        epoch: datetime,
+        observer_lat_deg: float,
+        observer_lon_deg: float,
+    ) -> Dict[str, Any]:
+        """Build the live Sun context from the same ephemeris used for the target."""
+        observer_view = compute_observer_sky_position(
+            target_heliocentric_xyz_au=[0.0, 0.0, 0.0],
+            earth_heliocentric_xyz_au=earth_position_xyz_au,
+            epoch=epoch,
+            observer_lat_deg=observer_lat_deg,
+            observer_lon_deg=observer_lon_deg,
+        )
+        return {
+            "id": "sun",
+            "target_key": "observer:sun",
+            "target_type": "observer",
+            "body_id": "sun",
+            "name": "Sun",
+            "body_type": "star",
+            "sky_position": observer_view.get("sky_position"),
+            "visibility": observer_view.get("visibility"),
+            "source": "observer-math",
+            "color": "#fbbf24",
+        }
+
     def _resolve_target_context(
         self,
         tracking_state: Dict[str, Any],
@@ -612,6 +641,17 @@ class SatelliteTracker:
             )
             return None
 
+        # The worker already has an Earth vector and observer location for
+        # mission/body tracking, so publish an equally current Sun position.
+        observer_bodies = [
+            self._build_observer_sun(
+                earth_position_xyz_au=earth_position,
+                epoch=now_epoch,
+                observer_lat_deg=observer_lat,
+                observer_lon_deg=observer_lon,
+            )
+        ]
+
         if target_type == "mission":
             command = str(
                 tracking_state.get("command") or input_payload.get("command") or ""
@@ -687,6 +727,7 @@ class SatelliteTracker:
                 ),
                 "satellite_tles": None,
                 "range_rate_km_s": range_rate_km_s,
+                "observer_bodies": observer_bodies,
             }
 
         body_id = (
@@ -759,6 +800,7 @@ class SatelliteTracker:
             ),
             "satellite_tles": None,
             "range_rate_km_s": range_rate_km_s,
+            "observer_bodies": observer_bodies,
         }
 
     async def run(self):
@@ -813,6 +855,7 @@ class SatelliteTracker:
 
             # Initialize to None at the start of each iteration
             initial_tracking_state = None
+            observer_bodies: List[Dict[str, Any]] = []
 
             try:
                 self.stats["tracking_cycles"] += 1
@@ -834,6 +877,7 @@ class SatelliteTracker:
                 target_context = self._resolve_target_context(tracking_state, location)
                 if not target_context:
                     continue
+                observer_bodies = list(target_context.get("observer_bodies") or [])
 
                 tracker = dict(tracking_state)
                 target_type = target_context["target_type"]
@@ -971,6 +1015,7 @@ class SatelliteTracker:
                                     DictKeys.ROTATOR_DATA: self.rotator_data.copy(),
                                     DictKeys.RIG_DATA: self.rig_data.copy(),
                                     DictKeys.TRACKING_STATE: tracker.copy(),
+                                    "observer_bodies": observer_bodies,
                                 },
                             }
                             self.queue_out.put(full_msg)

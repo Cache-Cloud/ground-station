@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTargetKeyFromCelestialRow,
+  buildTargetSceneRequestKey,
   buildTargetSlotNumberByTargetKey,
   parseTargetSlotNumber,
 } from '../celestial-target-utils';
@@ -29,6 +30,19 @@ describe('buildTargetKeyFromCelestialRow', () => {
     expect(buildTargetKeyFromCelestialRow({ target_type: 'mission', command: 'Voyager 1' })).toBe('missioncmd:Voyager 1');
     expect(buildTargetKeyFromCelestialRow({ targetType: 'body', bodyId: 'Rhea' })).toBe('body:rhea');
     expect(buildTargetKeyFromCelestialRow({ command: 'Cassini' })).toBe('missioncmd:Cassini');
+  });
+});
+
+describe('buildTargetSceneRequestKey', () => {
+  it('keeps celestial target results isolated by target and projection window', () => {
+    expect(buildTargetSceneRequestKey({
+      trackingState: { target_type: 'body', body_id: 'Venus' },
+      nextPassesHours: 24,
+    })).toBe('body:venus:0:24:60');
+    expect(buildTargetSceneRequestKey({
+      trackingState: { target_type: 'body', body_id: 'venus' },
+      nextPassesHours: 12,
+    })).toBe('body:venus:0:12:60');
   });
 });
 

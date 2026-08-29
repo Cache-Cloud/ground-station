@@ -784,6 +784,7 @@ const CelestialPasses = ({
                         trend={params.row?.elevationTrend}
                         elRate={params.row?.elevationRate}
                         timeToMaxEl={params.row?.timeToPeakSeconds}
+                        decimalPlaces={2}
                     />
                 );
             },

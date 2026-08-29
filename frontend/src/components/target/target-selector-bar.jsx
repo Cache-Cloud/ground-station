@@ -358,7 +358,8 @@ const TargetSelectorBar = React.memo(function TargetSelectorBar() {
                 body_type: String(entry?.body_type || '').trim(),
                 parent_body_id: String(entry?.parent_body_id || '').trim().toLowerCase(),
             }))
-            .filter((entry) => entry.body_id.length > 0),
+            // The ground station is Earth-based, so Earth cannot be a tracking target.
+            .filter((entry) => entry.body_id.length > 0 && entry.body_id !== 'earth'),
         [bodyCatalogEntries]
     );
     const trackingStateRef = useRef(trackingState);

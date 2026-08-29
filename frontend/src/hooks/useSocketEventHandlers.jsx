@@ -42,6 +42,8 @@ import ExploreIcon from '@mui/icons-material/Explore';
 import { store } from '../components/common/store.jsx';
 import { setSyncState } from '../components/satellites/synchronize-slice.jsx';
 import { setSatelliteData, setUITrackerValues, setTrackerCommandStatus } from '../components/target/target-slice.jsx';
+import { setObserverSkyBodies, setTargetCelestialLivePointing } from '../components/celestial/celestial-slice.jsx';
+import { buildTargetKeyFromTrackingState } from '../components/target/celestial-target-utils.js';
 import { setTrackerInstances } from '../components/target/tracker-instances-slice.jsx';
 import { setSynchronizing } from '../components/satellites/synchronize-slice.jsx';
 import { initializeAppData } from '../services/data-sync.js';
@@ -462,6 +464,25 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
         // Satellite tracking events
         socket.on("satellite-tracking", (message) => {
             store.dispatch(setSatelliteData(message));
+            if (Array.isArray(message?.observer_bodies) && message.observer_bodies.length > 0) {
+                // Observer bodies are visual-only context shared by all target slots.
+                store.dispatch(setObserverSkyBodies(message.observer_bodies));
+            }
+            const trackingState = message?.tracking_state || {};
+            const targetKey = buildTargetKeyFromTrackingState(trackingState);
+            const azDeg = Number(message?.satellite_data?.position?.az);
+            const elDeg = Number(message?.satellite_data?.position?.el);
+            if (targetKey && Number.isFinite(azDeg) && Number.isFinite(elDeg)) {
+                // The tracker already calculates the active target's live sky
+                // position. Overlay it onto any cached target scene instead of
+                // repeatedly fetching the same ephemeris/pass forecast.
+                store.dispatch(setTargetCelestialLivePointing({
+                    targetKey,
+                    azDeg,
+                    elDeg,
+                    timestampUtc: new Date().toISOString(),
+                }));
+            }
             if (message['events']) {
                 message['events'].forEach(event => {
                     if (event.name === 'rotator_connected') {
