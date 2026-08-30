@@ -1,5 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { determineAzimuthArcFlags } from '../rotator-gauges.jsx';
+import { determineAzimuthArcFlags, normalizeAzimuthForGauge } from '../rotator-gauges.jsx';
+
+describe('normalizeAzimuthForGauge', () => {
+  it('maps the 360° endpoint to the equivalent 0° gauge position', () => {
+    expect(normalizeAzimuthForGauge(360)).toBe(0);
+  });
+
+  it('keeps values within the circular display range', () => {
+    expect(normalizeAzimuthForGauge(359.5)).toBe(359.5);
+    expect(normalizeAzimuthForGauge(450)).toBe(90);
+    expect(normalizeAzimuthForGauge(-10)).toBe(350);
+  });
+
+  it('does not render non-finite readings', () => {
+    expect(normalizeAzimuthForGauge(Number.NaN)).toBeNull();
+  });
+});
 
 describe('determineAzimuthArcFlags', () => {
   it('chooses short clockwise arc when peak is on that arc', () => {

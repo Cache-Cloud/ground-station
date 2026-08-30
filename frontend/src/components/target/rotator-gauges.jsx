@@ -164,6 +164,11 @@ const normalizeAngle = (angle) => {
     return normalized < 0 ? normalized + 360 : normalized;
 };
 
+// A circular gauge has one visual position for both 0° and 360°. Keep its
+// value below the upper endpoint so the gauge library never has to render its
+// full-circle boundary for a north-pointing rotator.
+const normalizeAzimuthForGauge = (azimuth) => normalizeAngle(azimuth);
+
 const clockwiseDistance = (start, end) => (end - start + 360) % 360;
 
 const isAngleOnClockwiseArcInclusive = (angle, arcStart, arcEnd, epsilon = 1e-6) => {
@@ -312,7 +317,7 @@ function GaugeAz({az, limits = [null, null],
 }) {
     let [maxAz, minAz] = limits;
     let [hwMinAz, hwMaxAz] = hardwareLimits;
-    const safeAz = isFiniteNumber(az) ? az : null;
+    const safeAz = normalizeAzimuthForGauge(az);
     const safeTargetCurrentAz = isFiniteNumber(targetCurrentAz) ? targetCurrentAz : null;
     minAz = isFiniteNumber(minAz) ? minAz : null;
     maxAz = isFiniteNumber(maxAz) ? maxAz : null;
@@ -364,9 +369,7 @@ function GaugeAz({az, limits = [null, null],
             <text x="124" y="70" textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight={"bold"}>90</text>
             <text x="70" y="125" textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight={"bold"}>180</text>
             <text x="15" y="70" textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight={"bold"}>270</text>
-            <EdgeArrow angle={safeTargetCurrentAz} />
-            <GaugePointer/>
-            {/* Hardware limits - red restricted zones (rendered last to be on top) */}
+            {/* Hardware limits - red restricted zones */}
             {hwMinAz !== null && hwMaxAz !== null && <>
                 {/* Show red zone from 0 to hwMinAz if hwMinAz > 0 */}
                 {hwMinAz > 0 && <CircleSlice
@@ -385,6 +388,9 @@ function GaugeAz({az, limits = [null, null],
                     opacity={0.3}
                 />}
             </>}
+            {/* Keep current-position indicators visible even in a restricted sector. */}
+            <EdgeArrow angle={safeTargetCurrentAz} />
+            <GaugePointer/>
         </GaugeContainer>
     );
 }
@@ -448,9 +454,7 @@ function GaugeEl({el, maxElevation = null, targetCurrentEl = null, hardwareLimit
             <text x="107" y="120" textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight={"bold"}>0</text>
             <text x="80" y="55" textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight={"bold"}>45</text>
             <text x="10" y="23" textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight={"bold"}>90</text>
-            <EdgeArrow angle={safeTargetCurrentEl !== null ? rescaleValue(safeTargetCurrentEl) : null} />
-            <GaugePointer/>
-            {/* Hardware limits - red restricted zones (rendered last to be on top) */}
+            {/* Hardware limits - red restricted zones */}
             {hwMinElAngle !== null && hwMaxElAngle !== null && <>
                 {/* Show red zone from gauge angle 90 (0° elevation) to hwMinElAngle */}
                 <CircleSlice
@@ -471,8 +475,11 @@ function GaugeEl({el, maxElevation = null, targetCurrentEl = null, hardwareLimit
                     opacity={0.3}
                 />}
             </>}
+            {/* Elevation endpoints can also fall inside a restricted sector. */}
+            <EdgeArrow angle={safeTargetCurrentEl !== null ? rescaleValue(safeTargetCurrentEl) : null} />
+            <GaugePointer/>
         </GaugeContainer>
     );
 }
 
-export { GaugePointer, EdgeArrow, Pointer, CircleSlice, GaugeAz, GaugeEl, rescaleToRange };
+export { GaugePointer, EdgeArrow, Pointer, CircleSlice, GaugeAz, GaugeEl, normalizeAzimuthForGauge, rescaleToRange };
