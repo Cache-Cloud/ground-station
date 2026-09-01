@@ -7,6 +7,7 @@
 
 """Unit tests for background scheduler job orchestration."""
 
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -194,5 +195,7 @@ def test_start_and_stop_scheduler_register_expected_jobs(monkeypatch):
         "generate_observations",
         scheduler_module.CELESTIAL_TRACKS_BROADCAST_JOB_ID,
     }
+    orbital_sync_job = next(job for job in scheduler.jobs if job.id == "sync_satellite_data")
+    assert orbital_sync_job.trigger.interval == timedelta(hours=12)
     assert scheduler.shutdown_wait is False
     assert references == [scheduler, None]

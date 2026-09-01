@@ -473,10 +473,10 @@ def start_scheduler(sio, process_manager, background_task_manager):
     scheduler = AsyncIOScheduler()
     set_scheduler_reference(scheduler)
 
-    # Schedule satellite data synchronization every 24 hours
+    # Schedule satellite data synchronization every 12 hours.
     scheduler.add_job(
         sync_satellite_data_job,
-        trigger=IntervalTrigger(hours=24),
+        trigger=IntervalTrigger(hours=12),
         args=[background_task_manager],
         id=ORBITAL_SYNC_JOB_ID,
         name="Synchronize satellite data",

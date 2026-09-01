@@ -211,7 +211,7 @@ propagator required those generated lines. This fails for catalogue IDs above
 
 Status: partially complete (2026-08-26)
 
-The scheduled sync is every 24 hours, which is within CelesTrak's two-hour GP
+The scheduled sync is every 12 hours, which is within CelesTrak's two-hour GP
 update cadence. Manual sync has no persistent rate limit, however, and the
 source editor accepts arbitrary HTTP(S) URLs.
 
