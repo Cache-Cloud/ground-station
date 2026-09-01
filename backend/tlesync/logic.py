@@ -219,6 +219,8 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
 
         # Use a single ThreadPoolExecutor for all async_fetch calls
         with ThreadPoolExecutor(max_workers=1) as pool:
+            # A failed CelesTrak request stops CelesTrak traffic for this run,
+            # but must not prevent independent providers from refreshing.
             celestrak_requests_stopped = False
             # Fetch ephemeris from configured orbit sources.
             for i, tle_source in enumerate(sources):
@@ -230,6 +232,13 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                 group_assignments[tle_source_identifier] = []
 
                 if is_celestrak_source:
+                    if celestrak_requests_stopped:
+                        logger.warning(
+                            "Skipping CelesTrak source '%s' after an earlier CelesTrak error.",
+                            tle_source_name,
+                        )
+                        continue
+
                     source_state = await get_source_sync_state(dbsession, source_id)
                     if source_state and source_state.suspended_at:
                         error_msg = (
@@ -243,7 +252,7 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                         sync_state_manager.set_state(sync_state)
                         await _emit(sync_state)
                         celestrak_requests_stopped = True
-                        break
+                        continue
                     if is_celestrak_rate_limited(source_state):
                         rate_limited_celestrak_sources.append(tle_source_name)
                         logger.info(
@@ -327,7 +336,7 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                             details["http_status"],
                         )
                         celestrak_requests_stopped = True
-                        break
+                        continue
                     response = getattr(e, "response", None)
                     await mark_source_failure(
                         dbsession,
@@ -352,7 +361,7 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                         # Retrying them automatically would recreate the same bad request.
                         await suspend_celestrak_source(dbsession, source_id, str(e), None)
                         celestrak_requests_stopped = True
-                        break
+                        continue
                     await mark_source_failure(dbsession, source_id, str(e), None)
                     continue
 
@@ -411,20 +420,6 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
                     f'Group {tle_source.get("name", None)} created/updated',
                 )
                 await _emit(progress_state)
-
-            if celestrak_requests_stopped:
-                sync_state["status"] = "complete"
-                sync_state["progress"] = 100
-                sync_state["success"] = False
-                sync_state["active_sources"] = []
-                sync_state["message"] = (
-                    "CelesTrak synchronization stopped after an error. "
-                    "The affected source is suspended and requires human review."
-                )
-                sync_state["last_update"] = datetime.now(timezone.utc).isoformat()
-                sync_state_manager.set_state(sync_state)
-                await _emit(sync_state)
-                return False
 
             # Mark orbital sources phase as complete
             completed_phases.add("fetch_orbital_sources")
