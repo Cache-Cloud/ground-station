@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSkyObjects } from '../planetarium-canvas.jsx';
+import { buildSkyObjects, getPassCurveDash } from '../planetarium-canvas.jsx';
 
 describe('buildSkyObjects', () => {
     it('renders the observer Sun only while it is above the horizon', () => {
@@ -32,5 +32,18 @@ describe('buildSkyObjects', () => {
         };
 
         expect(buildSkyObjects(scene)).toHaveLength(0);
+    });
+});
+
+describe('getPassCurveDash', () => {
+    const nowMs = Date.parse('2026-09-01T12:00:00Z');
+
+    it('renders future passes as dotted, including selected targets', () => {
+        expect(getPassCurveDash({ startMs: nowMs + 60_000 }, nowMs, true)).toEqual([1, 4]);
+        expect(getPassCurveDash({ startMs: nowMs + 60_000 }, nowMs, false)).toEqual([1, 4]);
+    });
+
+    it('keeps an active selected pass solid', () => {
+        expect(getPassCurveDash({ startMs: nowMs - 60_000 }, nowMs, true)).toEqual([]);
     });
 });

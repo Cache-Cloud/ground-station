@@ -290,6 +290,14 @@ const getPassCurveIntensity = (curve, nowMs, maxFutureLeadMs) => {
     return 0.5 - normalizedAge * 0.3;
 };
 
+export const getPassCurveDash = (curve, nowMs, isSelected) => {
+    // A future pass remains visually distinct even when its target is selected.
+    if (Number.isFinite(curve?.startMs) && Number.isFinite(nowMs) && nowMs < curve.startMs) {
+        return [1, 4];
+    }
+    return isSelected ? [] : [4, 5];
+};
+
 const extractConstellationAbbreviation = (name) => {
     const compact = String(name || '').replace(/\s+/g, '').toUpperCase();
     for (const abbreviation of CONSTELLATION_ABBREVIATIONS) {
@@ -835,7 +843,7 @@ function PlanetariumCanvas({
                     curve.points,
                     isSelected ? selectedColor : unselectedColor,
                     isSelected ? 2 : 1,
-                    isSelected ? [] : [4, 5],
+                    getPassCurveDash(curve, nowMs, isSelected),
                 );
             });
         }

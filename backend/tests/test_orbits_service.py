@@ -15,6 +15,9 @@
 
 """Unit tests for the orbit abstraction service."""
 
+import os
+import time
+
 import pytest
 
 from crud.satellites import add_satellite
@@ -29,7 +32,7 @@ from orbits import (
     get_propagation_input,
     get_propagation_input_for_object,
 )
-from orbits.service import orbit_service
+from orbits.service import _normalize_omm_fields, orbit_service
 
 LEGACY_SATELLITE = {
     "norad_id": 25544,
@@ -78,6 +81,24 @@ def test_get_propagation_input_from_omm_row_uses_omm_payload():
     assert propagation_input.object_id == 25544
     assert propagation_input.model_kind == OrbitModelKind.OMM
     assert propagation_input.satrec is not None
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="requires POSIX timezone support")
+def test_normalize_omm_epoch_treats_naive_timestamp_as_utc():
+    """Host-local time must not shift an OMM epoch that has no explicit offset."""
+    original_timezone = os.environ.get("TZ")
+    try:
+        os.environ["TZ"] = "Etc/GMT-3"
+        time.tzset()
+        normalized = _normalize_omm_fields(OMM_PAYLOAD)
+    finally:
+        if original_timezone is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = original_timezone
+        time.tzset()
+
+    assert normalized["EPOCH"] == "2025-01-01T12:00:00.000000"
 
 
 def test_omm_propagation_handles_six_digit_catalogue_number_without_tle():

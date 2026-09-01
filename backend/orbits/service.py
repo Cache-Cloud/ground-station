@@ -409,6 +409,10 @@ def _normalize_omm_fields(raw_fields: Mapping[str, Any]) -> Dict[str, str]:
     epoch = _coerce_datetime(fields["EPOCH"])
     if epoch is None:
         raise ValueError(f"Invalid OMM epoch value: {fields['EPOCH']}")
+    if epoch.tzinfo is None:
+        # OMM timestamps without an offset are defined in the stated TIME_SYSTEM (UTC here),
+        # never in the host machine's local timezone.
+        epoch = epoch.replace(tzinfo=timezone.utc)
     fields["EPOCH"] = (
         epoch.astimezone(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S.%f")
     )
