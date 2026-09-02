@@ -11,6 +11,7 @@ import { E2E_ADMIN_PASSWORD } from './auth-constants.js';
 const SETUP_COORDINATES = {
   latitude: '37.9838',
   longitude: '23.7275',
+  altitude: '257',
 };
 
 const getSetupDialog = (page) => page.getByRole('dialog').filter({
@@ -44,6 +45,7 @@ const fillCoordinatesInWizard = async (page, setupDialog) => {
   await expect(coordinatesDialog).toBeVisible();
   await coordinatesDialog.getByLabel(/latitude/i).fill(SETUP_COORDINATES.latitude);
   await coordinatesDialog.getByLabel(/longitude/i).fill(SETUP_COORDINATES.longitude);
+  await coordinatesDialog.getByLabel(/^altitude$/i).fill(SETUP_COORDINATES.altitude);
   await coordinatesDialog.getByRole('button', { name: /apply coordinates/i }).click();
   await expect(coordinatesDialog).toBeHidden({ timeout: 10000 });
 };
@@ -65,6 +67,7 @@ const advanceToReviewStep = async (page, setupDialog, { username, password }) =>
   await nextButton.click();
 
   await expect(setupDialog.getByRole('heading', { name: /review configuration/i })).toBeVisible();
+  await expect(setupDialog.getByText('257m ASL')).toBeVisible();
   await expect(
     setupDialog.getByRole('button', { name: /save and continue|save location/i }),
   ).toBeVisible();
@@ -218,6 +221,7 @@ test.describe('Setup Wizard', () => {
     await expect(setupDialog).toContainText(/administrator account created/i);
     await expect(setupDialog).toContainText(/administrator account created[\s\S]*done/i);
     await expect(completeSetupButton).toBeEnabled({ timeout: 60000 });
+    await expect(backButton).toBeDisabled();
     await completeSetupButton.click();
 
     // Setup completion should establish the authenticated UI session.

@@ -36,12 +36,28 @@ test.describe('Location Settings', () => {
   });
 
 
-  test('should have latitude and longitude fields', async ({ page }) => {
-    await page.waitForTimeout(2000);
+  test('saves manually entered coordinates and altitude', async ({ page }) => {
+    const enterCoordinatesButton = page.getByRole('button', { name: /enter coordinates/i });
+    await expect(enterCoordinatesButton).toBeVisible({ timeout: 15000 });
+    await enterCoordinatesButton.click();
 
-    // Look for latitude/longitude labels or inputs
-    const latLonText = page.getByText(/latitude|longitude|lat|lon|coordinates/i);
-    await expect(latLonText.first()).toBeVisible({ timeout: 10000 });
+    const coordinatesDialog = page.getByRole('dialog').filter({
+      has: page.getByRole('button', { name: /apply coordinates/i }),
+    }).first();
+    await expect(coordinatesDialog).toBeVisible();
+    await coordinatesDialog.getByLabel(/latitude/i).fill('37.9838');
+    await coordinatesDialog.getByLabel(/longitude/i).fill('23.7275');
+    await coordinatesDialog.getByLabel(/^altitude$/i).fill('257');
+    await coordinatesDialog.getByRole('button', { name: /apply coordinates/i }).click();
+    await expect(coordinatesDialog).toBeHidden();
+
+    const saveButton = page.getByRole('button', { name: /save location/i });
+    await expect(saveButton).toBeEnabled({ timeout: 10000 });
+    await saveButton.click();
+    await expect(page.getByText('Location set successfully')).toBeVisible({ timeout: 10000 });
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByText('257m ASL').first()).toBeVisible({ timeout: 15000 });
   });
 });
 

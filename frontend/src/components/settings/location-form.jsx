@@ -189,6 +189,7 @@ const LocationPage = ({
     const [manualDialogOpen, setManualDialogOpen] = React.useState(false);
     const [manualLatInput, setManualLatInput] = React.useState('');
     const [manualLonInput, setManualLonInput] = React.useState('');
+    const [manualAltitudeInput, setManualAltitudeInput] = React.useState('');
     const [manualInputError, setManualInputError] = React.useState('');
     const mapRef = React.useRef(null);
 
@@ -535,6 +536,9 @@ const LocationPage = ({
             setManualLatInput('');
             setManualLonInput('');
         }
+        // Keep the editable value aligned with the location being reviewed,
+        // including zero, which is a valid station altitude.
+        setManualAltitudeInput(String(Number.isFinite(Number(altitude)) ? Number(altitude) : 0));
         setManualInputError('');
         setManualDialogOpen(true);
     };
@@ -547,8 +551,9 @@ const LocationPage = ({
     const handleApplyManualCoordinates = async () => {
         const parsedLat = Number.parseFloat(manualLatInput.trim());
         const parsedLon = Number.parseFloat(manualLonInput.trim());
+        const parsedAltitude = Number.parseFloat(manualAltitudeInput.trim());
 
-        // Validate user-entered decimal coordinates before hydrating map/location state.
+        // Validate the complete manual location before changing the shared state.
         if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLon)) {
             setManualInputError(t('location.manual_coordinates_invalid', {
                 defaultValue: 'Enter valid numeric latitude and longitude values.',
@@ -563,12 +568,21 @@ const LocationPage = ({
             return;
         }
 
+        if (!Number.isFinite(parsedAltitude)) {
+            setManualInputError(t('location.manual_altitude_invalid', {
+                defaultValue: 'Enter a valid altitude in metres.',
+            }));
+            return;
+        }
+
         updateLocationState({ lat: parsedLat, lon: parsedLon });
+        dispatch(setAltitude(parsedAltitude));
         dispatch(setQth(getMaidenhead(parsedLat, parsedLon)));
         reCenterMap(parsedLat, parsedLon);
 
         setManualLatInput(parsedLat.toFixed(6));
         setManualLonInput(parsedLon.toFixed(6));
+        setManualAltitudeInput(String(parsedAltitude));
         setManualInputError('');
         setManualDialogOpen(false);
 
@@ -1300,9 +1314,25 @@ const LocationPage = ({
                             inputProps={{ min: -180, max: 180, step: 'any' }}
                             fullWidth
                         />
+                        <TextField
+                            label={t('location.altitude')}
+                            type="number"
+                            value={manualAltitudeInput}
+                            onChange={(event) => {
+                                setManualAltitudeInput(event.target.value);
+                                if (manualInputError) {
+                                    setManualInputError('');
+                                }
+                            }}
+                            inputProps={{ step: 'any' }}
+                            InputProps={{
+                                endAdornment: <InputAdornment position="end">m</InputAdornment>,
+                            }}
+                            fullWidth
+                        />
                         <Typography variant="caption" color={manualInputError ? 'error.main' : 'text.secondary'}>
                             {manualInputError || t('location.manual_coordinates_hint', {
-                                defaultValue: 'Use decimal degrees. Example: 37.9838, 23.7275',
+                                defaultValue: 'Use decimal degrees and metres above mean sea level. Example: 37.9838, 23.7275, 257',
                             })}
                         </Typography>
                     </Stack>

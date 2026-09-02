@@ -121,6 +121,7 @@ const SetupWizard = ({
     const [adminLocalError, setAdminLocalError] = React.useState('');
     const [wizardSyncState, setWizardSyncState] = React.useState(syncState || null);
     const [wizardFinalizing, setWizardFinalizing] = React.useState(false);
+    const [wizardFinalizationCompleted, setWizardFinalizationCompleted] = React.useState(false);
     const [callChecklist, setCallChecklist] = React.useState(createInitialCallChecklist);
     const [soapyRuntimeState, setSoapyRuntimeState] = React.useState(createInitialSoapyRuntimeState);
 
@@ -224,17 +225,22 @@ const SetupWizard = ({
         const state = String(statusPayload?.state || '').toLowerCase();
         if (state === 'running') {
             setWizardFinalizing(true);
+            setWizardFinalizationCompleted(false);
             return;
         }
 
         if (state === 'completed') {
             setWizardFinalizing(false);
+            // The backend has created the administrator at this point. Returning to
+            // Review would make a second finalize request, which it must reject.
+            setWizardFinalizationCompleted(true);
             setAdminLocalError('');
             return;
         }
 
         if (state === 'failed') {
             setWizardFinalizing(false);
+            setWizardFinalizationCompleted(false);
             setAdminLocalError(String(statusPayload?.error || 'Setup finalization failed.'));
         }
     }, []);
@@ -556,6 +562,7 @@ const SetupWizard = ({
 
         setAdminLocalError('');
         setWizardFinalizing(true);
+        setWizardFinalizationCompleted(false);
         setCallChecklist(createInitialCallChecklist());
         setSoapyRuntimeState(createInitialSoapyRuntimeState());
         setChecklistStatus('location', CALL_STATUS_PENDING, 'Submitting location...');
@@ -1249,7 +1256,8 @@ const SetupWizard = ({
                             wizardCurrentOrderIndex === 0 ||
                             locationSaving ||
                             authLoadingAction ||
-                            wizardFinalizing
+                            wizardFinalizing ||
+                            wizardFinalizationCompleted
                         }
                     >
                         {t('location.back', { defaultValue: 'Back' })}

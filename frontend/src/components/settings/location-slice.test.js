@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import reducer, {
     fetchLocationForUserId,
+    setAltitude,
     storeLocation,
 } from './location-slice.jsx';
 
@@ -50,5 +51,15 @@ describe('location slice', () => {
             locationSaving: false,
             error: 'Could not save station',
         });
+    });
+
+    it('retains a manually saved zero altitude', () => {
+        let state = reducer(undefined, { type: '@@INIT' });
+        state = reducer(state, setAltitude(257));
+        state = reducer(state, storeLocation.fulfilled({
+            id: 'location-1', lat: '37.9838', lon: '23.7275', alt: 0,
+        }, 'request'));
+
+        expect(state.altitude).toBe(0);
     });
 });

@@ -197,7 +197,8 @@ const locationSlice = createSlice({
                     const payload = normalizeLocationPayload(action.payload);
                     state.location = payload;
                     state.locationId = payload.id;
-                    state.altitude = payload.alt || state.altitude;
+                    // Preserve a saved altitude of zero; it is a valid value, not a missing one.
+                    state.altitude = payload.alt ?? state.altitude;
                     state.qth = getMaidenhead(parseFloat(payload.lat), parseFloat(payload.lon));
                     state.locationSaving = false;
                 }

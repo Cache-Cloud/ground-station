@@ -1,6 +1,7 @@
 const DEFAULT_COORDINATES = {
   latitude: '37.9838',
   longitude: '23.7275',
+  altitude: '257',
 };
 
 const DEFAULT_ADMIN_PASSWORD = 'GroundStationE2E#2026';
@@ -58,6 +59,9 @@ const ensureCoordinatesForWizardStep = async (page, wizardDialog, coordinates) =
     await manualDialog.waitFor({ state: 'visible', timeout: 10000 });
     await manualDialog.getByLabel(/latitude/i).fill(coordinates.latitude);
     await manualDialog.getByLabel(/longitude/i).fill(coordinates.longitude);
+    await manualDialog.getByLabel(/^altitude$/i).fill(
+      coordinates.altitude ?? DEFAULT_COORDINATES.altitude,
+    );
     await manualDialog.getByRole('button', { name: /apply coordinates/i }).click();
     await manualDialog.waitFor({ state: 'hidden', timeout: 10000 });
   }
