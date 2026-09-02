@@ -63,7 +63,6 @@ import {
     resolveTargetDisplayName,
 } from './celestial-target-utils.js';
 import {isPassScheduledForAutomaticObservation} from '../common/passobservationutils.js';
-import PassTransmitterLinksCell from '../common/pass-transmitter-links-cell.jsx';
 
 const getPassStatus = (row, now = new Date()) => {
     const startDate = new Date(row?.event_start);
@@ -491,22 +490,6 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             renderCell: (params) => <PassTypesCell tags={params.value} t={t} />,
         },
         {
-            field: 'transmitter_links',
-            minWidth: 170,
-            align: 'center',
-            headerAlign: 'center',
-            headerName: t('next_passes.transmitter_links', {defaultValue: 'Links'}),
-            flex: 2,
-            sortable: false,
-            valueGetter: (_value, row) => row.transmitters,
-            renderCell: (params) => <PassTransmitterLinksCell
-                transmitters={params.value}
-                noDataText={t('next_passes.no_data', {defaultValue: 'No data'})}
-                t={t}
-                translationPrefix="next_passes"
-            />,
-        },
-        {
             field: 'event_end',
             minWidth: 160,
             headerName: t('next_passes.end'),
@@ -803,7 +786,11 @@ const NextPassesIsland = React.memo(function NextPassesIsland() {
                 const stored = localStorage.getItem('target-passes-table-column-visibility');
                 if (stored) {
                     const parsedVisibility = JSON.parse(stored);
-                    dispatch(setPassesTableColumnVisibility(parsedVisibility));
+                    if (parsedVisibility && typeof parsedVisibility === 'object' && !Array.isArray(parsedVisibility)) {
+                        // Remove the retired column from existing browser preferences.
+                        delete parsedVisibility.transmitter_links;
+                        dispatch(setPassesTableColumnVisibility(parsedVisibility));
+                    }
                 }
             } catch (e) {
                 console.error('Failed to load target passes table column visibility:', e);

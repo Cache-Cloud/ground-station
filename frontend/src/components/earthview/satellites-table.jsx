@@ -59,6 +59,8 @@ import { toast } from '../../utils/toast-with-timestamp.jsx';
 import SatellitesTableSettingsDialog from './satellites-table-settings-dialog.jsx';
 import IconButton from '@mui/material/IconButton';
 import TargetNumberIcon from '../common/target-number-icon.jsx';
+import PassTransmitterLinksCell from '../common/pass-transmitter-links-cell.jsx';
+import {formatAlternativeSatelliteNames} from '../common/satellite-names.js';
 import { setRotator, setTrackerId, setTrackingStateInBackend } from "../target/target-slice.jsx";
 import { useTargetRotatorSelectionDialog } from "../target/use-target-rotator-selection-dialog.jsx";
 import SatelliteEditDialog from "../satellites/satellite-edit-dialog.jsx";
@@ -250,14 +252,15 @@ const MemoizedStyledDataGrid = React.memo(({
             }
         },
         {
-            field: 'alternative_name',
+            field: 'alternative_names',
             minWidth: 100,
-            headerName: t('satellites_table.alternative_name'),
+            headerName: t('satellites_table.alternative_names'),
             flex: 2,
             renderCell: (params) => {
                 if (!params || !params.row) return <Typography>-</Typography>;
-                return <span>{params.value || '-'}</span>;
-            }
+                return <span>{formatAlternativeSatelliteNames(params.row.alternative_name, params.row.name_other) || '-'}</span>;
+            },
+            valueGetter: (_value, row) => formatAlternativeSatelliteNames(row.alternative_name, row.name_other) || '-',
         },
         {
             field: 'norad_id',
@@ -377,6 +380,22 @@ const MemoizedStyledDataGrid = React.memo(({
             }
         },
         {
+            field: 'transmitter_links',
+            minWidth: 170,
+            align: 'center',
+            headerAlign: 'center',
+            headerName: t('passes_table.transmitter_links', { defaultValue: 'Links' }),
+            flex: 2,
+            sortable: false,
+            valueGetter: (_value, row) => row.transmitters,
+            renderCell: (params) => <PassTransmitterLinksCell
+                transmitters={params.value}
+                noDataText={t('passes_table.no_data')}
+                t={t}
+                translationPrefix="passes_table"
+            />,
+        },
+        {
             field: 'active_tx_count',
             minWidth: 70,
             headerName: 'Active TX',
@@ -449,7 +468,7 @@ const MemoizedStyledDataGrid = React.memo(({
         if (!isCompactView) return base;
         return {
             ...base,
-            alternative_name: false,
+            alternative_names: false,
             countries: false,
             decayed: false,
             updated: false,
@@ -642,7 +661,14 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
                 const stored = localStorage.getItem('satellites-table-column-visibility');
                 if (stored) {
                     const parsedVisibility = JSON.parse(stored);
-                    dispatch(setSatellitesTableColumnVisibility(parsedVisibility));
+                    if (parsedVisibility && typeof parsedVisibility === 'object' && !Array.isArray(parsedVisibility)) {
+                        // Keep an existing alias-column preference when moving to the combined display column.
+                        if ('alternative_name' in parsedVisibility) {
+                            parsedVisibility.alternative_names = parsedVisibility.alternative_name;
+                            delete parsedVisibility.alternative_name;
+                        }
+                        dispatch(setSatellitesTableColumnVisibility(parsedVisibility));
+                    }
                 }
             } catch (e) {
                 console.error('Failed to load satellites table column visibility:', e);

@@ -109,17 +109,36 @@ const SatelliteMarker = ({
                 interactive={true}
             >
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                    <strong>
-                        {isTracking && (
+                    {isTracking ? (
+                        <Box sx={{
+                            display: 'grid',
+                            gridTemplateColumns: '15px minmax(0, 1fr)',
+                            columnGap: 0.4,
+                            alignItems: 'center',
+                            maxWidth: 180,
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            lineHeight: 1.2,
+                        }}>
                             <TargetNumberIcon
                                 targetNumber={targetNumber}
                                 prefix="T"
                                 size={15}
-                                sx={{ mr: 0.7, verticalAlign: 'middle', position: 'relative', top: -1 }}
+                                sx={{ gridColumn: 1 }}
                             />
-                        )}
-                        {satellite.name} - {parseInt(altitude) + " km, " + velocity.toFixed(2) + " km/s"}
-                    </strong>
+                            <Box
+                                component="span"
+                                title={satellite.name || '-'}
+                                sx={{ gridColumn: 2, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}
+                            >
+                                {satellite.name || '-'}
+                            </Box>
+                        </Box>
+                    ) : (
+                        <strong>
+                            {satellite.name} - {parseInt(altitude) + " km, " + velocity.toFixed(2) + " km/s"}
+                        </strong>
+                    )}
                     {isSelected && !isTracking && (
                         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
                             <Button

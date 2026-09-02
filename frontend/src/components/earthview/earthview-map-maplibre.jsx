@@ -74,7 +74,7 @@ import {pickTooltipDirection} from '../common/tooltip-orientation.js';
 const viewSatelliteLimit = 100;
 const MAPLIBRE_MIN_ZOOM = -6;
 const MAPLIBRE_TOOLTIP_DIRECTIONS = Object.freeze(['bottom', 'right', 'left', 'top']);
-const MAPLIBRE_TOOLTIP_DEFAULT_SIZE = Object.freeze({width: 220, height: 48});
+const MAPLIBRE_TOOLTIP_DEFAULT_SIZE = Object.freeze({width: 180, height: 32});
 const MAPLIBRE_TOOLTIP_ANCHOR_DISTANCE = 15;
 const MAPLIBRE_TOOLTIP_EDGE_PADDING = 10;
 // MapLibre anchor names describe which popup edge is connected to the marker, so the
@@ -871,7 +871,7 @@ const MapLibreEarthViewMapRenderer = ({handleSetTrackingOnBackend, onSatelliteMa
                         boxShadow: theme.shadows[3],
                         borderRadius: `${theme.shape.borderRadius}px`,
                         whiteSpace: 'nowrap',
-                        padding: '6px 8px',
+                        padding: '4px 6px',
                     },
                     // Match Leaflet tracked-satellite tooltip style.
                     '& .earth-view-maplibre-tracked-popup .maplibregl-popup-content': {
@@ -881,7 +881,7 @@ const MapLibreEarthViewMapRenderer = ({handleSetTrackingOnBackend, onSatelliteMa
                         boxShadow: theme.shadows[3],
                         borderRadius: `${theme.shape.borderRadius}px`,
                         whiteSpace: 'nowrap',
-                        padding: '6px 8px',
+                        padding: '4px 6px',
                     },
                     '& .earth-view-maplibre-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip, & .earth-view-maplibre-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip, & .earth-view-maplibre-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip': {
                         borderBottomColor: `${theme.palette.background.paper} !important`,
@@ -1199,17 +1199,36 @@ const MapLibreEarthViewMapRenderer = ({handleSetTrackingOnBackend, onSatelliteMa
                                         className={marker.isTracked ? 'earth-view-maplibre-tracked-popup' : 'earth-view-maplibre-popup'}
                                     >
                                         <Box sx={{display: 'flex', flexDirection: 'column', gap: 0.5}}>
-                                            <strong>
-                                                {marker.isTracked ? (
+                                            {marker.isTracked ? (
+                                                <Box sx={{
+                                                    display: 'grid',
+                                                    gridTemplateColumns: '15px minmax(0, 1fr)',
+                                                    columnGap: 0.4,
+                                                    alignItems: 'center',
+                                                    maxWidth: 180,
+                                                    fontSize: '0.75rem',
+                                                    fontWeight: 700,
+                                                    lineHeight: 1.2,
+                                                }}>
                                                     <TargetNumberIcon
                                                         targetNumber={marker.targetNumber}
                                                         prefix="T"
                                                         size={15}
-                                                        sx={{mr: 0.7, verticalAlign: 'middle', position: 'relative', top: -1}}
+                                                        sx={{gridColumn: 1}}
                                                     />
-                                                ) : null}
-                                                {marker.name} - {parseInt(marker.altitude)} km, {marker.velocity.toFixed(2)} km/s
-                                            </strong>
+                                                    <Box
+                                                        component="span"
+                                                        title={marker.name || '-'}
+                                                        sx={{gridColumn: 2, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center'}}
+                                                    >
+                                                        {marker.name || '-'}
+                                                    </Box>
+                                                </Box>
+                                            ) : (
+                                                <strong>
+                                                    {marker.name} - {parseInt(marker.altitude)} km, {marker.velocity.toFixed(2)} km/s
+                                                </strong>
+                                            )}
                                             {marker.isSelected && !marker.isTracked ? (
                                                 <Box sx={{display: 'flex', gap: 0.5, alignItems: 'center'}}>
                                                     <Button

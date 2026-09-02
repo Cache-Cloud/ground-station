@@ -6,6 +6,7 @@
     "satellites_count": "{{count}} δορυφόροι",
     "satellite_name": "Ονομα Δορυφόρου",
     "alternative_name": "Εναλλακτικό Ονομα",
+    "alternative_names": "Εναλλακτικά ονόματα",
     "norad": "NORAD",
     "elevation": "Υψωση",
     "status": "Κατάσταση",

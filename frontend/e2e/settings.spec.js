@@ -45,9 +45,11 @@ test.describe('Location Settings', () => {
       has: page.getByRole('button', { name: /apply coordinates/i }),
     }).first();
     await expect(coordinatesDialog).toBeVisible();
-    await coordinatesDialog.getByLabel(/latitude/i).fill('37.9838');
-    await coordinatesDialog.getByLabel(/longitude/i).fill('23.7275');
-    await coordinatesDialog.getByLabel(/^altitude$/i).fill('257');
+    // The setup-wizard project persists Athens at 37.9838, 23.7275 and 257m.
+    // Use a different complete location here so this test exercises an actual edit.
+    await coordinatesDialog.getByLabel(/latitude/i).fill('37.9848');
+    await coordinatesDialog.getByLabel(/longitude/i).fill('23.7285');
+    await coordinatesDialog.getByLabel(/^altitude$/i).fill('258');
     await coordinatesDialog.getByRole('button', { name: /apply coordinates/i }).click();
     await expect(coordinatesDialog).toBeHidden();
 
@@ -57,7 +59,7 @@ test.describe('Location Settings', () => {
     await expect(page.getByText('Location set successfully')).toBeVisible({ timeout: 10000 });
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
-    await expect(page.getByText('257m ASL').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('258m ASL').first()).toBeVisible({ timeout: 15000 });
   });
 });
 

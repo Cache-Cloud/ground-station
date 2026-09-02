@@ -46,8 +46,6 @@ import {
     MapArrowControls,
     SimpleTruncatedHtml,
     getClassNamesBasedOnGridEditing,
-    humanizeAltitude,
-    humanizeVelocity,
     islandTitleBarSx,
 } from '../common/common.jsx';
 import TargetNumberIcon from '../common/target-number-icon.jsx';
@@ -71,7 +69,7 @@ const MAPLIBRE_MIN_ZOOM = -6;
 const MAPLIBRE_PROJECTION_MERCATOR = 'mercator';
 const MAPLIBRE_PROJECTION_GLOBE = 'globe';
 const MAPLIBRE_TOOLTIP_DIRECTIONS = Object.freeze(['bottom', 'right', 'left', 'top']);
-const MAPLIBRE_TOOLTIP_DEFAULT_SIZE = Object.freeze({width: 220, height: 48});
+const MAPLIBRE_TOOLTIP_DEFAULT_SIZE = Object.freeze({width: 180, height: 32});
 const MAPLIBRE_TOOLTIP_ANCHOR_DISTANCE = 15;
 const MAPLIBRE_TOOLTIP_EDGE_PADDING = 10;
 const MAPLIBRE_LOCK_ON_COVERAGE_PADDING = Object.freeze({
@@ -695,15 +693,6 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
         dispatch(setOpenMapSettingsDialog(true));
     }, [dispatch]);
 
-    const humanizedAltitude = humanizeAltitude(satellitePosition?.alt, 0);
-    const altitudeLabel = humanizedAltitude === 'Invalid altitude'
-        ? '-- km'
-        : `${humanizedAltitude} km`;
-    const humanizedVelocity = humanizeVelocity(satellitePosition?.vel, 2);
-    const velocityLabel = humanizedVelocity === 'Invalid velocity'
-        ? '-- km/s'
-        : `${humanizedVelocity} km/s`;
-
     return (
         <Box sx={{height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0}}>
             <TitleBar
@@ -748,7 +737,7 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
                         boxShadow: theme.shadows[3],
                         borderRadius: `${theme.shape.borderRadius}px`,
                         whiteSpace: 'nowrap',
-                        padding: '6px 8px',
+                        padding: '4px 6px',
                     },
                     '& .target-maplibre-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip, & .target-maplibre-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip, & .target-maplibre-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip': {
                         borderBottomColor: `${theme.palette.error.main} !important`,
@@ -977,17 +966,31 @@ const TargetEarthMapLibreView = ({projection = MAPLIBRE_PROJECTION_MERCATOR, eff
                             offset={MAPLIBRE_TOOLTIP_ANCHOR_DISTANCE}
                             className="target-maplibre-popup"
                         >
-                            <strong>
+                            <Box sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.4,
+                                maxWidth: 180,
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                lineHeight: 1.2,
+                            }}>
                                 {targetNumber != null ? (
                                     <TargetNumberIcon
                                         targetNumber={targetNumber}
                                         prefix="T"
                                         size={15}
-                                        sx={{mr: 0.7, verticalAlign: 'middle', position: 'relative', top: -1}}
+                                        sx={{flexShrink: 0}}
                                     />
                                 ) : null}
-                                {satelliteDetails?.name || '-'} - {altitudeLabel}, {velocityLabel}
-                            </strong>
+                                <Box
+                                    component="span"
+                                    title={satelliteDetails?.name || '-'}
+                                    sx={{minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis'}}
+                                >
+                                    {satelliteDetails?.name || '-'}
+                                </Box>
+                            </Box>
                         </Popup>
                     ) : null}
                 </Map>

@@ -6,6 +6,7 @@
     "satellites_count": "{{count}} satellites",
     "satellite_name": "Nom du satellite",
     "alternative_name": "Nom alternatif",
+    "alternative_names": "Noms alternatifs",
     "norad": "NORAD",
     "elevation": "Élévation",
     "status": "Statut",

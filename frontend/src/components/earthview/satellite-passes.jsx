@@ -29,13 +29,11 @@ import {
     getTimeFromISO,
     humanizeFutureDateInMinutes,
     TitleBar,
-    getFrequencyBand,
 } from "../common/common.jsx";
 import RowContextMenu from "./rowcontextmenu.jsx";
 import {DataGrid, gridClasses} from "@mui/x-data-grid";
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
-import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
 import RadioButtonCheckedIcon from '@mui/icons-material/RadioButtonChecked';
 import AccessTimeFilledIcon from '@mui/icons-material/AccessTimeFilled';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
@@ -76,6 +74,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import PassesTableSettingsDialog from './passes-table-settings-dialog.jsx';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
 import TargetNumberIcon from '../common/target-number-icon.jsx';
+import {formatAlternativeSatelliteNames} from '../common/satellite-names.js';
 import { setRotator, setTrackerId, setTrackingStateInBackend } from "../target/target-slice.jsx";
 import { useTargetRotatorSelectionDialog } from "../target/use-target-rotator-selection-dialog.jsx";
 import {isPassScheduledForAutomaticObservation} from '../common/passobservationutils.js';
@@ -597,177 +596,6 @@ const PassTypesCell = React.memo(function PassTypesCell({tags, t}) {
     );
 });
 
-const getTransmitterLinkTooltip = (link, t) => {
-    const key = 'passes_table.transmitter_link_tooltips';
-    if (link.upBand && link.downBand) {
-        if (link.upBand === link.downBand) {
-            return t(`${key}.same_band`, {count: link.count, band: link.upBand});
-        }
-        return t(`${key}.split_band`, {count: link.count, uplinkBand: link.upBand, downlinkBand: link.downBand});
-    }
-    if (link.upBand) {
-        return t(`${key}.uplink_only`, {count: link.count, uplinkBand: link.upBand});
-    }
-    if (link.downBand) {
-        return t(`${key}.downlink_only`, {count: link.count, downlinkBand: link.downBand});
-    }
-    return t(`${key}.unknown`, {count: link.count});
-};
-
-const PassTransmitterLinksCell = React.memo(function PassTransmitterLinksCell({transmitters, noDataText, t}) {
-    if (!Array.isArray(transmitters) || transmitters.length === 0) {
-        return noDataText;
-    }
-
-    const transmitterLinks = Object.entries(
-        transmitters.reduce((acc, transmitter) => {
-            const upBand = transmitter['uplink_low'] != null
-                ? getFrequencyBand(transmitter['uplink_low'])
-                : null;
-            const downBand = transmitter['downlink_low'] != null
-                ? getFrequencyBand(transmitter['downlink_low'])
-                : null;
-
-            let signature = noDataText;
-            if (upBand && downBand) {
-                signature = upBand === downBand ? `${upBand}↕` : `${upBand}↑/${downBand}↓`;
-            } else if (upBand) {
-                signature = `${upBand}↑`;
-            } else if (downBand) {
-                signature = `${downBand}↓`;
-            }
-
-            if (!acc[signature]) {
-                acc[signature] = {
-                    count: 0,
-                    isSplitBand: Boolean(upBand && downBand && upBand !== downBand),
-                    descriptions: new Set(),
-                    upBand,
-                    downBand,
-                };
-            }
-
-            acc[signature].count += 1;
-            if (transmitter?.description) {
-                acc[signature].descriptions.add(transmitter.description.trim());
-            }
-            return acc;
-        }, {})
-    )
-        .map(([signature, details]) => ({
-            signature,
-            count: details.count,
-            isSplitBand: details.isSplitBand,
-            descriptions: Array.from(details.descriptions).join(', '),
-            upBand: details.upBand,
-            downBand: details.downBand,
-        }))
-        .sort((a, b) => {
-            if (a.isSplitBand !== b.isSplitBand) {
-                return a.isSplitBand ? -1 : 1;
-            }
-            return a.signature.localeCompare(b.signature);
-        });
-
-    const txLinkPalette = ['#0B7285', '#2B8A3E', '#1C7ED6', '#5F3DC4', '#087F5B', '#364FC7'];
-    const getPaletteColor = (signature) => {
-        let hash = 0;
-        for (let i = 0; i < signature.length; i += 1) {
-            hash = ((hash << 5) - hash) + signature.charCodeAt(i);
-            hash |= 0;
-        }
-        return txLinkPalette[Math.abs(hash) % txLinkPalette.length];
-    };
-
-    return (
-        <Box sx={{display: 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center'}}>
-            <Box
-                sx={{
-                    display: 'flex',
-                    width: '100%',
-                    minWidth: 0,
-                    gap: 0.5,
-                    flexWrap: 'nowrap',
-                    justifyContent: 'flex-start',
-                    overflow: 'hidden',
-                    WebkitMaskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
-                    maskImage: 'linear-gradient(to right, black 0%, black 88%, transparent 100%)',
-                }}
-            >
-            {transmitterLinks.map((link) => {
-                const paletteColor = getPaletteColor(link.signature);
-                const chip = (
-                    <Chip
-                        key={`tx-link-${link.signature}`}
-                        label={
-                            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35 }}>
-                                {link.count > 1 && <Box component="span">{link.count} ×</Box>}
-                                {link.upBand && (
-                                    <>
-                                        <Box component="span">{link.upBand}</Box>
-                                        <ArrowUpwardRoundedIcon sx={{ fontSize: '0.85rem' }} />
-                                    </>
-                                )}
-                                {link.upBand && link.downBand && link.upBand !== link.downBand && (
-                                    <Box component="span">/</Box>
-                                )}
-                                {link.downBand && (
-                                    <>
-                                        <Box component="span">{link.downBand}</Box>
-                                        <ArrowDownwardRoundedIcon sx={{ fontSize: '0.85rem' }} />
-                                    </>
-                                )}
-                                {!link.upBand && !link.downBand && (
-                                    <Box component="span">{link.signature}</Box>
-                                )}
-                            </Box>
-                        }
-                        size="small"
-                        variant="filled"
-                        sx={{
-                            height: '18px',
-                            maxWidth: '100%',
-                            flexShrink: 0,
-                            fontSize: '0.65rem',
-                            fontWeight: 700,
-                            backgroundColor: link.isSplitBand ? '#E67700' : `${paletteColor}CC`,
-                            color: 'common.white',
-                            border: '1px solid',
-                            borderColor: link.isSplitBand ? '#D9480F' : `${paletteColor}B3`,
-                            '& .MuiChip-label': {
-                                px: 0.75
-                            }
-                        }}
-                    />
-                );
-
-                return (
-                    <Tooltip
-                        key={`tx-link-tooltip-${link.signature}`}
-                        title={
-                            <Box>
-                                <Typography variant="caption" component="div">
-                                    {getTransmitterLinkTooltip(link, t)}
-                                </Typography>
-                                {link.descriptions && (
-                                    <Typography variant="caption" component="div">
-                                        {t('passes_table.transmitter_link_tooltips.details', {
-                                            descriptions: link.descriptions,
-                                        })}
-                                    </Typography>
-                                )}
-                            </Box>
-                        }
-                    >
-                        <span>{chip}</span>
-                    </Tooltip>
-                );
-            })}
-            </Box>
-        </Box>
-    );
-});
-
 const PassProgressCell = React.memo(function PassProgressCell({row, nowMs}) {
     return <ProgressFormatter row={row} nowMs={nowMs} />;
 }, (prevProps, nextProps) => (
@@ -899,21 +727,12 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             renderCell: (params) => params.value
         },
         {
-            field: 'alternative_name',
+            field: 'alternative_names',
             minWidth: 120,
-            headerName: t('passes_table.alternative_name'),
+            headerName: t('satellites_table.alternative_names'),
             flex: 2,
             valueGetter: (value, row) => {
-                return row.alternative_name || '-';
-            }
-        },
-        {
-            field: 'name_other',
-            minWidth: 120,
-            headerName: t('passes_table.name_other'),
-            flex: 2,
-            valueGetter: (value, row) => {
-                return row.name_other || '-';
+                return formatAlternativeSatelliteNames(row.alternative_name, row.name_other) || '-';
             }
         },
         {
@@ -998,21 +817,6 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             sortable: false,
             cellClassName: 'passes-cell-tags',
             renderCell: (params) => <PassTypesCell tags={params.value} t={t} />,
-        },
-        {
-            field: 'transmitter_links',
-            minWidth: 170,
-            align: 'center',
-            headerAlign: 'center',
-            headerName: t('passes_table.transmitter_links', { defaultValue: 'Links' }),
-            flex: 2,
-            sortable: false,
-            valueGetter: (_value, row) => row.transmitters,
-            renderCell: (params) => <PassTransmitterLinksCell
-                transmitters={params.value}
-                noDataText={t('passes_table.no_data')}
-                t={t}
-            />
         },
         {
             field: 'event_start',
@@ -1105,13 +909,11 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
         }
         return {
             ...base,
-            alternative_name: false,
-            name_other: false,
+            alternative_names: false,
             elevation: false,
             pass_tags: false,
             duration: false,
             transmitters: false,
-            transmitter_links: false,
             event_end: false,
             distance_at_start: false,
             distance_at_end: false,
@@ -1339,7 +1141,18 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
                 const stored = localStorage.getItem('passes-table-column-visibility');
                 if (stored) {
                     const parsedVisibility = JSON.parse(stored);
-                    dispatch(setPassesTableColumnVisibility(parsedVisibility));
+                    if (parsedVisibility && typeof parsedVisibility === 'object' && !Array.isArray(parsedVisibility)) {
+                        // Retire the moved Links column from existing browser preferences.
+                        delete parsedVisibility.transmitter_links;
+                        // Collapse the two former alias preferences into the single display column.
+                        if ('alternative_name' in parsedVisibility || 'name_other' in parsedVisibility) {
+                            parsedVisibility.alternative_names = parsedVisibility.alternative_name !== false
+                                || parsedVisibility.name_other !== false;
+                            delete parsedVisibility.alternative_name;
+                            delete parsedVisibility.name_other;
+                        }
+                        dispatch(setPassesTableColumnVisibility(parsedVisibility));
+                    }
                 }
             } catch (e) {
                 console.error('Failed to load passes table column visibility:', e);
