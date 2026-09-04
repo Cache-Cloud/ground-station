@@ -93,9 +93,14 @@ export function setupTheme(themeName = 'dark') {
 
                     return `
                     /* React Grid Layout styles */
-                    .react-resizable-handle {
+                    /*
+                     * react-grid-layout v2 hides handles until an island is hovered
+                     * with a more-specific selector. Keep them visible while the
+                     * grid is editable; disabled grids still use react-resizable-hide.
+                     */
+                    .react-grid-item > .react-resizable-handle {
                         z-index: 1000;
-                        opacity: 0.95;
+                        opacity: 0.95 !important;
                         filter: ${resizeHandleShadow};
                         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 6'%3E%3Cg opacity='0.88'%3E%3Cpath d='M6 6L0 6L0 4.2L4 4.2L4.2 4.2L4.2 0L6 0L6 6Z' fill='${resizeHandleFill}'/%3E%3C/g%3E%3C/svg%3E");
                     }
