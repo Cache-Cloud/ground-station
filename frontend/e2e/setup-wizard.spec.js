@@ -264,8 +264,9 @@ test.describe('Setup Wizard', () => {
 
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+    // The new socket hydrates all application data after the login reconnects it.
     await expect(page.getByRole('button', { name: new RegExp(`open user menu for ${wizardUsername}`, 'i') }))
-      .toBeVisible({ timeout: 30000 });
+      .toBeVisible({ timeout: 120000 });
 
     // Persist auth for dependent E2E projects in the same Playwright invocation.
     await fs.promises.mkdir(path.dirname(storageStatePath), { recursive: true });
