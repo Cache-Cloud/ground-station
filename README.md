@@ -11,6 +11,7 @@ single web interface.
 
 ## Recent Releases
 
+* **v0.8.6 (2026-09-06):** Added experimental MiriSDR support through SoapyMiri; kept dashboard grid resize handles visible while editing; centralized observation-status notification placement; and made setup-wizard tests more reliable after post-login socket hydration.
 * **v0.8.5 (2026-09-02):** Improved station-location setup by preserving zero altitude, adding validated manual altitude entry, and making setup-wizard finalization more reliable; consolidated satellite alternative names, retired the legacy transmitter-links column, and refined satellite table, pass, and map tooltip presentation.
 * **v0.8.4 (2026-09-01):** **Major bug fix:** Corrected OMM epoch normalization that could interpret naive timestamps in the wrong timezone; improved satellite-data synchronization by allowing independent providers to continue when CelesTrak fails and scheduling updates every 12 hours; corrected azimuth-gauge visibility; and refined future-pass curve dashing for clearer visual distinction.
 * **v0.8.3 (2026-08-29):** Added observation bundles with grouped recording cards and in-bundle playback; added configurable IQ recording formats, decimation, recording-band selection, and draggable frequency offsets; improved CelesTrak/TLE synchronization, pass transmitter-link summaries, and target/celestial views; added cancellable sync and backup operations plus streamed database restore for files up to 1 GB; refreshed satellite imagery; and improved Docker support for SDRplay RSP API v3.15 and reliable frontend builds.
