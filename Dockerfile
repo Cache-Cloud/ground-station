@@ -506,6 +506,32 @@ RUN git clone --depth=1 https://github.com/SatDump/SatDump.git && \
     sudo make install && \
     sudo ldconfig
 
+# Build the MiriSDR userspace library and its SoapySDR module from reviewed
+# revisions.  Neither is packaged by Ubuntu Noble, and the module uses the
+# libmirisdr pkg-config file installed by the preceding build.
+WORKDIR /src
+ARG LIBMIRISDR_COMMIT=6392af06ba02154765ecb8d1ddc29dbe3c62b402
+RUN git clone --depth=1 https://github.com/ericek111/libmirisdr-5.git && \
+    cd libmirisdr-5 && \
+    git fetch --depth=1 origin ${LIBMIRISDR_COMMIT} && \
+    git checkout ${LIBMIRISDR_COMMIT} && \
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local && \
+    cmake --build build --parallel $(nproc) && \
+    cmake --install build && \
+    ldconfig
+
+WORKDIR /src
+ARG SOAPYMIRI_COMMIT=1e0a125ebab4ab492266fc61cab52600c7dc675f
+RUN git clone --depth=1 https://github.com/ericek111/SoapyMiri.git && \
+    cd SoapyMiri && \
+    git fetch --depth=1 origin ${SOAPYMIRI_COMMIT} && \
+    git checkout ${SOAPYMIRI_COMMIT} && \
+    PKG_CONFIG_PATH=/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}} \
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local && \
+    cmake --build build --parallel $(nproc) && \
+    cmake --install build && \
+    ldconfig
+
 # Configure library paths and copy Python bindings
 RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf && \
     ldconfig && \

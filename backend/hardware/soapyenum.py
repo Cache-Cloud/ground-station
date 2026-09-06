@@ -328,6 +328,7 @@ class SoapySDRDriverType(Enum):
     SDRPLAY = "sdrplay"
     LIME = "lime"
     UHD = "uhd"
+    SOAPYMIRI = "soapyMiri"
     UNKNOWN = "unknown"
 
 
