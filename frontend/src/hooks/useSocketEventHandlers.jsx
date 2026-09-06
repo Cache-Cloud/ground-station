@@ -654,7 +654,6 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
                         {
                             icon: () => <CheckCircleIcon />,
                             autoClose: 8000,
-                            position: 'top-center',
                         }
                     );
                 } else if (data.status === 'failed') {
@@ -667,7 +666,6 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
                         {
                             icon: () => <ErrorOutlineIcon />,
                             autoClose: 10000,
-                            position: 'top-center',
                         }
                     );
                 } else if (data.status === 'cancelled') {
@@ -680,7 +678,6 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
                         {
                             icon: () => <CancelIcon />,
                             autoClose: 6000,
-                            position: 'top-center',
                         }
                     );
                 }
@@ -735,7 +732,6 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
                         {
                             icon: () => <VisibilityIcon />,
                             autoClose: 8000,
-                            position: 'top-center',
                         }
                     );
 
