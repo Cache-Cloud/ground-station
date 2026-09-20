@@ -21,6 +21,7 @@ import * as React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { useSocket } from "../common/socket.jsx";
+import { betterDateTimes } from "../common/common.jsx";
 import { useTranslation } from 'react-i18next';
 import { removeTask, stopBackgroundTask } from './tasks-slice.jsx';
 import {
@@ -187,7 +188,7 @@ const parseAnsiColors = (text) => {
 };
 
 const BackgroundTasksPopover = () => {
-    const { t } = useTranslation('dashboard');
+    const { t, i18n } = useTranslation('dashboard');
     const { socket } = useSocket();
     const dispatch = useDispatch();
     const buttonRef = useRef(null);
@@ -199,6 +200,10 @@ const BackgroundTasksPopover = () => {
 
     // Get tasks from Redux store
     const { tasks, runningTaskIds, completedTaskIds } = useSelector(state => state.backgroundTasks);
+    const timezone = useSelector((state) => {
+        const timezonePreference = state.preferences?.preferences?.find((preference) => preference.name === 'timezone');
+        return timezonePreference?.value || 'UTC';
+    });
 
     // Check if there are any failed or stopped tasks
     const hasFailedTasks = completedTaskIds.some(taskId => {
@@ -413,9 +418,17 @@ const BackgroundTasksPopover = () => {
         if (!task) return null;
 
         const isRunning = task.status === 'running';
-        // Convert start_time from seconds (Python) to milliseconds (JavaScript)
-        const startTimeMs = task.start_time * 1000;
-        const endTimeMs = task.end_time ? task.end_time * 1000 : null;
+        // Backend timestamps use epoch seconds. Accept milliseconds as well so task rows
+        // created by older frontend state remain safe during hot reloads.
+        const toEpochMilliseconds = (timestamp) => {
+            const numericTimestamp = Number(timestamp);
+            if (!Number.isFinite(numericTimestamp) || numericTimestamp <= 0) return null;
+            return numericTimestamp < 1_000_000_000_000
+                ? numericTimestamp * 1000
+                : numericTimestamp;
+        };
+        const startTimeMs = toEpochMilliseconds(task.start_time);
+        const endTimeMs = toEpochMilliseconds(task.end_time);
 
         const duration = endTimeMs
             ? (task.duration ? task.duration * 1000 : endTimeMs - startTimeMs)
@@ -465,6 +478,13 @@ const BackgroundTasksPopover = () => {
                             </Stack>
                         </Box>
                     </Stack>
+
+                    {!isRunning && endTimeMs && (
+                        <Typography variant="caption" color="text.secondary">
+                            {t('tasks_popover.finished', 'Finished')}{' '}
+                            {betterDateTimes(endTimeMs, timezone, i18n.language)}
+                        </Typography>
+                    )}
 
                     {isExpanded && (
                         <Typography

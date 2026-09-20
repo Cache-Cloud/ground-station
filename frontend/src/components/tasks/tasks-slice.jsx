@@ -117,14 +117,14 @@ const tasksSlice = createSlice({
                     status: 'completed',
                     output_lines: [],
                     progress: 100,
-                    end_time: Date.now(),
+                    end_time: Date.now() / 1000,
                     return_code,
                     duration,
                 };
             } else {
                 state.tasks[task_id].status = status;
                 state.tasks[task_id].return_code = return_code;
-                state.tasks[task_id].end_time = Date.now();
+                state.tasks[task_id].end_time = Date.now() / 1000;
                 state.tasks[task_id].duration = duration;
             }
 
@@ -153,13 +153,13 @@ const tasksSlice = createSlice({
                     status: 'stopped',
                     output_lines: [],
                     progress: 100,
-                    end_time: Date.now(),
+                    end_time: Date.now() / 1000,
                     return_code: null,
                     duration,
                 };
             } else {
                 state.tasks[task_id].status = 'stopped';
-                state.tasks[task_id].end_time = Date.now();
+                state.tasks[task_id].end_time = Date.now() / 1000;
                 state.tasks[task_id].duration = duration;
             }
 
@@ -188,7 +188,7 @@ const tasksSlice = createSlice({
                     status: 'failed',
                     output_lines: [],
                     progress: 100,
-                    end_time: Date.now(),
+                    end_time: Date.now() / 1000,
                     return_code: null,
                     duration: null,
                     error,
@@ -196,7 +196,7 @@ const tasksSlice = createSlice({
             } else {
                 state.tasks[task_id].error = error;
                 state.tasks[task_id].status = 'failed';
-                state.tasks[task_id].end_time = state.tasks[task_id].end_time || Date.now();
+                state.tasks[task_id].end_time = state.tasks[task_id].end_time || Date.now() / 1000;
                 state.tasks[task_id].progress = state.tasks[task_id].progress ?? 100;
             }
 
