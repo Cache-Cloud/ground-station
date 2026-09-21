@@ -20,6 +20,34 @@
   "errors": {
     "unknown_error": "Unknown error"
   },
+  "horizons": {
+    "unavailable_title": "NASA JPL Horizons unavailable",
+    "service_message": "Automatic Horizons requests are paused until the next retry.",
+    "offline_message_one": "Showing an approximate offline position for one body. Passes and celestial tracking require Horizons data.",
+    "offline_message_other": "Showing approximate offline positions for {{count}} bodies. Passes and celestial tracking require Horizons data.",
+    "cached_message_one": "Showing stale cached data for one body.",
+    "cached_message_other": "Showing stale cached data for {{count}} bodies.",
+    "missing_message_one": "No usable data is available for one body.",
+    "missing_message_other": "No usable data is available for {{count}} bodies.",
+    "retry_now": "Retry now",
+    "details": "Details",
+    "reason": "Reason",
+    "last_success": "Last successful update",
+    "next_retry": "Next automatic retry",
+    "affected": "Affected bodies",
+    "unknown_time": "unknown",
+    "reasons": {
+      "unavailable": "service unavailable",
+      "connect_timeout": "connection timed out",
+      "read_timeout": "response timed out",
+      "dns_failure": "DNS lookup failed",
+      "connection_failure": "connection failed",
+      "tls_failure": "secure connection failed",
+      "rate_limited": "service rate limit reached",
+      "server_error": "service error",
+      "invalid_response": "invalid service response"
+    }
+  },
   "statusbar": {
     "planets": "Planets",
     "moons": "Moons",

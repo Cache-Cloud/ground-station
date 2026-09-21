@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
+    Alert,
+    AlertTitle,
     Box,
+    Button,
     CircularProgress,
     IconButton,
     Tooltip,
@@ -389,9 +392,16 @@ const CelestialMainLayout = () => {
             payload: {
                 ...sceneRequestPayload,
                 allow_network_fetch: true,
+                retry_horizons: true,
             },
         }));
-        await dispatch(refreshMonitoredCelestialNow({ socket, payload: sceneRequestPayload }));
+        await dispatch(refreshMonitoredCelestialNow({
+            socket,
+            payload: {
+                ...sceneRequestPayload,
+                retry_horizons: true,
+            },
+        }));
         await dispatch(fetchMonitoredCelestial({ socket }));
     }, [socket, dispatch, sceneRequestPayload]);
     const handleToggleSolarSystemFullscreen = React.useCallback(() => {
@@ -497,6 +507,54 @@ const CelestialMainLayout = () => {
     const hasSolarScene = (planetsCount + moonsCount) > 0;
     const hasPersistedMonitoredSelection = Boolean((monitoredState?.selectedIds || []).length > 0);
     const solarCacheMissingCount = Number(combinedScene?.meta?.solar_system?.cache?.missing_count || 0);
+    const horizonsStatus = celestialState?.solarScene?.meta?.horizons
+        || combinedScene?.meta?.horizons
+        || {};
+    const horizonsStaleCount = Number(horizonsStatus?.stale_count || 0);
+    const horizonsOfflineCount = Number(horizonsStatus?.offline_count || 0);
+    const horizonsCachedCount = Number(horizonsStatus?.cached_count || 0);
+    const horizonsUnavailable = horizonsStatus?.availability === 'unavailable';
+    const horizonsReason = React.useMemo(() => {
+        const reason = String(horizonsStatus?.reason || 'unavailable');
+        return tCelestial(`horizons.reasons.${reason}`, {
+            defaultValue: reason.replaceAll('_', ' '),
+        });
+    }, [horizonsStatus?.reason, tCelestial]);
+    const formatHorizonsTime = React.useCallback((value) => {
+        if (!value) return tCelestial('horizons.unknown_time', { defaultValue: 'unknown' });
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return String(value);
+        return parsed.toLocaleString();
+    }, [tCelestial]);
+    const horizonsMessage = React.useMemo(() => {
+        if (horizonsOfflineCount > 0) {
+            return tCelestial('horizons.offline_message', {
+                count: horizonsOfflineCount,
+                defaultValue: `Showing approximate offline positions for ${horizonsOfflineCount} bodies. Passes and celestial tracking require Horizons data.`,
+            });
+        }
+        if (horizonsCachedCount > 0 || horizonsStaleCount > 0) {
+            return tCelestial('horizons.cached_message', {
+                count: horizonsCachedCount || horizonsStaleCount,
+                defaultValue: `Showing stale cached data for ${horizonsCachedCount || horizonsStaleCount} bodies.`,
+            });
+        }
+        if (solarCacheMissingCount <= 0) {
+            return tCelestial('horizons.service_message', {
+                defaultValue: 'Automatic Horizons requests are paused until the next retry.',
+            });
+        }
+        return tCelestial('horizons.missing_message', {
+            count: solarCacheMissingCount,
+            defaultValue: `No usable data is available for ${solarCacheMissingCount} bodies.`,
+        });
+    }, [
+        horizonsCachedCount,
+        horizonsOfflineCount,
+        horizonsStaleCount,
+        solarCacheMissingCount,
+        tCelestial,
+    ]);
     const renderableSolarBodiesCount = React.useMemo(
         () => solarBodies.filter((body) => hasFiniteXYZ(body?.position_xyz_au)).length,
         [solarBodies],
@@ -730,6 +788,68 @@ const CelestialMainLayout = () => {
                         onToggleMapZooming={handleToggleMapZooming}
                         showZoomButtons={!interactionSettings.enableMapZooming}
                     />
+                ) : null}
+                {horizonsUnavailable ? (
+                    <Alert
+                        severity={renderableSolarBodiesCount > 0 ? 'warning' : 'error'}
+                        variant="outlined"
+                        action={(
+                            <Button
+                                color="inherit"
+                                size="small"
+                                onClick={handleRefreshCelestial}
+                                disabled={!socket || solarSystemLoading}
+                            >
+                                {tCelestial('horizons.retry_now', { defaultValue: 'Retry now' })}
+                            </Button>
+                        )}
+                        sx={{
+                            borderLeft: 0,
+                            borderRight: 0,
+                            borderRadius: 0,
+                            flexShrink: 0,
+                            py: 0.25,
+                            '& .MuiAlert-message': { minWidth: 0 },
+                        }}
+                    >
+                        <AlertTitle sx={{ mb: 0.25, fontSize: '0.85rem' }}>
+                            {tCelestial('horizons.unavailable_title', {
+                                defaultValue: 'NASA JPL Horizons unavailable',
+                            })}
+                        </AlertTitle>
+                        <Typography variant="caption" component="div">
+                            {horizonsMessage}
+                        </Typography>
+                        <Box
+                            component="details"
+                            sx={{ mt: 0.25, '& summary': { cursor: 'pointer', fontSize: '0.72rem' } }}
+                        >
+                            <Box component="summary">
+                                {tCelestial('horizons.details', { defaultValue: 'Details' })}
+                            </Box>
+                            {horizonsStatus?.reason ? (
+                                <Typography variant="caption" component="div" sx={{ mt: 0.25 }}>
+                                    {tCelestial('horizons.reason', { defaultValue: 'Reason' })}: {horizonsReason}
+                                </Typography>
+                            ) : null}
+                            {horizonsStatus?.last_success_at_utc ? (
+                                <Typography variant="caption" component="div">
+                                    {tCelestial('horizons.last_success', { defaultValue: 'Last successful update' })}: {' '}
+                                    {formatHorizonsTime(horizonsStatus.last_success_at_utc)}
+                                </Typography>
+                            ) : null}
+                            {horizonsStatus?.retry_at_utc ? (
+                                <Typography variant="caption" component="div">
+                                    {tCelestial('horizons.next_retry', { defaultValue: 'Next automatic retry' })}: {' '}
+                                    {formatHorizonsTime(horizonsStatus.retry_at_utc)}
+                                </Typography>
+                            ) : null}
+                            <Typography variant="caption" component="div">
+                                {tCelestial('horizons.affected', { defaultValue: 'Affected bodies' })}: {' '}
+                                {horizonsStaleCount + solarCacheMissingCount}
+                            </Typography>
+                        </Box>
+                    </Alert>
                 ) : null}
                 <Box sx={{ p: 0, flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
                     {(celestialState.error && !hasSolarScene) || solarSystemDataError ? (

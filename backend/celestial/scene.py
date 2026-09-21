@@ -23,8 +23,13 @@ import crud.monitoredcelestial as crud_monitored
 import crud.preferences as crud_preferences
 from celestial.asteroidzones import get_static_asteroid_zones
 from celestial.bodycatalog import list_celestial_bodies
-from celestial.horizons import fetch_celestial_vectors
+from celestial.horizons import (
+    HorizonsUnavailableError,
+    fetch_celestial_vectors,
+    get_horizons_status,
+)
 from celestial.observermath import compute_observer_sky_position
+from celestial.solarsystem import compute_solar_system_snapshot
 from common.arguments import arguments
 from db import AsyncSessionLocal
 
@@ -680,9 +685,36 @@ def _refresh_payload_dynamics_at_epoch(
         payload["velocity_xyz_au_per_day"] = derived_velocity
 
 
+def _payload_covers_projection_window(
+    payload: Dict[str, Any],
+    *,
+    epoch: datetime,
+    past_hours: int,
+    future_hours: int,
+) -> bool:
+    """Return whether explicit Horizons samples cover the requested calculation window."""
+    raw_times = payload.get("orbit_sample_times_utc")
+    if not isinstance(raw_times, list) or len(raw_times) < 2:
+        return False
+    parsed_times = [_parse_iso_utc(value) for value in raw_times]
+    valid_times = sorted(value for value in parsed_times if value is not None)
+    if len(valid_times) < 2:
+        return False
+    window_start = epoch - timedelta(hours=int(past_hours))
+    window_end = epoch + timedelta(hours=int(future_hours))
+    return valid_times[0] <= window_start and valid_times[-1] >= window_end
+
+
 def _extract_earth_position_xyz_au(planets: List[Dict[str, Any]]) -> Optional[List[float]]:
     for body in planets:
         if str(body.get("id") or "").lower() == "earth":
+            # Offline analytic vectors are suitable for the canvas, but must not
+            # silently become the precision source for passes or tracking.
+            if (
+                str(body.get("source") or "") != "horizons"
+                or body.get("calculation_usable") is False
+            ):
+                return None
             position = body.get("position_xyz_au")
             if isinstance(position, list) and len(position) >= 3:
                 try:
@@ -703,6 +735,8 @@ def _extract_earth_orbit_samples(
     for row in rows:
         if str(row.get("id") or "").strip().lower() != "earth":
             continue
+        if str(row.get("source") or "") != "horizons" or row.get("calculation_usable") is False:
+            return []
         samples = _extract_orbit_samples(
             row,
             epoch_fallback=epoch,
@@ -725,6 +759,7 @@ async def _load_earth_observer_vectors(
     force_refresh: bool,
     allow_network_fetch: bool,
     logger: Any,
+    retry_horizons: bool = False,
 ) -> Tuple[Optional[List[float]], List[Tuple[datetime, List[float]]]]:
     """
     Load Earth vectors using the same Horizons snapshot pipeline as targets.
@@ -743,9 +778,12 @@ async def _load_earth_observer_vectors(
         force_refresh=force_refresh,
         logger=logger,
         allow_network_fetch=allow_network_fetch,
+        retry_horizons=retry_horizons,
     )
     payload = earth_snapshot.get("payload")
     if isinstance(payload, dict):
+        if earth_snapshot.get("calculation_usable") is False:
+            return None, []
         earth_samples = _extract_orbit_samples(
             payload,
             epoch_fallback=epoch,
@@ -771,7 +809,12 @@ async def _load_earth_observer_vectors(
             earth_snapshot.get("cache"),
         )
     else:
-        log = logger.debug if not allow_network_fetch else logger.warning
+        upstream_unavailable = bool(earth_snapshot.get("error_code"))
+        log = (
+            getattr(logger, "debug", logger.warning)
+            if not allow_network_fetch or upstream_unavailable
+            else logger.warning
+        )
         log(
             "Earth Horizons vectors unavailable for observer calculations (cache=%s error=%s)",
             earth_snapshot.get("cache"),
@@ -813,6 +856,7 @@ async def _build_horizons_solar_system_bodies(
     force_refresh: bool,
     allow_network_fetch: bool,
     logger: Any,
+    retry_horizons: bool = False,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """
     Build the solar-system body list from Horizons snapshots.
@@ -825,6 +869,9 @@ async def _build_horizons_solar_system_bodies(
     planets: List[Dict[str, Any]] = []
     stale_count = 0
     missing_count = 0
+    offline_count = 0
+    _offline_meta, offline_rows = compute_solar_system_snapshot(epoch)
+    offline_by_id = {str(row.get("id") or "").strip().lower(): row for row in offline_rows}
     for target in builtin_targets:
         body_id = str(target.get("body_id") or "").strip().lower()
         target_key = str(target.get("target_key") or "").strip()
@@ -843,9 +890,35 @@ async def _build_horizons_solar_system_bodies(
             force_refresh=force_refresh,
             logger=logger,
             allow_network_fetch=allow_network_fetch,
+            retry_horizons=retry_horizons,
         )
         payload = snapshot.get("payload")
         if not isinstance(payload, dict):
+            offline_payload = offline_by_id.get(body_id)
+            if isinstance(offline_payload, dict):
+                offline_count += 1
+                stale_count += 1
+                planets.append(
+                    {
+                        **offline_payload,
+                        "id": body_id,
+                        "name": str(target.get("name") or offline_payload.get("name") or body_id),
+                        "body_type": target.get("body_class")
+                        or offline_payload.get("body_type")
+                        or "body",
+                        "parent_id": target.get("parent_body_id")
+                        or offline_payload.get("parent_id"),
+                        "scene_role": target.get("scene_role"),
+                        "source": "offline-analytic-kepler",
+                        "cache": "offline-fallback",
+                        "stale": True,
+                        "approximate": True,
+                        "calculation_usable": False,
+                        "error": snapshot.get("error") or "Horizons data unavailable",
+                        "error_code": snapshot.get("error_code"),
+                    }
+                )
+                continue
             missing_count += 1
             # Keep a body metadata row when Horizons is unavailable. Do not
             # synthesize origin vectors here: [0,0,0] is the heliocentric Sun
@@ -863,7 +936,9 @@ async def _build_horizons_solar_system_bodies(
                     "source": "horizons",
                     "cache": snapshot.get("cache"),
                     "stale": True,
+                    "calculation_usable": False,
                     "error": snapshot.get("error") or "No data returned",
+                    "error_code": snapshot.get("error_code"),
                     "phase": None,
                 }
             )
@@ -882,10 +957,13 @@ async def _build_horizons_solar_system_bodies(
             "source": payload.get("source") or "horizons",
             "cache": snapshot.get("cache"),
             "stale": bool(snapshot.get("stale")),
+            "calculation_usable": snapshot.get("calculation_usable", True),
             "phase": None,
         }
         if snapshot.get("error"):
             row_payload["error"] = snapshot.get("error")
+        if snapshot.get("error_code"):
+            row_payload["error_code"] = snapshot.get("error_code")
         if row_payload["stale"]:
             stale_count += 1
         planets.append(row_payload)
@@ -902,6 +980,12 @@ async def _build_horizons_solar_system_bodies(
         "cache": {
             "stale_count": stale_count,
             "missing_count": missing_count,
+            "offline_count": offline_count,
+            "cached_count": sum(
+                1
+                for row in planets
+                if str(row.get("cache") or "") in {"db-stale-hit", "db-stale-fallback"}
+            ),
         },
     }
 
@@ -943,7 +1027,7 @@ def _attach_observer_view_local(
     logger: Any,
 ) -> None:
     """Attach observer-centric sky position and visibility metadata using local math."""
-    if not observer_location or not earth_position_xyz_au:
+    if row.get("calculation_usable") is False or not observer_location or not earth_position_xyz_au:
         row["sky_position"] = None
         row["visibility"] = {
             "above_horizon": None,
@@ -1367,7 +1451,7 @@ def _extract_row_observer_samples(
     earth_orbit_samples: Optional[List[Tuple[datetime, List[float]]]],
     logger: Any,
 ) -> List[Dict[str, Any]]:
-    if not observer_location:
+    if row.get("calculation_usable") is False or not observer_location:
         return []
 
     try:
@@ -1644,6 +1728,7 @@ async def _get_vectors_snapshot(
     logger: Any,
     allow_network_fetch: bool = True,
     target_key: str = "",
+    retry_horizons: bool = False,
 ) -> Dict[str, Any]:
     normalized_target_key = str(target_key or "").strip()
     if not normalized_target_key:
@@ -1754,6 +1839,12 @@ async def _get_vectors_snapshot(
                 "cache": "db-stale-hit",
                 "stale": True,
                 "error": None,
+                "calculation_usable": _payload_covers_projection_window(
+                    payload,
+                    epoch=epoch,
+                    past_hours=past_hours,
+                    future_hours=future_hours,
+                ),
             }
         return {
             "payload": None,
@@ -1770,14 +1861,50 @@ async def _get_vectors_snapshot(
             past_hours,
             future_hours,
             step_minutes,
+            force_probe=retry_horizons,
         )
     except Exception as exc:
-        logger.warning(f"Horizons fetch failed for celestial '{command}': {exc}")
+        error_code = exc.reason if isinstance(exc, HorizonsUnavailableError) else "target_error"
+        log = (
+            getattr(logger, "debug", logger.warning)
+            if isinstance(exc, HorizonsUnavailableError)
+            else logger.warning
+        )
+        log(f"Horizons fetch failed for celestial '{command}': {exc}")
+
+        # An expired Horizons snapshot is still preferable to dropping a target.
+        # Its stale marker prevents the UI from presenting it as current data.
+        stale_cached = await _load_latest_vectors_for_target_from_db(
+            target_key=normalized_target_key,
+            valid_only=False,
+        )
+        if stale_cached and isinstance(stale_cached.get("payload"), dict):
+            payload = dict(stale_cached["payload"])
+            _refresh_payload_dynamics_at_epoch(
+                payload=payload,
+                epoch=epoch,
+                past_hours=past_hours,
+                future_hours=future_hours,
+            )
+            return {
+                "payload": payload,
+                "cache": "db-stale-fallback",
+                "stale": True,
+                "error": str(exc),
+                "error_code": error_code,
+                "calculation_usable": _payload_covers_projection_window(
+                    payload,
+                    epoch=epoch,
+                    past_hours=past_hours,
+                    future_hours=future_hours,
+                ),
+            }
         return {
             "payload": None,
             "cache": "miss",
             "stale": True,
             "error": str(exc),
+            "error_code": error_code,
         }
 
     await _store_vectors_in_db(
@@ -1810,6 +1937,7 @@ async def _fetch_celestial_with_cache(
     logger,
     per_row_callback: Optional[Any] = None,
     use_computed_cache: bool = True,
+    retry_horizons: bool = False,
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     now_monotonic = time.monotonic()
@@ -1837,7 +1965,7 @@ async def _fetch_celestial_with_cache(
                 body_payload["name"] = name or body_payload.get("name") or body_id
                 body_payload["color"] = color
                 body_payload["source"] = body_payload.get("source") or "horizons"
-                body_payload["stale"] = False
+                body_payload["stale"] = bool(body_payload.get("stale"))
                 body_payload["cache"] = body_payload.get("cache") or "scene-base-hit"
                 _refresh_payload_dynamics_at_epoch(
                     payload=body_payload,
@@ -1898,6 +2026,7 @@ async def _fetch_celestial_with_cache(
                 force_refresh=force_refresh,
                 logger=logger,
                 allow_network_fetch=allow_network_fetch,
+                retry_horizons=retry_horizons,
             )
             payload = snapshot.get("payload")
             if isinstance(payload, dict):
@@ -1913,9 +2042,12 @@ async def _fetch_celestial_with_cache(
                 row_payload["body_class"] = target.get("body_class")
                 row_payload["parent_body_id"] = target.get("parent_body_id")
                 row_payload["stale"] = bool(snapshot.get("stale"))
+                row_payload["calculation_usable"] = snapshot.get("calculation_usable", True)
                 row_payload["cache"] = snapshot.get("cache")
                 if snapshot.get("error"):
                     row_payload["error"] = snapshot.get("error")
+                if snapshot.get("error_code"):
+                    row_payload["error_code"] = snapshot.get("error_code")
                 _refresh_payload_dynamics_at_epoch(
                     payload=row_payload,
                     epoch=epoch,
@@ -1943,8 +2075,10 @@ async def _fetch_celestial_with_cache(
                 "color": color,
                 "source": "horizons",
                 "stale": True,
+                "calculation_usable": False,
                 "cache": snapshot.get("cache"),
                 "error": snapshot.get("error") or "No data returned",
+                "error_code": snapshot.get("error_code"),
                 "sky_position": None,
                 "visibility": {
                     "above_horizon": None,
@@ -2014,6 +2148,7 @@ async def _fetch_celestial_with_cache(
             force_refresh=force_refresh,
             logger=logger,
             allow_network_fetch=allow_network_fetch,
+            retry_horizons=retry_horizons,
         )
 
         payload = snapshot.get("payload")
@@ -2026,9 +2161,12 @@ async def _fetch_celestial_with_cache(
             row_payload["name"] = name
             row_payload["color"] = color
             row_payload["stale"] = bool(snapshot.get("stale"))
+            row_payload["calculation_usable"] = snapshot.get("calculation_usable", True)
             row_payload["cache"] = snapshot.get("cache")
             if snapshot.get("error"):
                 row_payload["error"] = snapshot.get("error")
+            if snapshot.get("error_code"):
+                row_payload["error_code"] = snapshot.get("error_code")
             # Keep "current" vectors fresh between periodic Horizons syncs.
             _refresh_payload_dynamics_at_epoch(
                 payload=row_payload,
@@ -2062,8 +2200,10 @@ async def _fetch_celestial_with_cache(
             "color": color,
             "source": "horizons",
             "stale": True,
+            "calculation_usable": False,
             "cache": snapshot.get("cache"),
             "error": snapshot.get("error") or "No data returned",
+            "error_code": snapshot.get("error_code"),
             "sky_position": None,
             "visibility": {
                 "above_horizon": None,
@@ -2090,6 +2230,7 @@ async def build_celestial_scene(
     epoch = _parse_epoch(data)
     targets = _normalize_targets(data)
     past_hours, future_hours, step_minutes = _parse_projection_options(data)
+    retry_horizons = bool(data.get("retry_horizons")) if isinstance(data, dict) else False
     observer_location = await _load_observer_location()
     await _ensure_scene_targets_registered(targets, logger)
     solar_meta, planets = await _build_horizons_solar_system_bodies(
@@ -2101,6 +2242,7 @@ async def build_celestial_scene(
         force_refresh=force_refresh,
         allow_network_fetch=allow_network_fetch,
         logger=logger,
+        retry_horizons=retry_horizons,
     )
     earth_position_xyz_au = _extract_earth_position_xyz_au(planets)
     earth_orbit_samples = _extract_earth_orbit_samples(
@@ -2125,6 +2267,7 @@ async def build_celestial_scene(
         logger,
         per_row_callback,
         use_computed_cache,
+        retry_horizons,
     )
     celestial_passes = _build_celestial_passes(
         rows=celestial,
@@ -2164,6 +2307,10 @@ async def build_celestial_scene(
             "asteroid_resonance_gaps": asteroid_resonance_gaps,
             "meta": {
                 "solar_system": solar_meta,
+                "horizons": {
+                    **get_horizons_status(),
+                    **solar_meta.get("cache", {}),
+                },
                 "celestial_source": "horizons",
                 "asteroid_zones": asteroid_meta,
                 "cache_ttl_seconds": CACHE_TTL_SECONDS,
@@ -2192,6 +2339,7 @@ async def build_solar_system_scene(
     """Build the solar-system portion for UI rendering."""
     epoch = _parse_epoch(data)
     past_hours, future_hours, step_minutes = _parse_projection_options(data)
+    retry_horizons = bool(data.get("retry_horizons")) if isinstance(data, dict) else False
     solar_meta, planets = await _build_horizons_solar_system_bodies(
         epoch=epoch,
         past_hours=past_hours,
@@ -2201,6 +2349,7 @@ async def build_solar_system_scene(
         force_refresh=False,
         allow_network_fetch=allow_network_fetch,
         logger=logger,
+        retry_horizons=retry_horizons,
     )
     asteroid_zones, asteroid_resonance_gaps, asteroid_meta = get_static_asteroid_zones()
 
@@ -2219,6 +2368,10 @@ async def build_solar_system_scene(
             "asteroid_resonance_gaps": asteroid_resonance_gaps,
             "meta": {
                 "solar_system": solar_meta,
+                "horizons": {
+                    **get_horizons_status(),
+                    **solar_meta.get("cache", {}),
+                },
                 "asteroid_zones": asteroid_meta,
                 "cache_ttl_seconds": CACHE_TTL_SECONDS,
                 "vector_db_ttl_seconds": VECTOR_DB_TTL_SECONDS,
@@ -2245,6 +2398,7 @@ async def build_celestial_tracks(
     epoch = _parse_epoch(data)
     targets = _normalize_targets(data)
     past_hours, future_hours, step_minutes = _parse_projection_options(data)
+    retry_horizons = bool(data.get("retry_horizons")) if isinstance(data, dict) else False
     observer_location = await _load_observer_location()
     if register_targets:
         await _ensure_scene_targets_registered(targets, logger)
@@ -2257,6 +2411,7 @@ async def build_celestial_tracks(
         force_refresh=force_refresh,
         allow_network_fetch=allow_network_fetch,
         logger=logger,
+        retry_horizons=retry_horizons,
     )
     # Tracks-only payloads do not build the full solar-system scene, but body
     # targets still need the synthetic Sun origin from the scene snapshot map.
@@ -2275,6 +2430,7 @@ async def build_celestial_tracks(
         logger,
         per_row_callback,
         use_computed_cache,
+        retry_horizons,
     )
     celestial_passes = _build_celestial_passes(
         rows=celestial,
@@ -2311,6 +2467,14 @@ async def build_celestial_tracks(
             "celestial_passes": celestial_passes,
             "meta": {
                 "celestial_source": "horizons",
+                "horizons": {
+                    **get_horizons_status(),
+                    "stale_count": sum(1 for row in celestial if row.get("stale")),
+                    "missing_count": sum(
+                        1 for row in celestial if not isinstance(row.get("position_xyz_au"), list)
+                    ),
+                    "offline_count": 0,
+                },
                 "cache_ttl_seconds": CACHE_TTL_SECONDS,
                 "vector_db_ttl_seconds": VECTOR_DB_TTL_SECONDS,
                 "projection": {

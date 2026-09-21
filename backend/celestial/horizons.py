@@ -10,14 +10,212 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 HORIZONS_API_URL = "https://ssd.jpl.nasa.gov/api/horizons.api"
+HORIZONS_CONNECT_TIMEOUT_SECONDS = 2.0
+HORIZONS_BACKOFF_SECONDS = (60, 120, 300, 600)
+HORIZONS_MANUAL_PROBE_INTERVAL_SECONDS = 10.0
 logger = logging.getLogger("ground-station")
+
+
+class HorizonsUnavailableError(RuntimeError):
+    """Raised when Horizons is unreachable or its circuit breaker is open."""
+
+    def __init__(self, message: str, *, reason: str, retry_at_utc: Optional[str] = None):
+        super().__init__(message)
+        self.reason = reason
+        self.retry_at_utc = retry_at_utc
+
+
+class _HorizonsCircuitBreaker:
+    """Process-wide protection for the single upstream Horizons host."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.reset()
+
+    def reset(self) -> None:
+        with self._lock:
+            self._state = "closed"
+            self._reason: Optional[str] = None
+            self._consecutive_failures = 0
+            self._retry_at_monotonic = 0.0
+            self._retry_at_utc: Optional[datetime] = None
+            self._last_attempt_at_utc: Optional[datetime] = None
+            self._last_success_at_utc: Optional[datetime] = None
+            self._last_failure_at_utc: Optional[datetime] = None
+            self._last_manual_probe_monotonic = 0.0
+
+    def before_request(self, *, force_probe: bool = False) -> None:
+        now_monotonic = time.monotonic()
+        now_utc = datetime.now(timezone.utc)
+        with self._lock:
+            if self._state == "closed":
+                self._last_attempt_at_utc = now_utc
+                return
+
+            retry_due = now_monotonic >= self._retry_at_monotonic
+            manual_probe_due = force_probe and (
+                self._last_manual_probe_monotonic == 0.0
+                or now_monotonic - self._last_manual_probe_monotonic
+                >= HORIZONS_MANUAL_PROBE_INTERVAL_SECONDS
+            )
+            if self._state == "open" and (retry_due or manual_probe_due):
+                self._state = "half_open"
+                self._last_attempt_at_utc = now_utc
+                if force_probe:
+                    self._last_manual_probe_monotonic = now_monotonic
+                return
+
+            retry_at = self._iso(self._retry_at_utc)
+            reason = self._reason or "unavailable"
+
+        raise HorizonsUnavailableError(
+            "NASA JPL Horizons is temporarily unavailable; request skipped during backoff",
+            reason=reason,
+            retry_at_utc=retry_at,
+        )
+
+    def record_success(self) -> None:
+        now_utc = datetime.now(timezone.utc)
+        with self._lock:
+            recovered = self._state != "closed" or self._consecutive_failures > 0
+            self._state = "closed"
+            self._reason = None
+            self._consecutive_failures = 0
+            self._retry_at_monotonic = 0.0
+            self._retry_at_utc = None
+            self._last_success_at_utc = now_utc
+        if recovered:
+            logger.info("NASA JPL Horizons connectivity recovered")
+
+    def record_failure(self, reason: str, exc: BaseException) -> None:
+        now_monotonic = time.monotonic()
+        now_utc = datetime.now(timezone.utc)
+        with self._lock:
+            was_open = self._state == "open"
+            self._consecutive_failures += 1
+            backoff_index = min(
+                self._consecutive_failures - 1,
+                len(HORIZONS_BACKOFF_SECONDS) - 1,
+            )
+            backoff_seconds = HORIZONS_BACKOFF_SECONDS[backoff_index]
+            self._state = "open"
+            self._reason = reason
+            self._retry_at_monotonic = now_monotonic + backoff_seconds
+            self._retry_at_utc = now_utc + timedelta(seconds=backoff_seconds)
+            self._last_failure_at_utc = now_utc
+        if not was_open:
+            logger.warning(
+                "NASA JPL Horizons unavailable (%s); pausing requests for %ss: %s",
+                reason,
+                backoff_seconds,
+                exc,
+            )
+
+    def status(self) -> Dict[str, Any]:
+        with self._lock:
+            if self._state in {"open", "half_open"}:
+                availability = "unavailable"
+            elif self._last_success_at_utc:
+                availability = "available"
+            else:
+                availability = "unknown"
+            return {
+                "availability": availability,
+                "circuit": self._state,
+                "reason": self._reason,
+                "consecutive_failures": self._consecutive_failures,
+                "last_attempt_at_utc": self._iso(self._last_attempt_at_utc),
+                "last_success_at_utc": self._iso(self._last_success_at_utc),
+                "last_failure_at_utc": self._iso(self._last_failure_at_utc),
+                "retry_at_utc": self._iso(self._retry_at_utc),
+            }
+
+    @staticmethod
+    def _iso(value: Optional[datetime]) -> Optional[str]:
+        return value.astimezone(timezone.utc).isoformat() if value else None
+
+
+_horizons_circuit = _HorizonsCircuitBreaker()
+
+
+def get_horizons_status() -> Dict[str, Any]:
+    """Return serializable Horizons connectivity and backoff state."""
+    return _horizons_circuit.status()
+
+
+def reset_horizons_circuit() -> None:
+    """Reset process-local availability state, primarily for isolated tests."""
+    _horizons_circuit.reset()
+
+
+def _service_failure_reason(exc: BaseException) -> Optional[str]:
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return "connect_timeout"
+    if isinstance(exc, requests.exceptions.ReadTimeout):
+        return "read_timeout"
+    if isinstance(exc, requests.exceptions.SSLError):
+        return "tls_failure"
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        text = str(exc).lower()
+        if "name resolution" in text or "getaddrinfo" in text or "nodename nor servname" in text:
+            return "dns_failure"
+        return "connection_failure"
+    if isinstance(exc, requests.exceptions.HTTPError):
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code == 429:
+            return "rate_limited"
+        if status_code is not None and status_code >= 500:
+            return "server_error"
+    return None
+
+
+def _request_horizons_json(
+    *,
+    params: Dict[str, str],
+    timeout_seconds: float,
+    force_probe: bool,
+) -> Tuple[Dict[str, Any], int]:
+    _horizons_circuit.before_request(force_probe=force_probe)
+    read_timeout = max(HORIZONS_CONNECT_TIMEOUT_SECONDS, float(timeout_seconds))
+    timeout = (HORIZONS_CONNECT_TIMEOUT_SECONDS, read_timeout)
+    try:
+        response = requests.get(HORIZONS_API_URL, params=params, timeout=timeout)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        reason = _service_failure_reason(exc)
+        if reason:
+            _horizons_circuit.record_failure(reason, exc)
+            status = get_horizons_status()
+            raise HorizonsUnavailableError(
+                "NASA JPL Horizons could not be reached",
+                reason=reason,
+                retry_at_utc=status.get("retry_at_utc"),
+            ) from exc
+        # A target-specific HTTP response must not disable every Horizons command.
+        _horizons_circuit.record_success()
+        raise
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        _horizons_circuit.record_failure("invalid_response", exc)
+        status = get_horizons_status()
+        raise HorizonsUnavailableError(
+            "NASA JPL Horizons returned an invalid response",
+            reason="invalid_response",
+            retry_at_utc=status.get("retry_at_utc"),
+        ) from exc
+
+    _horizons_circuit.record_success()
+    return payload, response.status_code
 
 
 def _extract_ephemeris_lines(result_text: str) -> List[str]:
@@ -132,6 +330,7 @@ def fetch_celestial_vectors(
     future_hours: int = 36,
     step_minutes: int = 120,
     timeout_seconds: float = 10.0,
+    force_probe: bool = False,
 ) -> Dict[str, object]:
     """Fetch celestial state vectors from Horizons at a given epoch."""
     utc_epoch = epoch.astimezone(timezone.utc)
@@ -159,8 +358,13 @@ def fetch_celestial_vectors(
     # Measure the remote Horizons HTTP round-trip for vectors retrieval.
     request_started_at = time.perf_counter()
     try:
-        response = requests.get(HORIZONS_API_URL, params=params, timeout=timeout_seconds)
-        response.raise_for_status()
+        payload, status_code = _request_horizons_json(
+            params=params,
+            timeout_seconds=timeout_seconds,
+            force_probe=force_probe,
+        )
+    except HorizonsUnavailableError:
+        raise
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - request_started_at) * 1000.0
         logger.warning(
@@ -181,13 +385,12 @@ def fetch_celestial_vectors(
         "(status=%s window=%s..%s step=%sm)",
         command,
         elapsed_ms,
-        response.status_code,
+        status_code,
         start_time,
         stop_time,
         bounded_step_minutes,
     )
 
-    payload = response.json()
     result_text = payload.get("result", "")
     data_lines = _extract_ephemeris_lines(result_text)
 
@@ -253,6 +456,7 @@ def fetch_celestial_observer_state(
     observer_lon_deg: float,
     observer_alt_km: float = 0.0,
     timeout_seconds: float = 10.0,
+    force_probe: bool = False,
 ) -> Dict[str, object]:
     """Fetch observer-centric sky position (az/el) from Horizons for a target."""
     utc_epoch = epoch.astimezone(timezone.utc)
@@ -274,10 +478,11 @@ def fetch_celestial_observer_state(
         "CSV_FORMAT": "YES",
     }
 
-    response = requests.get(HORIZONS_API_URL, params=params, timeout=timeout_seconds)
-    response.raise_for_status()
-
-    payload = response.json()
+    payload, _status_code = _request_horizons_json(
+        params=params,
+        timeout_seconds=timeout_seconds,
+        force_probe=force_probe,
+    )
     result_text = payload.get("result", "")
     data_lines = _extract_ephemeris_lines(result_text)
 

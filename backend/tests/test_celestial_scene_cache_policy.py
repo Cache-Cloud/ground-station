@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from celestial import scene
+from celestial import horizons, scene
 
 
 class _DummyLogger:
@@ -11,6 +11,16 @@ class _DummyLogger:
 
     def warning(self, *_args, **_kwargs):
         return None
+
+    def debug(self, *_args, **_kwargs):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _reset_horizons_availability():
+    horizons.reset_horizons_circuit()
+    yield
+    horizons.reset_horizons_circuit()
 
 
 @pytest.mark.asyncio
@@ -183,6 +193,12 @@ async def test_get_vectors_snapshot_returns_miss_on_fetch_error_without_fallback
         raise RuntimeError("network down")
 
     monkeypatch.setattr(scene, "_load_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(
+        scene,
+        "_load_latest_vectors_for_target_from_db",
+        _stub_load_vectors_from_db,
+    )
     monkeypatch.setattr(scene, "fetch_celestial_vectors", _failing_fetch)
 
     result = await scene._get_vectors_snapshot(
@@ -204,6 +220,52 @@ async def test_get_vectors_snapshot_returns_miss_on_fetch_error_without_fallback
 
 
 @pytest.mark.asyncio
+async def test_get_vectors_snapshot_uses_expired_snapshot_after_fetch_error(monkeypatch):
+    epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    stale_payload = {
+        "position_xyz_au": [1.0, 2.0, 3.0],
+        "orbit_samples_xyz_au": [],
+        "orbit_sample_times_utc": [],
+        "source": "horizons",
+        "fetched_at_utc": "2025-12-31T12:00:00+00:00",
+    }
+
+    async def _no_cache(*_args, **_kwargs):
+        return None
+
+    async def _stale_target_cache(*_args, **kwargs):
+        return {"payload": stale_payload} if kwargs.get("valid_only") is False else None
+
+    def _failing_fetch(*_args, **_kwargs):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_cache)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_cache)
+    monkeypatch.setattr(
+        scene,
+        "_load_latest_vectors_for_target_from_db",
+        _stale_target_cache,
+    )
+    monkeypatch.setattr(scene, "fetch_celestial_vectors", _failing_fetch)
+
+    result = await scene._get_vectors_snapshot(
+        command="Voyager 1",
+        epoch=epoch,
+        past_hours=1,
+        future_hours=24,
+        step_minutes=60,
+        observer_location=None,
+        force_refresh=True,
+        logger=_DummyLogger(),
+        allow_network_fetch=True,
+    )
+
+    assert result["cache"] == "db-stale-fallback"
+    assert result["stale"] is True
+    assert result["payload"]["position_xyz_au"] == [1.0, 2.0, 3.0]
+
+
+@pytest.mark.asyncio
 async def test_build_horizons_solar_system_bodies_keeps_missing_rows_without_origin_vectors(
     monkeypatch,
 ):
@@ -212,11 +274,11 @@ async def test_build_horizons_solar_system_bodies_keeps_missing_rows_without_ori
     def _stub_build_builtin_body_targets():
         return [
             {
-                "body_id": "saturn",
-                "target_key": "body:saturn",
-                "horizons_command": "699",
-                "name": "Saturn",
-                "body_class": "planet",
+                "body_id": "pluto",
+                "target_key": "body:pluto",
+                "horizons_command": "999",
+                "name": "Pluto",
+                "body_class": "dwarf",
                 "parent_body_id": "sun",
             }
         ]
@@ -252,7 +314,112 @@ async def test_build_horizons_solar_system_bodies_keeps_missing_rows_without_ori
     assert solar_meta["cache"]["missing_count"] == 1
     assert len(planets) == 1
     row = planets[0]
-    assert row["id"] == "saturn"
+    assert row["id"] == "pluto"
     assert row["stale"] is True
     assert row["position_xyz_au"] is None
     assert row["velocity_xyz_au_per_day"] is None
+
+
+@pytest.mark.asyncio
+async def test_build_horizons_solar_system_bodies_uses_offline_visual_fallback(monkeypatch):
+    epoch = datetime(2026, 6, 5, 12, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        scene,
+        "_build_builtin_body_targets",
+        lambda: [
+            {
+                "body_id": "saturn",
+                "target_key": "body:saturn",
+                "horizons_command": "699",
+                "name": "Saturn",
+                "body_class": "planet",
+                "parent_body_id": "sun",
+            }
+        ],
+    )
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    async def _missing(*_args, **_kwargs):
+        return {
+            "payload": None,
+            "cache": "miss",
+            "stale": True,
+            "error": "NASA JPL Horizons could not be reached",
+            "error_code": "connect_timeout",
+        }
+
+    monkeypatch.setattr(scene, "_ensure_scene_targets_registered", _noop)
+    monkeypatch.setattr(scene, "_get_vectors_snapshot", _missing)
+
+    solar_meta, planets = await scene._build_horizons_solar_system_bodies(
+        epoch=epoch,
+        past_hours=6,
+        future_hours=6,
+        step_minutes=60,
+        observer_location=None,
+        force_refresh=False,
+        allow_network_fetch=True,
+        logger=_DummyLogger(),
+    )
+
+    assert solar_meta["cache"]["offline_count"] == 1
+    assert solar_meta["cache"]["missing_count"] == 0
+    assert planets[0]["source"] == "offline-analytic-kepler"
+    assert planets[0]["approximate"] is True
+    assert len(planets[0]["position_xyz_au"]) == 3
+
+
+def test_horizons_circuit_skips_requests_during_backoff(monkeypatch):
+    calls = []
+
+    def _timeout(*_args, **kwargs):
+        calls.append(kwargs)
+        raise horizons.requests.exceptions.ConnectTimeout("blocked")
+
+    monkeypatch.setattr(horizons.requests, "get", _timeout)
+
+    with pytest.raises(horizons.HorizonsUnavailableError) as first_error:
+        horizons._request_horizons_json(params={}, timeout_seconds=10.0, force_probe=False)
+    with pytest.raises(horizons.HorizonsUnavailableError):
+        horizons._request_horizons_json(params={}, timeout_seconds=10.0, force_probe=False)
+
+    assert first_error.value.reason == "connect_timeout"
+    assert len(calls) == 1
+    assert calls[0]["timeout"] == (2.0, 10.0)
+    status = horizons.get_horizons_status()
+    assert status["circuit"] == "open"
+    assert status["retry_at_utc"]
+
+
+def test_manual_horizons_probe_closes_open_circuit(monkeypatch):
+    class _Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"result": "ok"}
+
+    responses = [horizons.requests.exceptions.ConnectTimeout("blocked"), _Response()]
+
+    def _request(*_args, **_kwargs):
+        response = responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+    monkeypatch.setattr(horizons.requests, "get", _request)
+
+    with pytest.raises(horizons.HorizonsUnavailableError):
+        horizons._request_horizons_json(params={}, timeout_seconds=10.0, force_probe=False)
+    payload, status_code = horizons._request_horizons_json(
+        params={}, timeout_seconds=10.0, force_probe=True
+    )
+
+    assert payload == {"result": "ok"}
+    assert status_code == 200
+    assert horizons.get_horizons_status()["availability"] == "available"
