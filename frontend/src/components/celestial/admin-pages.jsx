@@ -230,10 +230,6 @@ export function CelestialEphemerisPage() {
                 failed: result?.failed ?? current.failed,
                 phase: 'complete',
             }));
-            setMessage({
-                severity: result?.failed ? 'warning' : 'success',
-                text: `Cache refresh completed: ${result?.refreshed ?? 0} refreshed, ${result?.failed ?? 0} failed.`,
-            });
         } catch (error) {
             const result = error.response?.data;
             const detail = result
