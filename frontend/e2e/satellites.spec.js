@@ -266,7 +266,7 @@ test.describe('TLE Sources CRUD', () => {
     const updatedName = `${sourceName} Updated`;
     const url = `https://example.com/${Date.now()}.txt`;
 
-    await page.getByRole('button', { name: /add/i }).click();
+    await page.getByRole('button', { name: /^add$/i }).click();
 
     const addDialog = page.getByRole('dialog');
     await addDialog.getByLabel(/name/i).fill(sourceName);
@@ -304,7 +304,7 @@ test.describe('Satellite Groups CRUD', () => {
 
     const groupName = `E2E Group ${Date.now()}`;
 
-    await page.getByRole('button', { name: /add/i }).click();
+    await page.getByRole('button', { name: /^add$/i }).click();
 
     const formDialog = page.getByRole('dialog').filter({ hasText: /add a new satellite group/i }).first();
     await formDialog.getByRole('textbox', { name: /^name$/i }).fill(groupName);
