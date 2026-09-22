@@ -42,14 +42,20 @@ import CloudOffIcon from '@mui/icons-material/CloudOff';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import Brightness2OutlinedIcon from '@mui/icons-material/Brightness2Outlined';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import StorageIcon from '@mui/icons-material/Storage';
 import SyncIcon from '@mui/icons-material/Sync';
 import PublicIcon from '@mui/icons-material/Public';
+import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined';
 import ToggleOffIcon from '@mui/icons-material/ToggleOff';
 import ToggleOnIcon from '@mui/icons-material/ToggleOn';
+import TripOriginIcon from '@mui/icons-material/TripOrigin';
+import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { useSocket } from '../common/socket.jsx';
@@ -157,6 +163,53 @@ function ResponsiveActionButton({ label, icon, ...buttonProps }) {
                 {label}
             </Box>
         </Button>
+    );
+}
+
+const catalogTypeTranslationKey = (type) => (type === 'dwarf' ? 'dwarf-planet' : type);
+
+function CatalogObjectIcon({ type, label }) {
+    const normalizedType = String(type || '').toLowerCase();
+    let Icon = HelpOutlineIcon;
+    let color = 'text.secondary';
+
+    if (normalizedType === 'star') {
+        Icon = WbSunnyOutlinedIcon;
+        color = 'warning.main';
+    } else if (normalizedType === 'planet') {
+        Icon = PublicOutlinedIcon;
+        color = 'primary.main';
+    } else if (normalizedType === 'moon') {
+        Icon = Brightness2OutlinedIcon;
+        color = 'text.secondary';
+    } else if (normalizedType === 'dwarf' || normalizedType === 'dwarf-planet') {
+        Icon = TripOriginIcon;
+        color = 'secondary.main';
+    } else if (normalizedType === 'spacecraft') {
+        Icon = RocketLaunchOutlinedIcon;
+        color = 'info.main';
+    }
+
+    return (
+        <Tooltip title={label}>
+            <Box
+                role="img"
+                aria-label={label}
+                sx={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    bgcolor: 'action.hover',
+                    color,
+                }}
+            >
+                <Icon fontSize="small" />
+            </Box>
+        </Tooltip>
     );
 }
 
@@ -706,15 +759,33 @@ export function CelestialCatalogPage() {
         {
             field: 'name',
             headerName: t('admin.catalog.columns.name'),
-            minWidth: 180,
+            minWidth: 210,
             flex: 1,
-            renderCell: (params) => <Typography variant="body2" fontWeight={500}>{params.value}</Typography>,
+            renderCell: (params) => {
+                const typeLabel = t(`admin.catalog.types.${catalogTypeTranslationKey(params.row.type)}`, {
+                    defaultValue: params.row.type,
+                });
+                return (
+                    <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
+                        <CatalogObjectIcon type={params.row.type} label={typeLabel} />
+                        <Typography variant="body2" fontWeight={500} noWrap>{params.value}</Typography>
+                    </Stack>
+                );
+            },
         },
         {
             field: 'type',
             headerName: t('admin.catalog.columns.type'),
             width: 120,
-            renderCell: (params) => <Chip size="small" variant="outlined" label={t(`admin.catalog.types.${params.value}`, { defaultValue: params.value })} />,
+            renderCell: (params) => (
+                <Chip
+                    size="small"
+                    variant="outlined"
+                    label={t(`admin.catalog.types.${catalogTypeTranslationKey(params.value)}`, {
+                        defaultValue: params.value,
+                    })}
+                />
+            ),
         },
         { field: 'parent', headerName: t('admin.catalog.columns.agency_parent'), minWidth: 150, flex: 0.8 },
         {
@@ -739,7 +810,7 @@ export function CelestialCatalogPage() {
         {
             field: 'row_actions',
             headerName: '',
-            width: 132,
+            width: 190,
             sortable: false,
             filterable: false,
             disableColumnMenu: true,
