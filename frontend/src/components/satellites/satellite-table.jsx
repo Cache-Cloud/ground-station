@@ -571,7 +571,7 @@ const SatelliteTable = React.memo(function SatelliteTable() {
     return (
         <Box elevation={3} sx={{width: '100%', marginTop: 0}}>
             <Box sx={{ display: 'flex', gap: 2, marginTop: 0, marginBottom: 1 }}>
-                <FormControl sx={{minWidth: 200, flex: 1, ...filterFieldSx}} variant={"outlined"}>
+                <FormControl size="small" sx={{minWidth: 200, flex: 1, ...filterFieldSx}} variant={"outlined"}>
                     <InputLabel id="sat-group-select-label">{t('satellite_database.select_group')}</InputLabel>
                     <Select
                         disabled={loading}
@@ -631,6 +631,7 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                     </Select>
                 </FormControl>
                 <TextField
+                    size="small"
                     sx={{ minWidth: 200, flex: 1, ...filterFieldSx }}
                     variant="outlined"
                     label={t('satellite_database.search_satellites')}

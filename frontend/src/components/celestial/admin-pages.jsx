@@ -46,8 +46,9 @@ import SearchIcon from '@mui/icons-material/Search';
 import StorageIcon from '@mui/icons-material/Storage';
 import SyncIcon from '@mui/icons-material/Sync';
 import PublicIcon from '@mui/icons-material/Public';
+import ToggleOffIcon from '@mui/icons-material/ToggleOff';
+import ToggleOnIcon from '@mui/icons-material/ToggleOn';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate } from 'react-router';
 import { useSocket } from '../common/socket.jsx';
 import { humanizeDate } from '../common/common.jsx';
 import {
@@ -137,6 +138,28 @@ function PageHeading({ title, subtitle, actions }) {
             </Box>
             {actions ? <Stack direction="row" spacing={1} alignItems="center">{actions}</Stack> : null}
         </Stack>
+    );
+}
+
+function ResponsiveActionButton({ label, icon, ...buttonProps }) {
+    return (
+        <Button
+            {...buttonProps}
+            aria-label={label}
+            startIcon={icon}
+            sx={{
+                minWidth: { xs: 40, sm: 64 },
+                px: { xs: 1, sm: 2 },
+                '& .MuiButton-startIcon': {
+                    mr: { xs: 0, sm: 1 },
+                    ml: { xs: 0, sm: -0.5 },
+                },
+            }}
+        >
+            <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                {label}
+            </Box>
+        </Button>
     );
 }
 
@@ -662,7 +685,6 @@ export function CelestialCatalogPage() {
                         size="small"
                         variant={isMonitored ? 'outlined' : 'contained'}
                         color={isMonitored ? 'error' : 'primary'}
-                        startIcon={isMonitored ? <DeleteOutlineIcon /> : <AddIcon />}
                         disabled={!socket || busyKey === params.row.key}
                         onClick={(event) => {
                             event.stopPropagation();
@@ -674,7 +696,14 @@ export function CelestialCatalogPage() {
                             }
                         }}
                     >
-                        {busyKey === params.row.key ? 'Working…' : isMonitored ? 'Unmonitor' : 'Monitor'}
+                        <Stack component="span" direction="row" spacing={0.75} alignItems="center" sx={{ lineHeight: 1 }}>
+                            {isMonitored
+                                ? <DeleteOutlineIcon fontSize="small" sx={{ display: 'block' }} />
+                                : <AddIcon fontSize="small" sx={{ display: 'block' }} />}
+                            <Box component="span" sx={{ lineHeight: 1 }}>
+                                {busyKey === params.row.key ? 'Working…' : isMonitored ? 'Unmonitor' : 'Monitor'}
+                            </Box>
+                        </Stack>
                     </Button>
                 );
             },
@@ -683,7 +712,6 @@ export function CelestialCatalogPage() {
 
     return (
         <Paper elevation={3} sx={PAGE_PAPER_SX}>
-            <PageHeading title="Celestial Catalog" subtitle="Browse solar-system bodies and the built-in spacecraft catalog, then choose what to monitor." actions={<Button startIcon={<RefreshIcon />} onClick={loadCatalog} disabled={loading}>Reload</Button>} />
             {message ? <Alert severity={message.severity} sx={{ mb: 2 }} onClose={() => setMessage(null)}>{message.text}</Alert> : null}
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }}>
                 <FormControl size="small" sx={{ minWidth: 160 }}>
@@ -722,6 +750,10 @@ export function CelestialCatalogPage() {
                 sx={DATA_GRID_SX}
             />
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>{rows.length} entries shown · {monitored.length} monitored</Typography>
+            <Alert severity="info" sx={{ mt: 2 }}>
+                <AlertTitle>Celestial Catalog</AlertTitle>
+                Browse solar-system bodies and the built-in spacecraft catalog, then choose what to monitor.
+            </Alert>
 
             <Dialog
                 open={Boolean(pendingUnmonitor)}
@@ -800,7 +832,6 @@ export function CelestialCatalogPage() {
 
 export function CelestialTargetsPage() {
     const dispatch = useDispatch();
-    const navigate = useNavigate();
     const { socket } = useSocket();
     const { monitored = [], loading = false, saveLoading = false } = useSelector((state) => state.celestialMonitored || {});
     const [selected, setSelected] = useState([]);
@@ -1014,12 +1045,6 @@ export function CelestialTargetsPage() {
             <PageHeading
                 title="Monitored Celestial Targets"
                 subtitle="Enable, refresh, edit, and remove the bodies and spacecraft used by the Solar System view."
-                actions={(
-                    <>
-                        <Button startIcon={<RefreshIcon />} onClick={loadTargets} disabled={loading || busy}>Reload</Button>
-                        <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/admin/celestial/catalog')}>Add from catalog</Button>
-                    </>
-                )}
             />
             {message ? <Alert severity={message.severity} sx={{ mb: 2 }} onClose={() => setMessage(null)}>{message.text}</Alert> : null}
             <TextField size="small" label="Search targets" value={search} onChange={(event) => setSearch(event.target.value)} sx={{ mb: 2, minWidth: { xs: '100%', sm: 320 } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }} />
@@ -1037,10 +1062,10 @@ export function CelestialTargetsPage() {
                 sx={DATA_GRID_SX}
             />
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
-                <Button variant="contained" startIcon={<RefreshIcon />} disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('refresh')}>Refresh selected</Button>
-                <Button variant="outlined" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('enable')}>Enable</Button>
-                <Button variant="outlined" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('disable')}>Disable</Button>
-                <Button variant="contained" color="error" startIcon={<DeleteOutlineIcon />} disabled={!socket || busy || selected.length === 0} onClick={() => setPendingDeleteIds(selected)}>Delete</Button>
+                <ResponsiveActionButton label="Refresh selected" icon={<RefreshIcon />} variant="contained" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('refresh')} />
+                <ResponsiveActionButton label="Enable" icon={<ToggleOnIcon />} variant="outlined" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('enable')} />
+                <ResponsiveActionButton label="Disable" icon={<ToggleOffIcon />} variant="outlined" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('disable')} />
+                <ResponsiveActionButton label="Delete" icon={<DeleteOutlineIcon />} variant="contained" color="error" disabled={!socket || busy || selected.length === 0} onClick={() => setPendingDeleteIds(selected)} />
                 <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center', ml: { sm: 'auto' } }}>{selected.length} selected</Typography>
             </Stack>
 
