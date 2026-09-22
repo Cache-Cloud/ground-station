@@ -17,6 +17,7 @@ from celestial.scene import (
     build_celestial_tracks,
     refresh_celestial_vector_snapshots_cache,
 )
+from celestial.status import emit_celestial_ephemeris_status
 from common import auth as authsvc
 from common.arguments import arguments
 from common.logger import logger
@@ -383,10 +384,16 @@ async def sync_celestial_vector_snapshots_job(
                 )
                 return
 
-        result = await refresh_celestial_vector_snapshots_cache(
-            logger=logger,
-            trigger=trigger,
-        )
+        try:
+            result = await refresh_celestial_vector_snapshots_cache(
+                logger=logger,
+                trigger=trigger,
+            )
+        finally:
+            if sio is not None:
+                # Publish terminal state for successful, failed, and skipped
+                # runs so connected pages never need to poll for completion.
+                await emit_celestial_ephemeris_status(sio, logger)
         if result.get("success"):
             logger.info(
                 "Scheduled celestial vector snapshot sync completed: refreshed=%s failed=%s count=%s",

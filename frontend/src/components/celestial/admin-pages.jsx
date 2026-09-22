@@ -61,7 +61,7 @@ import {
 } from './monitored-slice.jsx';
 import {
     refreshMonitoredCelestialNow,
-    setCelestialEphemerisProviderStatus,
+    setCelestialEphemerisStatus,
     setCelestialEphemerisSyncCompleted,
     setCelestialEphemerisSyncFailed,
     setCelestialEphemerisSyncProgress,
@@ -69,6 +69,7 @@ import {
 } from './celestial-slice.jsx';
 import { buildEphemerisSyncFailure, describeHorizonsFailure } from './ephemeris-errors.js';
 import { toRowSelectionModel, toSelectedIds } from '../../utils/datagrid-selection.js';
+import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
 
 const PAGE_PAPER_SX = { padding: 2, marginTop: 0, borderRadius: 0 };
 const DATA_GRID_SX = {
@@ -124,10 +125,12 @@ const apiCall = (socket, cmd, data = null) => new Promise((resolve, reject) => {
     });
 });
 
-const formatDateTime = (value) => {
+const formatDateTime = (value, timezone, locale) => {
     if (!value) return 'Never';
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
+    if (Number.isNaN(date.getTime())) return 'Unknown';
+    const options = timezone ? { timeZone: timezone } : undefined;
+    return date.toLocaleString(locale, options);
 };
 
 function ResponsiveActionButton({ label, icon, ...buttonProps }) {
@@ -184,6 +187,7 @@ function MetricCard({ icon, label, value, detail, tone = 'info' }) {
 export function CelestialEphemerisPage() {
     const dispatch = useDispatch();
     const { socket } = useSocket();
+    const { timezone, locale } = useUserTimeSettings();
     const [status, setStatus] = useState(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -198,7 +202,28 @@ export function CelestialEphemerisPage() {
         current_target: null,
     });
 
-    const loadStatus = useCallback(async ({ preserveMessage = false } = {}) => {
+    const applyStatus = useCallback((nextStatus) => {
+        setStatus(nextStatus);
+        dispatch(setCelestialEphemerisStatus(nextStatus));
+
+        const terminalState = nextStatus?.sync?.state || {};
+        const normalizedStatus = String(terminalState.status || '').toLowerCase();
+        const hasFailed = normalizedStatus === 'failed'
+            || (normalizedStatus === 'complete' && terminalState.success === false);
+        if (hasFailed) {
+            setMessage({
+                severity: 'error',
+                failure: buildEphemerisSyncFailure({
+                    ...terminalState,
+                    provider_status: nextStatus?.provider?.status || null,
+                }, terminalState.message),
+            });
+        } else if (normalizedStatus === 'complete' && terminalState.success === true) {
+            setMessage(null);
+        }
+    }, [dispatch]);
+
+    const loadStatus = useCallback(async () => {
         if (!socket) {
             setLoading(false);
             setMessage({ severity: 'error', text: 'No active backend connection.' });
@@ -207,15 +232,13 @@ export function CelestialEphemerisPage() {
         setLoading(true);
         try {
             const nextStatus = await apiCall(socket, 'get-celestial-ephemeris-status');
-            setStatus(nextStatus);
-            dispatch(setCelestialEphemerisProviderStatus(nextStatus?.provider?.status || null));
-            if (!preserveMessage) setMessage(null);
+            applyStatus(nextStatus);
         } catch (error) {
             setMessage({ severity: 'error', text: error.message });
         } finally {
             setLoading(false);
         }
-    }, [dispatch, socket]);
+    }, [applyStatus, socket]);
 
     useEffect(() => {
         loadStatus();
@@ -228,9 +251,23 @@ export function CelestialEphemerisPage() {
             setSyncProgress((current) => ({ ...current, ...(progress || {}) }));
             dispatch(setCelestialEphemerisSyncProgress(progress));
         };
+        const handleStatus = (response) => {
+            if (response?.success && response.data) {
+                applyStatus(response.data);
+                setLoading(false);
+                return;
+            }
+            if (response?.error) {
+                setMessage({ severity: 'error', text: response.error });
+            }
+        };
         socket.on('celestial-cache-refresh-progress', handleProgress);
-        return () => socket.off('celestial-cache-refresh-progress', handleProgress);
-    }, [dispatch, socket]);
+        socket.on('celestial-ephemeris-status-update', handleStatus);
+        return () => {
+            socket.off('celestial-cache-refresh-progress', handleProgress);
+            socket.off('celestial-ephemeris-status-update', handleStatus);
+        };
+    }, [applyStatus, dispatch, socket]);
 
     const handleRefreshCache = async () => {
         dispatch(setCelestialEphemerisSyncStarted());
@@ -265,7 +302,6 @@ export function CelestialEphemerisPage() {
             setMessage({ severity: 'error', failure });
         } finally {
             setRefreshing(false);
-            await loadStatus({ preserveMessage: true });
         }
     };
 
@@ -355,9 +391,6 @@ export function CelestialEphemerisPage() {
                             </Box>
                         </Stack>
                         <Stack direction="row" spacing={1}>
-                            <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={loadStatus} disabled={loading || refreshing}>
-                                Refresh status
-                            </Button>
                             <Button size="small" variant="contained" startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <SyncIcon />} onClick={handleRefreshCache} disabled={!socket || loading || refreshing}>
                                 Synchronize now
                             </Button>
@@ -383,7 +416,7 @@ export function CelestialEphemerisPage() {
                                 color="text.disabled"
                                 sx={{ ml: 'auto', fontFamily: 'monospace', textAlign: 'right' }}
                             >
-                                Last update: {formatDateTime(persistedSyncState.last_update)}
+                                Last update: {formatDateTime(persistedSyncState.last_update, timezone, locale)}
                             </Typography>
                         ) : null}
                     </Box>
@@ -432,13 +465,13 @@ export function CelestialEphemerisPage() {
                                             {failureRetryAt ? (
                                                 <Typography variant="body2">
                                                     <Box component="span" sx={{ fontWeight: 700 }}>Next connection attempt:</Box>{' '}
-                                                    {formatDateTime(failureRetryAt)}
+                                                    {formatDateTime(failureRetryAt, timezone, locale)}
                                                 </Typography>
                                             ) : null}
                                             {lastFailureAt ? (
                                                 <Typography variant="body2">
                                                     <Box component="span" sx={{ fontWeight: 700 }}>Last failed attempt:</Box>{' '}
-                                                    {formatDateTime(lastFailureAt)}
+                                                    {formatDateTime(lastFailureAt, timezone, locale)}
                                                 </Typography>
                                             ) : null}
                                             {message.failure.errors.length > 0 ? (
@@ -471,7 +504,7 @@ export function CelestialEphemerisPage() {
                                         <Box>
                                             <Typography variant="body2" color="error.main" fontWeight={600}>NASA JPL Horizons is unavailable</Typography>
                                             <Typography variant="caption" color="text.secondary">
-                                                {describeHorizonsFailure(failureReason)} Cached data remains available. Next automatic probe: {formatDateTime(providerStatus.retry_at_utc)}.
+                                                {describeHorizonsFailure(failureReason)} Cached data remains available. Next automatic probe: {formatDateTime(providerStatus.retry_at_utc, timezone, locale)}.
                                             </Typography>
                                         </Box>
                                     </Stack>
@@ -480,7 +513,7 @@ export function CelestialEphemerisPage() {
 
                             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
                                 <MetricCard icon={<StorageIcon />} label="Stored snapshots" value={cache.total_snapshots ?? 0} detail={`${cache.distinct_targets ?? 0} targets`} tone="info" />
-                                <MetricCard icon={<CheckCircleOutlineIcon />} label="Fresh snapshots" value={cache.fresh_snapshots ?? 0} detail={`Newest: ${formatDateTime(cache.newest_fetch_at)}`} tone="success" />
+                                <MetricCard icon={<CheckCircleOutlineIcon />} label="Fresh snapshots" value={cache.fresh_snapshots ?? 0} detail={`Newest: ${formatDateTime(cache.newest_fetch_at, timezone, locale)}`} tone="success" />
                                 <MetricCard icon={<CloudOffIcon />} label="Expired snapshots" value={cache.expired_snapshots ?? 0} detail={`${cache.error_snapshots ?? 0} with errors`} tone="warning" />
                             </Stack>
 
@@ -490,8 +523,8 @@ export function CelestialEphemerisPage() {
                                     <Box><Typography variant="caption" color="text.secondary">Status</Typography><Box><Chip size="small" color={sync.enabled ? 'success' : 'default'} label={sync.enabled ? 'Enabled' : 'Disabled'} /></Box></Box>
                                     <Box><Typography variant="caption" color="text.secondary">Interval</Typography><Typography variant="body2">Every {sync.interval_minutes ?? 60} minutes</Typography></Box>
                                     <Box><Typography variant="caption" color="text.secondary">Past projection</Typography><Typography variant="body2">{sync.past_hours ?? 1} hours</Typography></Box>
-                                    <Box><Typography variant="caption" color="text.secondary">Next cache expiry</Typography><Typography variant="body2">{formatDateTime(cache.next_expiry_at)}</Typography></Box>
-                                    <Box><Typography variant="caption" color="text.secondary">Last failure</Typography><Typography variant="body2">{formatDateTime(providerStatus.last_failure_at_utc)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">Next cache expiry</Typography><Typography variant="body2">{formatDateTime(cache.next_expiry_at, timezone, locale)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">Last failure</Typography><Typography variant="body2">{formatDateTime(providerStatus.last_failure_at_utc, timezone, locale)}</Typography></Box>
                                 </Stack>
                             </Box>
                         </>
@@ -826,6 +859,7 @@ export function CelestialCatalogPage() {
 export function CelestialTargetsPage() {
     const dispatch = useDispatch();
     const { socket } = useSocket();
+    const { timezone, locale } = useUserTimeSettings();
     const { monitored = [], loading = false, saveLoading = false } = useSelector((state) => state.celestialMonitored || {});
     const [selected, setSelected] = useState([]);
     const [search, setSearch] = useState('');
@@ -986,7 +1020,7 @@ export function CelestialTargetsPage() {
             headerName: 'Last refresh',
             minWidth: 180,
             flex: 0.8,
-            renderCell: (params) => formatDateTime(params.value),
+            renderCell: (params) => formatDateTime(params.value, timezone, locale),
         },
         {
             field: 'lastError',

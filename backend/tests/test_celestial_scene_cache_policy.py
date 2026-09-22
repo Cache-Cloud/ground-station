@@ -593,6 +593,12 @@ async def test_cache_refresh_progress_is_sent_only_to_requesting_client(monkeypa
         refresh,
     )
 
+    async def emit_status(sio, _logger):
+        payload = {"success": True, "data": {"sync": {"state": {"status": "complete"}}}}
+        await sio.emit("celestial-ephemeris-status-update", payload)
+
+    monkeypatch.setattr(celestial_handlers, "emit_celestial_ephemeris_status", emit_status)
+
     async def build_empty_payload(_data, _logger):
         return {"celestial": []}
 
@@ -617,9 +623,14 @@ async def test_cache_refresh_progress_is_sent_only_to_requesting_client(monkeypa
             "requesting-client",
         ),
         (
+            "celestial-ephemeris-status-update",
+            {"success": True, "data": {"sync": {"state": {"status": "complete"}}}},
+            None,
+        ),
+        (
             "celestial-tracks-update",
             {
-                "timestamp_utc": emitted[1][1]["timestamp_utc"],
+                "timestamp_utc": emitted[2][1]["timestamp_utc"],
                 "frame": "heliocentric-ecliptic",
                 "center": "sun",
                 "units": {"position": "au", "velocity": "au/day"},
@@ -674,6 +685,15 @@ async def test_successful_cache_refresh_broadcasts_rebuilt_cached_tracks(monkeyp
         celestial_handlers,
         "refresh_celestial_vector_snapshots_cache",
         refresh,
+    )
+
+    async def emit_status(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        celestial_handlers,
+        "emit_celestial_ephemeris_status",
+        emit_status,
     )
     monkeypatch.setattr(celestial_handlers, "_build_scene_payload", build_payload)
     monkeypatch.setattr(celestial_handlers, "build_celestial_tracks", build_tracks)
@@ -749,6 +769,12 @@ async def test_failed_cache_refresh_does_not_broadcast_tracks(monkeypatch):
         },
     )
 
+    async def emit_status(sio, _logger):
+        payload = {"success": True, "data": {"sync": {"state": {"success": False}}}}
+        await sio.emit("celestial-ephemeris-status-update", payload)
+
+    monkeypatch.setattr(celestial_handlers, "emit_celestial_ephemeris_status", emit_status)
+
     result = await celestial_handlers.refresh_celestial_cache_now(
         sio=_Sio(),
         data=None,
@@ -763,7 +789,13 @@ async def test_failed_cache_refresh_does_not_broadcast_tracks(monkeypatch):
         "reason": "connection_failure",
         "retry_at_utc": "2026-09-22T08:45:00+00:00",
     }
-    assert emitted == []
+    assert emitted == [
+        (
+            "celestial-ephemeris-status-update",
+            {"success": True, "data": {"sync": {"state": {"success": False}}}},
+            None,
+        )
+    ]
 
 
 @pytest.mark.asyncio

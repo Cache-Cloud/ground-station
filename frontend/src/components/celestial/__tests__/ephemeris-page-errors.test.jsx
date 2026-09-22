@@ -9,14 +9,15 @@
  */
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CelestialEphemerisPage } from '../admin-pages.jsx';
 import celestialReducer from '../celestial-slice.jsx';
 
-const { socket } = vi.hoisted(() => ({
+const { listeners, socket } = vi.hoisted(() => ({
+    listeners: {},
     socket: {
         emit: vi.fn(),
         on: vi.fn(),
@@ -51,6 +52,13 @@ describe('CelestialEphemerisPage synchronization failures', () => {
         socket.emit.mockReset();
         socket.on.mockReset();
         socket.off.mockReset();
+        Object.keys(listeners).forEach((event) => delete listeners[event]);
+        socket.on.mockImplementation((event, handler) => {
+            listeners[event] = handler;
+        });
+        socket.off.mockImplementation((event) => {
+            delete listeners[event];
+        });
         socket.emit.mockImplementation((_event, request, acknowledge) => {
             if (request.cmd === 'get-celestial-ephemeris-status') {
                 acknowledge(statusResponse);
@@ -86,6 +94,7 @@ describe('CelestialEphemerisPage synchronization failures', () => {
 
         const synchronizeButton = await screen.findByRole('button', { name: /synchronize now/i });
         await waitFor(() => expect(synchronizeButton).toBeEnabled());
+        expect(screen.queryByRole('button', { name: /refresh status/i })).not.toBeInTheDocument();
         fireEvent.click(synchronizeButton);
 
         expect(await screen.findByText('Could not reach NASA JPL Horizons')).toBeInTheDocument();
@@ -124,7 +133,17 @@ describe('CelestialEphemerisPage synchronization failures', () => {
             acknowledge({ success: true, data: {} });
         });
 
-        const store = configureStore({ reducer: { celestial: celestialReducer } });
+        const store = configureStore({
+            reducer: {
+                celestial: celestialReducer,
+                preferences: () => ({
+                    preferences: [
+                        { name: 'timezone', value: 'Pacific/Honolulu' },
+                        { name: 'locale', value: 'en-GB' },
+                    ],
+                }),
+            },
+        });
         render(
             <Provider store={store}>
                 <CelestialEphemerisPage />
@@ -132,5 +151,52 @@ describe('CelestialEphemerisPage synchronization failures', () => {
         );
 
         expect(await screen.findByText('Completed')).toBeInTheDocument();
+        const expectedLastUpdate = new Date('2026-09-22T08:01:00+00:00').toLocaleString(
+            'en-GB',
+            { timeZone: 'Pacific/Honolulu' },
+        );
+        expect(screen.getByText(`Last update: ${expectedLastUpdate}`)).toBeInTheDocument();
+    });
+
+    it('applies status pushed by the backend after a scheduled sync', async () => {
+        const store = configureStore({ reducer: { celestial: celestialReducer } });
+        render(
+            <Provider store={store}>
+                <CelestialEphemerisPage />
+            </Provider>,
+        );
+
+        expect(await screen.findByText('Idle')).toBeInTheDocument();
+        await act(async () => {
+            listeners['celestial-ephemeris-status-update']({
+                success: true,
+                data: {
+                    ...statusResponse.data,
+                    provider: {
+                        ...statusResponse.data.provider,
+                        status: { availability: 'available', circuit: 'closed' },
+                    },
+                    sync: {
+                        ...statusResponse.data.sync,
+                        state: {
+                            status: 'complete',
+                            success: true,
+                            progress: 100,
+                            count: 48,
+                            refreshed: 48,
+                            failed: 0,
+                            last_update: '2026-09-22T08:01:00+00:00',
+                        },
+                    },
+                },
+            });
+        });
+
+        expect(screen.getByText('Completed')).toBeInTheDocument();
+        expect(store.getState().celestial.ephemerisSync).toMatchObject({
+            status: 'complete',
+            refreshed: 48,
+            failed: 0,
+        });
     });
 });

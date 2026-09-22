@@ -7,6 +7,7 @@
 
 import pytest
 
+from celestial import status as celestial_status
 from celestial import syncstate
 from celestial.syncstate import (
     get_celestial_sync_state,
@@ -131,14 +132,14 @@ async def test_ephemeris_status_returns_shared_sync_state(monkeypatch):
     async def cache_stats(_session):
         return {"success": True, "data": {"total_snapshots": 2}}
 
-    monkeypatch.setattr(celestial_handlers, "hydrate_celestial_sync_state", hydrate)
+    monkeypatch.setattr(celestial_status, "hydrate_celestial_sync_state", hydrate)
     monkeypatch.setattr(
-        celestial_handlers.crud_vectors,
+        celestial_status.crud_vectors,
         "fetch_celestial_vector_snapshot_stats",
         cache_stats,
     )
     monkeypatch.setattr(
-        celestial_handlers,
+        celestial_status,
         "AsyncSessionLocal",
         lambda: _SessionContext(),
     )

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import celestialReducer, {
   fetchTargetCelestialScene,
-  setCelestialEphemerisProviderStatus,
+  setCelestialEphemerisStatus,
   setCelestialEphemerisSyncCompleted,
   setCelestialEphemerisSyncFailed,
   setCelestialEphemerisSyncProgress,
@@ -150,15 +150,29 @@ describe('celestial ephemeris synchronization state', () => {
     });
   });
 
-  it('stores provider availability independently of a manual sync', () => {
-    const state = celestialReducer(undefined, setCelestialEphemerisProviderStatus({
-      availability: 'unavailable',
-      reason: 'connection_failure',
+  it('applies a failed scheduled sync pushed by the backend', () => {
+    const state = celestialReducer(undefined, setCelestialEphemerisStatus({
+      provider: { status: { availability: 'unavailable' } },
+      sync: {
+        state: {
+          status: 'complete',
+          success: false,
+          progress: 100,
+          count: 3,
+          refreshed: 1,
+          failed: 2,
+          message: 'Synchronization requires attention.',
+        },
+      },
     }));
 
-    expect(state.ephemerisSync.providerStatus).toEqual({
-      availability: 'unavailable',
-      reason: 'connection_failure',
+    expect(state.ephemerisSync).toMatchObject({
+      status: 'failed',
+      total: 3,
+      refreshed: 1,
+      failed: 2,
+      error: 'Synchronization requires attention.',
+      providerStatus: { availability: 'unavailable' },
     });
   });
 });

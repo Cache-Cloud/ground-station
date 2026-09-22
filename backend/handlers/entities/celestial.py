@@ -13,7 +13,6 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
-import crud.celestialvectors as crud_vectors
 import crud.locations as crud_locations
 import crud.monitoredcelestial as crud_monitored
 from celestial.bodycatalog import get_celestial_body, list_celestial_bodies
@@ -25,8 +24,7 @@ from celestial.scene import (
     refresh_celestial_vector_snapshots_cache,
 )
 from celestial.spacecraftindex import get_spacecraft_index, search_spacecraft_index
-from celestial.syncstate import get_celestial_sync_state, hydrate_celestial_sync_state
-from common.arguments import arguments
+from celestial.status import build_celestial_ephemeris_status, emit_celestial_ephemeris_status
 from db import AsyncSessionLocal
 
 _monitored_refresh_lock = asyncio.Lock()
@@ -676,40 +674,8 @@ async def get_celestial_ephemeris_status(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Any]:
     """Return Horizons availability, cache health, and periodic sync settings."""
-    try:
-        sync_state = await hydrate_celestial_sync_state()
-    except Exception:
-        logger.exception("Failed to hydrate celestial ephemeris sync state")
-        sync_state = get_celestial_sync_state()
-
-    async with AsyncSessionLocal() as dbsession:
-        cache_result = await crud_vectors.fetch_celestial_vector_snapshot_stats(dbsession)
-
-    if not cache_result.get("success"):
-        return {
-            "success": False,
-            "error": cache_result.get("error") or "Failed to load celestial cache status",
-        }
-
-    return {
-        "success": True,
-        "data": {
-            "provider": {
-                "name": "NASA JPL Horizons",
-                "status": get_horizons_status(),
-            },
-            "cache": cache_result.get("data") or {},
-            "sync": {
-                "enabled": bool(getattr(arguments, "celestial_periodic_sync_enabled", True)),
-                "interval_minutes": int(
-                    getattr(arguments, "celestial_periodic_sync_interval_minutes", 60)
-                ),
-                "past_hours": int(getattr(arguments, "celestial_sync_past_hours", 1)),
-                "state": sync_state,
-            },
-        },
-        "error": None,
-    }
+    response: Dict[str, Any] = await build_celestial_ephemeris_status(logger)
+    return response
 
 
 async def refresh_celestial_cache_now(
@@ -724,11 +690,16 @@ async def refresh_celestial_cache_now(
             to=sid,
         )
 
-    result = await refresh_celestial_vector_snapshots_cache(
-        logger,
-        progress_callback=emit_progress,
-        trigger="manual",
-    )
+    try:
+        result = await refresh_celestial_vector_snapshots_cache(
+            logger,
+            progress_callback=emit_progress,
+            trigger="manual",
+        )
+    finally:
+        # Every terminal outcome is pushed to all clients. The page no longer
+        # has to issue a second request after synchronization finishes.
+        await emit_celestial_ephemeris_status(sio, logger)
 
     # Return the breaker snapshot from the same point in time as the refresh.
     # This lets the UI explain an upstream outage even if status changes before

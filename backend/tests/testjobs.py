@@ -165,15 +165,43 @@ async def test_celestial_sync_resyncs_trackers_and_broadcasts_after_success(monk
     async def broadcast(sio):
         calls.append(("broadcast", sio))
 
+    async def emit_status(sio, _logger):
+        calls.append(("status", sio))
+
     sio = object()
     monkeypatch.setattr(scheduler_module.authsvc, "is_setup_required", setup_complete)
     monkeypatch.setattr(scheduler_module, "refresh_celestial_vector_snapshots_cache", refresh)
     monkeypatch.setattr(scheduler_module, "_resync_active_non_satellite_trackers", resync)
     monkeypatch.setattr(scheduler_module, "emit_cached_celestial_tracks_job", broadcast)
+    monkeypatch.setattr(scheduler_module, "emit_celestial_ephemeris_status", emit_status)
 
     await scheduler_module.sync_celestial_vector_snapshots_job(_TaskManager(), sio=sio)
 
-    assert calls == ["refresh", "resync", ("broadcast", sio)]
+    assert calls == ["refresh", ("status", sio), "resync", ("broadcast", sio)]
+
+
+@pytest.mark.asyncio
+async def test_celestial_sync_broadcasts_status_after_failure(monkeypatch):
+    calls = []
+
+    async def setup_complete(**_kwargs):
+        return False
+
+    async def refresh(**_kwargs):
+        calls.append("refresh")
+        return {"success": False, "refreshed": 0, "failed": 2, "count": 2}
+
+    async def emit_status(sio, _logger):
+        calls.append(("status", sio))
+
+    sio = object()
+    monkeypatch.setattr(scheduler_module.authsvc, "is_setup_required", setup_complete)
+    monkeypatch.setattr(scheduler_module, "refresh_celestial_vector_snapshots_cache", refresh)
+    monkeypatch.setattr(scheduler_module, "emit_celestial_ephemeris_status", emit_status)
+
+    await scheduler_module.sync_celestial_vector_snapshots_job(_TaskManager(), sio=sio)
+
+    assert calls == ["refresh", ("status", sio)]
 
 
 @pytest.mark.asyncio

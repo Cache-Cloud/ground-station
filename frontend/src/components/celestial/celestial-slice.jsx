@@ -478,8 +478,32 @@ const celestialSlice = createSlice({
                 providerStatus: result.provider_status || state.ephemerisSync?.providerStatus || null,
             };
         },
-        setCelestialEphemerisProviderStatus: (state, action) => {
-            state.ephemerisSync.providerStatus = action.payload || null;
+        setCelestialEphemerisStatus: (state, action) => {
+            const status = action.payload || {};
+            const providerStatus = status.provider?.status || null;
+            const sharedState = status.sync?.state;
+            if (!sharedState || typeof sharedState !== 'object') {
+                state.ephemerisSync.providerStatus = providerStatus;
+                return;
+            }
+
+            const normalizedStatus = String(sharedState.status || 'idle').toLowerCase();
+            const hasFailed = normalizedStatus === 'failed'
+                || (normalizedStatus === 'complete' && sharedState.success === false);
+            state.ephemerisSync = {
+                ...state.ephemerisSync,
+                status: hasFailed ? 'failed' : normalizedStatus,
+                progress: Number(sharedState.progress || 0),
+                processed: Number(sharedState.processed || 0),
+                total: Number(sharedState.count || 0),
+                refreshed: Number(sharedState.refreshed || 0),
+                failed: Number(sharedState.failed || 0),
+                currentTarget: sharedState.current_target || null,
+                error: hasFailed
+                    ? sharedState.message || 'Ephemeris synchronization failed'
+                    : null,
+                providerStatus,
+            };
         },
     },
     extraReducers: (builder) => {
@@ -681,6 +705,6 @@ export const {
     setCelestialEphemerisSyncProgress,
     setCelestialEphemerisSyncCompleted,
     setCelestialEphemerisSyncFailed,
-    setCelestialEphemerisProviderStatus,
+    setCelestialEphemerisStatus,
 } = celestialSlice.actions;
 export default celestialSlice.reducer;
