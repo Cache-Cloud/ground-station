@@ -6,6 +6,23 @@ import celestialReducer, {
 } from '../celestial-slice';
 
 describe('target celestial scenes', () => {
+  it('clears live tracks and passes when the backend broadcasts an empty state', () => {
+    let state = celestialReducer(undefined, setCelestialTracksLive({
+      celestial: [{ target_key: 'body:mars', name: 'Mars' }],
+      celestial_passes: [{ id: 'mars-pass', target_key: 'body:mars' }],
+    }));
+
+    state = celestialReducer(state, setCelestialTracksLive({
+      celestial: [],
+      celestial_passes: [],
+      observer_bodies: [],
+    }));
+
+    expect(state.celestialTracks.celestial).toEqual([]);
+    expect(state.celestialTracks.celestial_passes).toEqual([]);
+    expect(state.celestialTracks.observer_bodies).toEqual([]);
+  });
+
   it('survive a monitored-target live broadcast', () => {
     const requestKey = 'body:venus:0:24:60';
     const requestArgs = { requestKey, payload: {}, socket: {} };

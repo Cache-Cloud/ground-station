@@ -46,6 +46,11 @@ import UsersForm from "./users-form.jsx";
 import {AntTab, AntTabs} from "../common/common.jsx";
 import SDRsPage from "../hardware/sdr-table.jsx";
 import AppSettingsForm from "./app-settings-form.jsx";
+import {
+    CelestialCatalogPage,
+    CelestialEphemerisPage,
+    CelestialTargetsPage,
+} from "../celestial/admin-pages.jsx";
 
 
 export function SettingsTabSatellites() {
@@ -147,6 +152,30 @@ export function AdminSatellitesGroupsPage() {
     );
 }
 
+export function AdminCelestialEphemerisPage() {
+    return (
+        <AdminCelestialPageLayout activeTab="ephemeris">
+            <CelestialEphemerisPage />
+        </AdminCelestialPageLayout>
+    );
+}
+
+export function AdminCelestialCatalogPage() {
+    return (
+        <AdminCelestialPageLayout activeTab="catalog">
+            <CelestialCatalogPage />
+        </AdminCelestialPageLayout>
+    );
+}
+
+export function AdminCelestialTargetsPage() {
+    return (
+        <AdminCelestialPageLayout activeTab="targets">
+            <CelestialTargetsPage />
+        </AdminCelestialPageLayout>
+    );
+}
+
 export function UserPreferencesPage() {
     return (
         <Box sx={{ flexGrow: 1, bgcolor: 'background.paper' }}>
@@ -226,6 +255,12 @@ const ADMIN_SATELLITES_TABS = [
     { key: "groups", labelKey: "tabs.groups", defaultLabel: "Groups", path: "/admin/satellites/groups" },
 ];
 
+const ADMIN_CELESTIAL_TABS = [
+    { key: "ephemeris", labelKey: "tabs.ephemeris", defaultLabel: "Ephemeris Data", path: "/admin/celestial/ephemeris" },
+    { key: "catalog", labelKey: "tabs.celestial_catalog", defaultLabel: "Catalog", path: "/admin/celestial/catalog" },
+    { key: "targets", labelKey: "tabs.celestial_targets", defaultLabel: "Targets", path: "/admin/celestial/targets" },
+];
+
 const AdminSatellitesPageLayout = React.memo(function AdminSatellitesPageLayout({ activeTab, children }) {
     const { t } = useTranslation('settings');
     const navigate = useNavigate();
@@ -258,6 +293,36 @@ const AdminSatellitesPageLayout = React.memo(function AdminSatellitesPageLayout(
                         value={tab.key}
                         label={t(tab.labelKey, { defaultValue: tab.defaultLabel })}
                     />
+                ))}
+            </AntTabs>
+            {children}
+        </Box>
+    );
+});
+
+const AdminCelestialPageLayout = React.memo(function AdminCelestialPageLayout({ activeTab, children }) {
+    const { t } = useTranslation('settings');
+    const navigate = useNavigate();
+
+    const handleTabChange = (_event, nextTab) => {
+        if (nextTab === activeTab) return;
+        const tabDefinition = ADMIN_CELESTIAL_TABS.find((tab) => tab.key === nextTab);
+        if (tabDefinition) navigate(tabDefinition.path);
+    };
+
+    return (
+        <Box sx={{ flexGrow: 1, bgcolor: 'background.paper' }}>
+            <AntTabs
+                value={activeTab}
+                onChange={handleTabChange}
+                aria-label={t('tabs.celestial', { defaultValue: 'Celestial data' })}
+                scrollButtons={true}
+                variant="scrollable"
+                allowScrollButtonsMobile
+                sx={getSettingsTabRowSx('detailRow')}
+            >
+                {ADMIN_CELESTIAL_TABS.map((tab) => (
+                    <AntTab key={tab.key} value={tab.key} label={t(tab.labelKey, { defaultValue: tab.defaultLabel })} />
                 ))}
             </AntTabs>
             {children}

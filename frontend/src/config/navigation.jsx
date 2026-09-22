@@ -38,6 +38,7 @@ import FiberNewIcon from '@mui/icons-material/FiberNew';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import EventNoteIcon from '@mui/icons-material/EventNote';
+import ListAltIcon from '@mui/icons-material/ListAlt';
 import { useSelector } from 'react-redux';
 import { useLocation } from 'react-router-dom';
 
@@ -368,6 +369,26 @@ export const getNavigation = ({ isAdmin = false } = {}) => {
             segment: 'admin/satellites/groups',
             title: i18n.t('groups', { ns: 'navigation' }),
             icon: <GroupWorkIcon/>,
+        },
+        {kind: 'divider'},
+        {
+            kind: 'header',
+            title: i18n.t('celestial_data', { ns: 'navigation', defaultValue: 'Celestial Data' }),
+        },
+        {
+            segment: 'admin/celestial/ephemeris',
+            title: i18n.t('ephemeris_data', { ns: 'navigation', defaultValue: 'Ephemeris Data' }),
+            icon: <SyncIcon />,
+        },
+        {
+            segment: 'admin/celestial/catalog',
+            title: i18n.t('catalog', { ns: 'navigation', defaultValue: 'Catalog' }),
+            icon: <CelestialSolarIcon />,
+        },
+        {
+            segment: 'admin/celestial/targets',
+            title: i18n.t('celestial_targets', { ns: 'navigation', defaultValue: 'Targets' }),
+            icon: <ListAltIcon />,
         },
         {kind: 'divider'},
         {

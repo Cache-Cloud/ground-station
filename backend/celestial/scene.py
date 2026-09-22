@@ -15,7 +15,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import crud.celestialvectors as crud_celestial_vectors
 import crud.locations as crud_locations
@@ -2493,7 +2493,11 @@ async def build_celestial_tracks(
     }
 
 
-async def refresh_celestial_vector_snapshots_cache(logger: Any) -> Dict[str, Any]:
+async def refresh_celestial_vector_snapshots_cache(
+    logger: Any,
+    *,
+    progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+) -> Dict[str, Any]:
     """Refresh Horizons vectors for monitored missions and always-in-scene bodies."""
     if _scheduled_sync_lock.locked():
         return {
@@ -2583,17 +2587,60 @@ async def refresh_celestial_vector_snapshots_cache(logger: Any) -> Dict[str, Any
         failed = 0
         errors: List[Dict[str, str]] = []
 
+        async def report_progress(
+            *,
+            processed: int,
+            target: Optional[Dict[str, Any]],
+            phase: str,
+            outcome: Optional[str] = None,
+            error: Optional[str] = None,
+        ) -> None:
+            if progress_callback is None:
+                return
+
+            total = len(all_targets)
+            target_key = str(target.get("target_key") or "") if target else None
+            target_name = str(target.get("name") or target_key or "") if target else None
+            payload = {
+                "processed": processed,
+                "total": total,
+                "percent": (float(processed) / float(total) * 100.0) if total else 100.0,
+                "refreshed": refreshed,
+                "failed": failed,
+                "phase": phase,
+                "outcome": outcome,
+                "error": error,
+                "current_target": (
+                    {
+                        "key": target_key,
+                        "name": target_name,
+                    }
+                    if target
+                    else None
+                ),
+            }
+            try:
+                await progress_callback(payload)
+            except Exception as exc:
+                # Progress delivery must never interrupt the cache refresh itself.
+                logger.warning(f"Failed to report celestial cache refresh progress: {exc}")
+
         # Keep the scheduler job deterministic and easy to observe in logs.
-        for target in all_targets:
+        await report_progress(processed=0, target=None, phase="starting")
+        for index, target in enumerate(all_targets):
             target_key = str(target.get("target_key") or "").strip()
             command = str(target.get("horizons_command") or target.get("command") or "").strip()
+            await report_progress(processed=index, target=target, phase="processing")
             if not target_key or not command:
                 failed += 1
-                errors.append(
-                    {
-                        "target_key": target_key or "unknown",
-                        "error": "Missing Horizons command",
-                    }
+                error = "Missing Horizons command"
+                errors.append({"target_key": target_key or "unknown", "error": error})
+                await report_progress(
+                    processed=index + 1,
+                    target=target,
+                    phase="processed",
+                    outcome="failed",
+                    error=error,
                 )
                 continue
             snapshot = await _get_vectors_snapshot(
@@ -2610,13 +2657,22 @@ async def refresh_celestial_vector_snapshots_cache(logger: Any) -> Dict[str, Any
             )
             if isinstance(snapshot.get("payload"), dict):
                 refreshed += 1
+                await report_progress(
+                    processed=index + 1,
+                    target=target,
+                    phase="processed",
+                    outcome="refreshed",
+                )
                 continue
             failed += 1
-            errors.append(
-                {
-                    "target_key": target_key,
-                    "error": str(snapshot.get("error") or "Unknown error"),
-                }
+            error = str(snapshot.get("error") or "Unknown error")
+            errors.append({"target_key": target_key, "error": error})
+            await report_progress(
+                processed=index + 1,
+                target=target,
+                phase="processed",
+                outcome="failed",
+                error=error,
             )
 
         return {

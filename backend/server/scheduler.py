@@ -155,6 +155,16 @@ async def emit_cached_celestial_tracks_job(sio):
 
         payload = await _build_enabled_monitored_celestial_payload()
         if not payload["celestial"]:
+            # Clients retain their last Redux payload until it is replaced. Send
+            # an explicit empty state after the final target is removed/disabled.
+            await sio.emit(
+                "celestial-tracks-update",
+                {
+                    "celestial": [],
+                    "celestial_passes": [],
+                    "observer_bodies": [],
+                },
+            )
             return
 
         tracks = await build_celestial_tracks(

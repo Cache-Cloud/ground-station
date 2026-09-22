@@ -129,6 +129,10 @@ const StyledDataGrid = styled(DataGrid)(({ theme }) => ({
     '& .celestial-row-unknown': {
         borderLeftColor: alpha(theme.palette.text.secondary, 0.55),
     },
+    '& .celestial-row-disabled .MuiDataGrid-cell': {
+        color: theme.palette.text.disabled,
+        textDecoration: 'line-through',
+    },
     '& .celestial-row-selected': {
         backgroundColor: alpha(theme.palette.secondary.main, 0.25),
         borderLeftColor: alpha(theme.palette.secondary.main, 0.95),
@@ -568,6 +572,8 @@ const MonitoredCelestialGridIsland = ({
                         elevation={params.row?.elevationDeg}
                         trend={params.row?.elevationTrend}
                         elRate={params.row?.elevationRate}
+                        showNegative={true}
+                        decimalPlaces={2}
                     />
                 ),
             },
@@ -897,19 +903,22 @@ const MonitoredCelestialGridIsland = ({
                     sortModel={tableSortModel}
                     onSortModelChange={(model) => dispatch(setMonitoredTableSortModel(model))}
                     getRowClassName={(params) => {
+                        const classes = ['pointer-cursor'];
+                        if (params.row.enabled === false) {
+                            classes.push('celestial-row-disabled');
+                        }
                         if ((selectedIds || [])[0] === params.row.id) {
-                            return 'celestial-row-selected pointer-cursor';
+                            classes.push('celestial-row-selected');
+                        } else if (params.row.lastError && params.row.lastError !== '-') {
+                            classes.push('celestial-row-dead');
+                        } else if (params.row.visibility === 'visible') {
+                            classes.push('celestial-row-visible');
+                        } else if (params.row.visibility === 'below') {
+                            classes.push('celestial-row-below');
+                        } else {
+                            classes.push('celestial-row-unknown');
                         }
-                        if (params.row.lastError && params.row.lastError !== '-') {
-                            return 'celestial-row-dead pointer-cursor';
-                        }
-                        if (params.row.visibility === 'visible') {
-                            return 'celestial-row-visible pointer-cursor';
-                        }
-                        if (params.row.visibility === 'below') {
-                            return 'celestial-row-below pointer-cursor';
-                        }
-                        return 'celestial-row-unknown pointer-cursor';
+                        return classes.join(' ');
                     }}
                     sx={{
                         border: 0,

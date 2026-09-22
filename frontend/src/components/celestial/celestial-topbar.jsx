@@ -29,10 +29,10 @@ import {
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import ListAltIcon from '@mui/icons-material/ListAlt';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ToggleOnIcon from '@mui/icons-material/ToggleOn';
 import ToggleOffIcon from '@mui/icons-material/ToggleOff';
@@ -46,7 +46,6 @@ import {
     deleteMonitoredCelestial,
     fetchMonitoredCelestial,
     openAddDialog,
-    openManageDialog,
     setMonitoredFormError,
     setMonitoredFormField,
     toggleMonitoredCelestialEnabled,
@@ -166,6 +165,7 @@ const CelestialTopBar = ({
     onProjectionFutureHoursChange,
 }) => {
     const dispatch = useDispatch();
+    const navigate = useNavigate();
     const theme = useTheme();
     const { t: tCelestial } = useTranslation('celestial');
     const { t: tCommon } = useTranslation('common');
@@ -235,11 +235,6 @@ const CelestialTopBar = ({
             }))
             .filter((entry) => entry.body_id),
         [bodyCatalogEntries, tCelestial],
-    );
-
-    const enabledCount = useMemo(
-        () => monitored.filter((entry) => entry.enabled).length,
-        [monitored],
     );
 
     useEffect(() => {
@@ -480,31 +475,6 @@ const CelestialTopBar = ({
         }
     };
 
-    const handleRefreshAll = useCallback(async () => {
-        if (!socket || celestialLoading) {
-            return;
-        }
-
-        await dispatch(
-            refreshMonitoredCelestialNow({
-                socket,
-                ids: [],
-                payload: {
-                    past_hours: coercePastHours(projectionPastHours),
-                    future_hours: coerceFutureHours(projectionFutureHours),
-                    step_minutes: 60,
-                },
-            }),
-        );
-        await dispatch(fetchMonitoredCelestial({ socket }));
-    }, [
-        socket,
-        celestialLoading,
-        dispatch,
-        projectionPastHours,
-        projectionFutureHours,
-    ]);
-
     const handleOpenEdit = (entry) => {
         setEditForm({
             id: entry.id,
@@ -711,7 +681,7 @@ const CelestialTopBar = ({
                             {compactActionButtons ? (
                                 <IconButton
                                     size="small"
-                                    onClick={() => dispatch(openManageDialog())}
+                                    onClick={() => navigate('/admin/celestial/targets')}
                                     aria-label={tCelestial('topbar.actions.manage')}
                                 >
                                     <ListAltIcon fontSize="small" />
@@ -721,33 +691,9 @@ const CelestialTopBar = ({
                                     size="small"
                                     variant="outlined"
                                     startIcon={<ListAltIcon />}
-                                    onClick={() => dispatch(openManageDialog())}
+                                    onClick={() => navigate('/admin/celestial/targets')}
                                 >
                                     {tCelestial('topbar.actions.manage')}
-                                </Button>
-                            )}
-                        </span>
-                    </Tooltip>
-                    <Tooltip title={tCelestial('topbar.actions.refresh_all')}>
-                        <span>
-                            {compactActionButtons ? (
-                                <IconButton
-                                    size="small"
-                                    disabled={!socket || celestialLoading || enabledCount === 0}
-                                    onClick={handleRefreshAll}
-                                    aria-label={tCelestial('topbar.actions.refresh_all')}
-                                >
-                                    <RefreshIcon fontSize="small" />
-                                </IconButton>
-                            ) : (
-                                <Button
-                                    size="small"
-                                    variant="outlined"
-                                    startIcon={<RefreshIcon />}
-                                    disabled={!socket || celestialLoading || enabledCount === 0}
-                                    onClick={handleRefreshAll}
-                                >
-                                    {tCelestial('topbar.actions.refresh_all')}
                                 </Button>
                             )}
                         </span>
@@ -1162,15 +1108,6 @@ const CelestialTopBar = ({
                     </TableContainer>
                 </DialogContent>
                 <DialogActions sx={DIALOG_ACTIONS_SX}>
-                    <Button
-                        onClick={handleRefreshAll}
-                        variant="outlined"
-                        startIcon={<RefreshIcon />}
-                        disabled={!socket || celestialLoading || enabledCount === 0}
-                        sx={DIALOG_CANCEL_BUTTON_SX}
-                    >
-                        {tCelestial('topbar.actions.refresh')}
-                    </Button>
                     <Button
                         onClick={() => {
                             dispatch(openAddDialog());

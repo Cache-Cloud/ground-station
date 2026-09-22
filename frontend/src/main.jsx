@@ -23,6 +23,9 @@ import { createRoot } from 'react-dom/client'
 import './i18n/config.js'
 import {createBrowserRouter, Navigate, RouterProvider, useParams} from "react-router";
 import {
+    AdminCelestialCatalogPage,
+    AdminCelestialEphemerisPage,
+    AdminCelestialTargetsPage,
     AdminSatellitesCatalogPage,
     AdminSatellitesGroupsPage,
     AdminSatellitesSourcesPage,
@@ -171,6 +174,27 @@ const router = createBrowserRouter([
                                     {
                                         path: "groups",
                                         Component: AdminSatellitesGroupsPage,
+                                    },
+                                ],
+                            },
+                            {
+                                path: "celestial",
+                                children: [
+                                    {
+                                        index: true,
+                                        element: <Navigate to="/admin/celestial/catalog" replace />,
+                                    },
+                                    {
+                                        path: "ephemeris",
+                                        Component: AdminCelestialEphemerisPage,
+                                    },
+                                    {
+                                        path: "catalog",
+                                        Component: AdminCelestialCatalogPage,
+                                    },
+                                    {
+                                        path: "targets",
+                                        Component: AdminCelestialTargetsPage,
                                     },
                                 ],
                             },

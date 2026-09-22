@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import case, distinct, func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -199,6 +199,69 @@ async def fetch_celestial_target(
         }
     except Exception as e:
         logger.error(f"Error fetching celestial target: {e}")
+        logger.error(traceback.format_exc())
+        return {"success": False, "error": str(e)}
+
+
+async def fetch_celestial_vector_snapshot_stats(
+    session: AsyncSession,
+    *,
+    as_of: Optional[datetime] = None,
+) -> dict:
+    """Return aggregate cache health without loading snapshot payloads."""
+    try:
+        now_utc = as_of or datetime.now(timezone.utc)
+        stmt = select(
+            func.count(CelestialVectorSnapshots.id).label("total_snapshots"),
+            func.count(distinct(CelestialVectorSnapshots.target_id)).label("distinct_targets"),
+            func.sum(case((CelestialVectorSnapshots.expires_at > now_utc, 1), else_=0)).label(
+                "fresh_snapshots"
+            ),
+            func.sum(case((CelestialVectorSnapshots.expires_at <= now_utc, 1), else_=0)).label(
+                "expired_snapshots"
+            ),
+            func.sum(case((CelestialVectorSnapshots.error.is_not(None), 1), else_=0)).label(
+                "error_snapshots"
+            ),
+            func.min(CelestialVectorSnapshots.fetched_at).label("oldest_fetch_at"),
+            func.max(CelestialVectorSnapshots.fetched_at).label("newest_fetch_at"),
+            func.min(
+                case(
+                    (
+                        CelestialVectorSnapshots.expires_at > now_utc,
+                        CelestialVectorSnapshots.expires_at,
+                    ),
+                    else_=None,
+                )
+            ).label("next_expiry_at"),
+        )
+        result = await session.execute(stmt)
+        row = result.mappings().one()
+
+        def serialize_datetime(value: Any) -> Optional[str]:
+            if not isinstance(value, datetime):
+                return str(value) if value else None
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            formatted: str = value.astimezone(timezone.utc).isoformat()
+            return formatted
+
+        return {
+            "success": True,
+            "data": {
+                "total_snapshots": int(row["total_snapshots"] or 0),
+                "distinct_targets": int(row["distinct_targets"] or 0),
+                "fresh_snapshots": int(row["fresh_snapshots"] or 0),
+                "expired_snapshots": int(row["expired_snapshots"] or 0),
+                "error_snapshots": int(row["error_snapshots"] or 0),
+                "oldest_fetch_at": serialize_datetime(row["oldest_fetch_at"]),
+                "newest_fetch_at": serialize_datetime(row["newest_fetch_at"]),
+                "next_expiry_at": serialize_datetime(row["next_expiry_at"]),
+            },
+            "error": None,
+        }
+    except Exception as e:
+        logger.error(f"Error fetching celestial vector snapshot stats: {e}")
         logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 

@@ -176,6 +176,41 @@ async def test_celestial_sync_resyncs_trackers_and_broadcasts_after_success(monk
     assert calls == ["refresh", "resync", ("broadcast", sio)]
 
 
+@pytest.mark.asyncio
+async def test_cached_celestial_broadcast_clears_clients_without_targets(monkeypatch):
+    emitted = []
+
+    class _Sio:
+        async def emit(self, event, payload):
+            emitted.append((event, payload))
+
+    async def setup_complete(**_kwargs):
+        return False
+
+    async def empty_payload():
+        return {"celestial": []}
+
+    monkeypatch.setattr(scheduler_module.authsvc, "is_setup_required", setup_complete)
+    monkeypatch.setattr(
+        scheduler_module,
+        "_build_enabled_monitored_celestial_payload",
+        empty_payload,
+    )
+
+    await scheduler_module.emit_cached_celestial_tracks_job(_Sio())
+
+    assert emitted == [
+        (
+            "celestial-tracks-update",
+            {
+                "celestial": [],
+                "celestial_passes": [],
+                "observer_bodies": [],
+            },
+        )
+    ]
+
+
 def test_start_and_stop_scheduler_register_expected_jobs(monkeypatch):
     references = []
     monkeypatch.setattr(scheduler_module, "AsyncIOScheduler", _Scheduler)

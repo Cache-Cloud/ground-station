@@ -13,12 +13,19 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
+import crud.celestialvectors as crud_vectors
 import crud.locations as crud_locations
 import crud.monitoredcelestial as crud_monitored
 from celestial.bodycatalog import get_celestial_body, list_celestial_bodies
-from celestial.horizons import fetch_celestial_vectors
-from celestial.scene import build_celestial_scene, build_celestial_tracks, build_solar_system_scene
+from celestial.horizons import fetch_celestial_vectors, get_horizons_status
+from celestial.scene import (
+    build_celestial_scene,
+    build_celestial_tracks,
+    build_solar_system_scene,
+    refresh_celestial_vector_snapshots_cache,
+)
 from celestial.spacecraftindex import get_spacecraft_index, search_spacecraft_index
+from common.arguments import arguments
 from db import AsyncSessionLocal
 
 _monitored_refresh_lock = asyncio.Lock()
@@ -161,6 +168,61 @@ async def _build_scene_payload(data: Optional[Dict], logger: Any) -> Dict[str, A
         )
 
     return payload
+
+
+def _empty_celestial_tracks_payload() -> Dict[str, Any]:
+    """Build a complete empty payload that clears retained browser track state."""
+    return {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "frame": "heliocentric-ecliptic",
+        "center": "sun",
+        "units": {
+            "position": "au",
+            "velocity": "au/day",
+        },
+        "celestial": [],
+        "celestial_passes": [],
+        "observer_bodies": [],
+    }
+
+
+async def _broadcast_current_cached_celestial_tracks(
+    sio: Any,
+    logger: Any,
+    projection: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Broadcast enabled monitored targets from cache, including an empty state."""
+    payload = await _build_scene_payload(projection, logger)
+    targets_obj = payload.get("celestial")
+    targets = targets_obj if isinstance(targets_obj, list) else []
+    if not targets:
+        # An explicit empty payload removes tracks and passes retained by clients.
+        await sio.emit("celestial-tracks-update", _empty_celestial_tracks_payload())
+        return
+
+    tracks = await build_celestial_tracks(
+        data=payload,
+        logger=logger,
+        force_refresh=False,
+        allow_network_fetch=False,
+        register_targets=False,
+        use_computed_cache=False,
+    )
+    if not tracks.get("success"):
+        logger.debug(f"Cached celestial tracks broadcast skipped: {tracks.get('error')}")
+        return
+
+    scene_data_obj = tracks.get("data")
+    scene_data = scene_data_obj if isinstance(scene_data_obj, dict) else {}
+    rows_obj = scene_data.get("celestial")
+    rows = rows_obj if isinstance(rows_obj, list) else []
+
+    # Avoid replacing a valid browser state with temporary cache misses.
+    has_usable_position = any(
+        isinstance(row, dict) and isinstance(row.get("sky_position"), dict) for row in rows
+    )
+    if rows and has_usable_position:
+        await sio.emit("celestial-tracks-update", scene_data)
 
 
 async def _load_stream_observer_location() -> Optional[Dict[str, Any]]:
@@ -512,6 +574,15 @@ async def delete_monitored_celestial(
     async with AsyncSessionLocal() as dbsession:
         result = await crud_monitored.delete_monitored_celestial(dbsession, ids)
 
+    if result.get("success"):
+        try:
+            # Clear deleted tracks and their pass events for every connected client.
+            await _broadcast_current_cached_celestial_tracks(sio, logger)
+        except Exception as exc:
+            # The database mutation succeeded; a broadcast problem must not make
+            # the client retry the deletion and report a false failure.
+            logger.warning(f"Failed to broadcast celestial tracks after deletion: {exc}")
+
     return {
         "success": result.get("success", False),
         "data": result.get("data"),
@@ -595,6 +666,78 @@ async def get_celestial_body_catalog(
         return {"success": False, "error": str(exc), "data": []}
 
 
+async def get_celestial_ephemeris_status(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Any]:
+    """Return Horizons availability, cache health, and periodic sync settings."""
+    async with AsyncSessionLocal() as dbsession:
+        cache_result = await crud_vectors.fetch_celestial_vector_snapshot_stats(dbsession)
+
+    if not cache_result.get("success"):
+        return {
+            "success": False,
+            "error": cache_result.get("error") or "Failed to load celestial cache status",
+        }
+
+    return {
+        "success": True,
+        "data": {
+            "provider": {
+                "name": "NASA JPL Horizons",
+                "status": get_horizons_status(),
+            },
+            "cache": cache_result.get("data") or {},
+            "sync": {
+                "enabled": bool(getattr(arguments, "celestial_periodic_sync_enabled", True)),
+                "interval_minutes": int(
+                    getattr(arguments, "celestial_periodic_sync_interval_minutes", 60)
+                ),
+                "past_hours": int(getattr(arguments, "celestial_sync_past_hours", 1)),
+            },
+        },
+        "error": None,
+    }
+
+
+async def refresh_celestial_cache_now(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Any]:
+    """Run the same complete cache refresh used by the periodic sync job."""
+
+    async def emit_progress(progress: Dict[str, Any]) -> None:
+        await sio.emit(
+            "celestial-cache-refresh-progress",
+            progress,
+            to=sid,
+        )
+
+    result = await refresh_celestial_vector_snapshots_cache(
+        logger,
+        progress_callback=emit_progress,
+    )
+
+    if result.get("success"):
+        try:
+            projection = result.get("projection")
+            # Recompute from the snapshots that were just synchronized so every
+            # connected celestial page receives the same fresh view.
+            await _broadcast_current_cached_celestial_tracks(
+                sio,
+                logger,
+                projection if isinstance(projection, dict) else None,
+            )
+        except Exception as exc:
+            # The cache refresh has completed; a follow-up broadcast failure
+            # should not report the synchronization itself as failed.
+            logger.warning(f"Failed to broadcast synchronized celestial tracks: {exc}")
+
+    return {
+        "success": bool(result.get("success")),
+        "data": result,
+        "error": result.get("error"),
+    }
+
+
 def register_handlers(registry):
     """Register celestial handlers with command registry."""
     registry.register_batch(
@@ -610,6 +753,14 @@ def register_handlers(registry):
             "get-monitored-celestial": (get_monitored_celestial, "api_call"),
             "get-spacecraft-index": (get_spacecraft_index_entries, "api_call"),
             "get-celestial-body-catalog": (get_celestial_body_catalog, "api_call"),
+            "get-celestial-ephemeris-status": (
+                get_celestial_ephemeris_status,
+                "api_call",
+            ),
+            "refresh-celestial-cache-now": (
+                refresh_celestial_cache_now,
+                "api_call",
+            ),
             "search-spacecraft-index": (
                 search_spacecraft_index_entries,
                 "api_call",
