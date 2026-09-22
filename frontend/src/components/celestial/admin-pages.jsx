@@ -59,6 +59,7 @@ import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { useSocket } from '../common/socket.jsx';
+import ErrorDialog from '../common/error-dialog.jsx';
 import {
     createMonitoredCelestial,
     deleteMonitoredCelestial,
@@ -621,6 +622,7 @@ export function CelestialCatalogPage() {
     const [busyKey, setBusyKey] = useState('');
     const catalogActionInProgressRef = useRef(false);
     const [message, setMessage] = useState(null);
+    const [monitorError, setMonitorError] = useState('');
     const [pendingUnmonitor, setPendingUnmonitor] = useState(null);
     const [unmonitorError, setUnmonitorError] = useState('');
 
@@ -693,6 +695,7 @@ export function CelestialCatalogPage() {
         catalogActionInProgressRef.current = true;
         setBusyKey(row.key);
         setMessage(null);
+        setMonitorError('');
         try {
             const created = await dispatch(createMonitoredCelestial({
                 socket,
@@ -708,23 +711,18 @@ export function CelestialCatalogPage() {
             const refreshResult = await dispatch(refreshMonitoredCelestialNow({ socket, ids: [created.id] }));
             await dispatch(fetchMonitoredCelestial({ socket }));
             if (refreshMonitoredCelestialNow.rejected.match(refreshResult)) {
-                setMessage({
-                    severity: 'warning',
-                    text: t('admin.catalog.feedback.first_refresh_failed', {
-                        name: row.name,
-                        error: refreshResult.payload
-                            || refreshResult.error?.message
-                            || t('admin.common.unknown_error'),
-                    }),
-                });
-            } else {
-                setMessage({
-                    severity: 'success',
-                    text: t('admin.catalog.feedback.monitored', { name: row.name }),
-                });
+                setMonitorError(t('admin.catalog.feedback.first_refresh_failed', {
+                    name: row.name,
+                    error: refreshResult.payload
+                        || refreshResult.error?.message
+                        || t('admin.common.unknown_error'),
+                }));
             }
         } catch (error) {
-            setMessage({ severity: 'error', text: String(error?.message || error) });
+            setMonitorError(t('admin.catalog.feedback.monitor_failed', {
+                name: row.name,
+                error: String(error?.message || error),
+            }));
         } finally {
             catalogActionInProgressRef.current = false;
             setBusyKey('');
@@ -896,6 +894,12 @@ export function CelestialCatalogPage() {
                 <AlertTitle>{t('admin.catalog.info.title')}</AlertTitle>
                 {t('admin.catalog.info.description')}
             </Alert>
+
+            <ErrorDialog
+                open={Boolean(monitorError)}
+                message={monitorError}
+                onClose={() => setMonitorError('')}
+            />
 
             <Dialog
                 open={Boolean(pendingUnmonitor)}

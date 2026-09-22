@@ -606,6 +606,7 @@
       "unknown_agency": "Unknown agency",
       "feedback": {
         "first_refresh_failed": "{{name}} is monitored, but its first data refresh failed: {{error}}",
+        "monitor_failed": "Could not monitor {{name}}: {{error}}",
         "monitored": "{{name}} is now monitored and its data was refreshed.",
         "unmonitored": "{{name}} is no longer monitored."
       },

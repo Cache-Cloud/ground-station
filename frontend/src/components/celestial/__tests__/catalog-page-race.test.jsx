@@ -21,6 +21,7 @@ import monitoredReducer from '../monitored-slice.jsx';
 const socketState = vi.hoisted(() => ({
     createAcknowledge: null,
     created: false,
+    refreshResponse: { success: true, data: { celestial: [] } },
     socket: { emit: vi.fn() },
 }));
 
@@ -54,6 +55,7 @@ describe('CelestialCatalogPage monitor actions', () => {
     beforeEach(() => {
         socketState.createAcknowledge = null;
         socketState.created = false;
+        socketState.refreshResponse = { success: true, data: { celestial: [] } };
         socketState.socket.emit.mockReset();
         socketState.socket.emit.mockImplementation((_event, request, acknowledge) => {
             if (request.cmd === 'get-celestial-body-catalog') {
@@ -87,7 +89,7 @@ describe('CelestialCatalogPage monitor actions', () => {
                 return;
             }
             if (request.cmd === 'refresh-monitored-celestial-now') {
-                acknowledge({ success: true, data: { celestial: [] } });
+                acknowledge(socketState.refreshResponse);
             }
         });
     });
@@ -134,6 +136,64 @@ describe('CelestialCatalogPage monitor actions', () => {
             );
             expect(refreshRequests).toHaveLength(1);
         });
-        expect(await screen.findByText('Sun is now monitored and its data was refreshed.')).toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: /^unmonitor$/i })).toBeInTheDocument();
+        expect(screen.queryByText('Sun is now monitored and its data was refreshed.')).not.toBeInTheDocument();
+    });
+
+    it('shows a first-refresh failure in an error dialog', async () => {
+        const store = configureStore({
+            reducer: {
+                celestial: celestialReducer,
+                celestialMonitored: monitoredReducer,
+            },
+        });
+        socketState.refreshResponse = { success: false, error: 'Horizons is unavailable' };
+        render(
+            <Provider store={store}>
+                <CelestialCatalogPage />
+            </Provider>,
+        );
+
+        fireEvent.click(await screen.findByRole('button', { name: /^monitor$/i }));
+        socketState.created = true;
+        await act(async () => {
+            socketState.createAcknowledge({
+                success: true,
+                data: {
+                    id: 'sun-id',
+                    target_type: 'body',
+                    display_name: 'Sun',
+                    body_id: 'sun',
+                    enabled: true,
+                },
+            });
+        });
+
+        const dialog = await screen.findByRole('dialog');
+        expect(dialog).toHaveTextContent(
+            'Sun is monitored, but its first data refresh failed: Horizons is unavailable',
+        );
+    });
+
+    it('shows a monitor failure in an error dialog', async () => {
+        const store = configureStore({
+            reducer: {
+                celestial: celestialReducer,
+                celestialMonitored: monitoredReducer,
+            },
+        });
+        render(
+            <Provider store={store}>
+                <CelestialCatalogPage />
+            </Provider>,
+        );
+
+        fireEvent.click(await screen.findByRole('button', { name: /^monitor$/i }));
+        await act(async () => {
+            socketState.createAcknowledge({ success: false, error: 'Database write failed' });
+        });
+
+        const dialog = await screen.findByRole('dialog');
+        expect(dialog).toHaveTextContent('Could not monitor Sun: Database write failed');
     });
 });
