@@ -8,7 +8,7 @@
  * (at your option) any later version.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
     AlertTitle,
@@ -546,6 +546,7 @@ export function CelestialCatalogPage() {
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [busyKey, setBusyKey] = useState('');
+    const catalogActionInProgressRef = useRef(false);
     const [message, setMessage] = useState(null);
     const [pendingUnmonitor, setPendingUnmonitor] = useState(null);
     const [unmonitorError, setUnmonitorError] = useState('');
@@ -611,6 +612,10 @@ export function CelestialCatalogPage() {
     }, [bodies, kind, missions, search, statusFilter]);
 
     const handleMonitor = async (row) => {
+        // State updates do not disable the button until React renders again.
+        // Guard synchronously so a rapid second click cannot start another create/refresh chain.
+        if (catalogActionInProgressRef.current) return;
+        catalogActionInProgressRef.current = true;
         setBusyKey(row.key);
         setMessage(null);
         try {
@@ -638,6 +643,7 @@ export function CelestialCatalogPage() {
         } catch (error) {
             setMessage({ severity: 'error', text: String(error?.message || error) });
         } finally {
+            catalogActionInProgressRef.current = false;
             setBusyKey('');
         }
     };
@@ -645,8 +651,9 @@ export function CelestialCatalogPage() {
     const handleConfirmUnmonitor = async () => {
         const row = pendingUnmonitor;
         const existing = row ? monitoredByKey.get(row.key) : null;
-        if (!row || !existing) return;
+        if (!row || !existing || catalogActionInProgressRef.current) return;
 
+        catalogActionInProgressRef.current = true;
         setBusyKey(row.key);
         setUnmonitorError('');
         try {
@@ -656,6 +663,7 @@ export function CelestialCatalogPage() {
         } catch (error) {
             setUnmonitorError(String(error?.message || error));
         } finally {
+            catalogActionInProgressRef.current = false;
             setBusyKey('');
         }
     };
@@ -711,7 +719,7 @@ export function CelestialCatalogPage() {
                         size="small"
                         variant={isMonitored ? 'outlined' : 'contained'}
                         color={isMonitored ? 'error' : 'primary'}
-                        disabled={!socket || busyKey === params.row.key}
+                        disabled={!socket || Boolean(busyKey)}
                         onClick={(event) => {
                             event.stopPropagation();
                             if (isMonitored) {

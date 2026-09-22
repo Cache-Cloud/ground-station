@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -33,6 +34,95 @@ async def test_earth_cannot_be_created_as_a_monitored_target():
         "success": False,
         "error": "Body 'Earth' cannot be monitored",
     }
+
+
+@pytest.mark.asyncio
+async def test_monitored_refresh_waits_for_an_active_refresh(monkeypatch):
+    first_refresh_started = asyncio.Event()
+    release_first_refresh = asyncio.Event()
+    build_calls = 0
+
+    class _SessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return False
+
+    async def _fetch_monitored(_session):
+        return {
+            "success": True,
+            "data": [
+                {
+                    "id": "sun-id",
+                    "target_type": "body",
+                    "body_id": "sun",
+                    "display_name": "Sun",
+                    "enabled": True,
+                }
+            ],
+        }
+
+    async def _update_refresh_state(_session, _updates):
+        return {"success": True}
+
+    async def _load_observer_location():
+        return None
+
+    async def _build_tracks(**_kwargs):
+        nonlocal build_calls
+        build_calls += 1
+        if build_calls == 1:
+            first_refresh_started.set()
+            await release_first_refresh.wait()
+        return {
+            "success": True,
+            "data": {"celestial": [{"target_key": "body:sun", "error": None}]},
+        }
+
+    monkeypatch.setattr(celestial_handlers, "_monitored_refresh_lock", asyncio.Lock())
+    monkeypatch.setattr(celestial_handlers, "AsyncSessionLocal", _SessionContext)
+    monkeypatch.setattr(
+        celestial_handlers.crud_monitored,
+        "fetch_monitored_celestial",
+        _fetch_monitored,
+    )
+    monkeypatch.setattr(
+        celestial_handlers.crud_monitored,
+        "update_monitored_celestial_refresh_state",
+        _update_refresh_state,
+    )
+    monkeypatch.setattr(
+        celestial_handlers,
+        "_load_stream_observer_location",
+        _load_observer_location,
+    )
+    monkeypatch.setattr(celestial_handlers, "_build_partial_row_emitter", lambda **_kwargs: None)
+    monkeypatch.setattr(celestial_handlers, "build_celestial_tracks", _build_tracks)
+
+    request = {"ids": ["sun-id"]}
+    first = asyncio.create_task(
+        celestial_handlers.refresh_monitored_celestial_now(
+            object(), request, _DummyLogger(), "first-client"
+        )
+    )
+    await first_refresh_started.wait()
+    second = asyncio.create_task(
+        celestial_handlers.refresh_monitored_celestial_now(
+            object(), request, _DummyLogger(), "second-client"
+        )
+    )
+    await asyncio.sleep(0)
+
+    assert not second.done()
+    assert build_calls == 1
+
+    release_first_refresh.set()
+    first_result, second_result = await asyncio.gather(first, second)
+
+    assert first_result["success"] is True
+    assert second_result["success"] is True
+    assert build_calls == 2
 
 
 @pytest.fixture(autouse=True)

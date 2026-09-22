@@ -363,9 +363,8 @@ async def refresh_monitored_celestial_now(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Any]:
     """Force-refresh monitored celestial targets and persist refresh metadata."""
-    if _monitored_refresh_lock.locked():
-        return {"success": False, "error": "Monitored celestial refresh already in progress"}
-
+    # A monitor action can overlap a scene refresh that started just before it.
+    # Queue behind that refresh so normal contention is not reported as a data failure.
     async with _monitored_refresh_lock:
         payload: Dict[str, Any] = dict(data) if isinstance(data, dict) else {}
         ids_obj = payload.get("ids")
