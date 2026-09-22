@@ -43,7 +43,8 @@ const normalizeTargetOption = (rawOption) => {
             ? mission_id_value.slice('mission:'.length)
             : (mission_id_value.includes(':') ? '' : mission_id_value);
         const displayName = String(rawOption?.target_name || rawOption?.display_name || command).trim();
-        const missionTargetKey = `mission:${command}`;
+        const missionTargetKey = String(rawOption?.target_key || '').trim();
+        if (!missionTargetKey) return null;
         return {
             ...rawOption,
             id: missionTargetKey,
@@ -59,11 +60,13 @@ const normalizeTargetOption = (rawOption) => {
     }
     if (targetType === TARGET_TYPES.BODY) {
         const bodyId = String(rawOption?.body_id || rawOption?.bodyId || '').trim().toLowerCase();
-        if (!bodyId) return null;
+        const bodyTargetKey = String(rawOption?.target_key || '').trim();
+        if (!bodyId || !bodyTargetKey) return null;
         const displayName = String(rawOption?.target_name || rawOption?.name || bodyId).trim();
         return {
             ...rawOption,
-            id: String(rawOption?.id || `body:${bodyId}`),
+            id: bodyTargetKey,
+            target_key: bodyTargetKey,
             target_type: TARGET_TYPES.BODY,
             target_name: displayName,
             target_identifier: String(rawOption?.target_identifier || bodyId).trim().toLowerCase(),

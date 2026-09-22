@@ -218,15 +218,9 @@ const buildTrackingTargetKey = (trackingState = {}) => {
         trackingState?.target_type
         || (trackingState?.command ? 'mission' : (trackingState?.body_id ? 'body' : 'satellite')),
     ).toLowerCase();
-    if (targetType === 'body') {
-        const bodyId = String(trackingState?.body_id || '').trim().toLowerCase();
-        return bodyId ? `body:${bodyId}` : '';
-    }
-    if (targetType === 'mission') {
-        const command = String(trackingState?.command || '').trim();
-        return command ? `mission:${command}` : '';
-    }
-    return '';
+    return targetType === 'mission' || targetType === 'body'
+        ? String(trackingState?.target_key || '').trim()
+        : '';
 };
 
 const SettingsDialog = ({ open, onClose }) => {

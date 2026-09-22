@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Union
 import crud
 from celestial.bodycatalog import search_celestial_bodies
 from celestial.spacecraftindex import search_spacecraft_index
+from common.targetkey import build_target_key
 from db import AsyncSessionLocal
 from server import runtimestate
 from tasks.registry import get_task
@@ -72,12 +73,11 @@ def _resolve_target_search_hints(query: str) -> Dict[str, Any]:
 
 
 def _build_mission_transmitter_target_key(mission: Dict[str, Any]) -> str:
-    command = str(mission.get("command") or "").strip()
-    return f"mission:{command}" if command else ""
+    return build_target_key(target_type="mission", command=mission.get("command")) or ""
 
 
 def _build_body_transmitter_target_key(body_id: str) -> str:
-    return crud.transmitters.build_target_key(target_type="body", body_id=body_id) or ""
+    return build_target_key(target_type="body", body_id=body_id) or ""
 
 
 async def get_satellites(
@@ -342,7 +342,7 @@ async def search_targets(
             body_name = str(body.get("name") or body_id).strip()
             results.append(
                 {
-                    "id": target_key or f"body:{body_id}",
+                    "id": target_key,
                     "target_type": "body",
                     "target_key": target_key,
                     "target_name": body_name,

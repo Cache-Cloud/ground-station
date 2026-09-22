@@ -241,7 +241,12 @@ class Transmitters(Base):
     baud = Column(Integer, nullable=True)
     sat_id = Column(String, nullable=True)
     norad_cat_id = Column(Integer, ForeignKey("satellites.norad_id"), nullable=True, index=True)
-    target_key = Column(String, nullable=True, index=True)
+    target_key = Column(
+        String,
+        ForeignKey("celestial_targets.id"),
+        nullable=True,
+        index=True,
+    )
     norad_follow_id = Column(Integer, nullable=True, index=True)
     status = Column(String, nullable=False)
     citation = Column(String, nullable=True)
@@ -537,6 +542,13 @@ class MonitoredCelestial(Base):
     __tablename__ = "monitored_celestial"
 
     id = Column(String, primary_key=True, nullable=False)
+    target_key = Column(
+        String,
+        ForeignKey("celestial_targets.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
     display_name = Column(String, nullable=False)
     target_type = Column(
         String, nullable=False, default="mission", server_default="mission", index=True
@@ -576,6 +588,19 @@ class CelestialTargets(Base):
         nullable=False,
         default=datetime.now(timezone.utc),
         onupdate=datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "target_type IN ('mission', 'body')",
+            name="ck_celestial_targets_target_type",
+        ),
+        CheckConstraint(
+            "((target_type = 'mission' AND substr(id, 1, 8) = 'mission:') OR "
+            "(target_type = 'body' AND substr(id, 1, 5) = 'body:')) AND "
+            "id = lower(id) AND instr(id, ' ') = 0",
+            name="ck_celestial_targets_id_namespace",
+        ),
     )
 
 

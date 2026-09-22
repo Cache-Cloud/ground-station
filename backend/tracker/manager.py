@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional, cast
 import crud
 import crud.celestialvectors as crud_celestial_vectors
 from celestial.bodycatalog import get_celestial_body
+from common.targetkey import normalize_target_key
 from db import AsyncSessionLocal
 from orbits import CentralBody, OrbitServiceError, build_satellite_ephemeris_payload
 from tracker.contracts import get_tracking_state_name, require_tracker_id
@@ -84,12 +85,9 @@ class TrackerManager:
     @staticmethod
     def _build_non_satellite_transmitter_target_key(tracking_state: Dict[str, Any]) -> str:
         target_type = TrackerManager._normalize_target_type(tracking_state)
-        if target_type == "body":
-            body_id = str(tracking_state.get("body_id") or "").strip().lower()
-            return f"body:{body_id}" if body_id else ""
-        if target_type == "mission":
-            command = str(tracking_state.get("command") or "").strip()
-            return f"mission:{command}" if command else ""
+        explicit_key = normalize_target_key(tracking_state.get("target_key"))
+        if explicit_key and explicit_key.startswith(f"{target_type}:"):
+            return str(explicit_key)
         return ""
 
     @staticmethod
@@ -158,7 +156,9 @@ class TrackerManager:
         if not command:
             return None
 
-        target_key = f"mission:{command}"
+        target_key = self._build_non_satellite_transmitter_target_key(tracking_state)
+        if not target_key:
+            return None
         payload = await self._load_cached_vector_payload(
             dbsession,
             target_key=target_key,
@@ -175,6 +175,7 @@ class TrackerManager:
         stale = bool(payload.get("stale") or earth_payload.get("stale"))
         return {
             "target_type": "mission",
+            "target_key": target_key,
             "name": str(tracking_state.get("target_name") or command).strip() or command,
             "command": command,
             "position_xyz_au": payload.get("position_xyz_au"),
@@ -199,9 +200,12 @@ class TrackerManager:
         body_id = str(tracking_state.get("body_id") or "").strip().lower()
         if not body_id:
             return None
+        target_key = self._build_non_satellite_transmitter_target_key(tracking_state)
+        if not target_key:
+            return None
         body_payload = await self._load_cached_vector_payload(
             dbsession,
-            target_key=f"body:{body_id}",
+            target_key=target_key,
             allow_stale=True,
         )
         earth_payload = await self._load_cached_vector_payload(
@@ -218,6 +222,7 @@ class TrackerManager:
         stale = bool(body_payload.get("stale") or earth_payload.get("stale"))
         return {
             "target_type": "body",
+            "target_key": target_key,
             "body_id": body_id,
             "name": body_name,
             "position_xyz_au": body_payload.get("position_xyz_au"),
@@ -495,7 +500,7 @@ class TrackerManager:
             )
 
     async def notify_non_satellite_transmitters_changed(self, target_key: str) -> None:
-        normalized_target_key = crud.transmitters.normalize_target_key(target_key)
+        normalized_target_key = normalize_target_key(target_key)
         if not normalized_target_key:
             return
 

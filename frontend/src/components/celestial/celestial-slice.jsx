@@ -325,29 +325,11 @@ const celestialSlice = createSlice({
             };
 
             const existingRows = Array.isArray(nextTracks.celestial) ? [...nextTracks.celestial] : [];
-            const targetKey = String(row.target_key || '').trim()
-                || (() => {
-                    const type = String(row.target_type || 'mission').toLowerCase();
-                    if (type === 'body') {
-                        const bodyId = String(row.body_id || row.command || '').toLowerCase();
-                        return bodyId ? `body:${bodyId}` : '';
-                    }
-                    const command = String(row.command || '').trim();
-                    return command ? `mission:${command}` : '';
-                })();
+            const targetKey = String(row.target_key || '').trim();
             if (!targetKey) return;
             const existingIndex = existingRows.findIndex(
                 (item) => {
-                    const existingKey = String(item?.target_key || '').trim()
-                        || (() => {
-                            const type = String(item?.target_type || 'mission').toLowerCase();
-                            if (type === 'body') {
-                                const bodyId = String(item?.body_id || item?.command || '').toLowerCase();
-                                return bodyId ? `body:${bodyId}` : '';
-                            }
-                            const command = String(item?.command || '').trim();
-                            return command ? `mission:${command}` : '';
-                        })();
+                    const existingKey = String(item?.target_key || '').trim();
                     return existingKey === targetKey;
                 },
             );
@@ -629,30 +611,12 @@ const celestialSlice = createSlice({
                     const rowIndexByTargetKey = new Map();
 
                     existingRows.forEach((item, index) => {
-                        const existingKey = String(item?.target_key || '').trim()
-                            || (() => {
-                                const type = String(item?.target_type || 'mission').toLowerCase();
-                                if (type === 'body') {
-                                    const bodyId = String(item?.body_id || item?.command || '').toLowerCase();
-                                    return bodyId ? `body:${bodyId}` : '';
-                                }
-                                const command = String(item?.command || '').trim();
-                                return command ? `mission:${command}` : '';
-                            })();
+                        const existingKey = String(item?.target_key || '').trim();
                         if (existingKey) rowIndexByTargetKey.set(existingKey, index);
                     });
 
                     incomingRows.forEach((row) => {
-                        const targetKey = String(row?.target_key || '').trim()
-                            || (() => {
-                                const type = String(row?.target_type || 'mission').toLowerCase();
-                                if (type === 'body') {
-                                    const bodyId = String(row?.body_id || row?.command || '').toLowerCase();
-                                    return bodyId ? `body:${bodyId}` : '';
-                                }
-                                const command = String(row?.command || '').trim();
-                                return command ? `mission:${command}` : '';
-                            })();
+                        const targetKey = String(row?.target_key || '').trim();
                         if (!targetKey) return;
 
                         const existingIndex = rowIndexByTargetKey.get(targetKey);

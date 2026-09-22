@@ -61,7 +61,13 @@ describe('CelestialCatalogPage monitor actions', () => {
             if (request.cmd === 'get-celestial-body-catalog') {
                 acknowledge({
                     success: true,
-                    data: [{ body_id: 'sun', name: 'Sun', body_type: 'star', monitorable: true }],
+                    data: [{
+                        target_key: 'body:sun',
+                        body_id: 'sun',
+                        name: 'Sun',
+                        body_type: 'star',
+                        monitorable: true,
+                    }],
                 });
                 return;
             }
@@ -75,6 +81,7 @@ describe('CelestialCatalogPage monitor actions', () => {
                     data: socketState.created
                         ? [{
                             id: 'sun-id',
+                            target_key: 'body:sun',
                             target_type: 'body',
                             display_name: 'Sun',
                             body_id: 'sun',

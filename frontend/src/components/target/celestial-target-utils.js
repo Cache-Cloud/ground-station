@@ -35,54 +35,10 @@ const formatBodyNameFromId = (bodyId) => {
         .join(' ');
 };
 
-const buildTargetKey = ({ targetType, missionId, command, bodyId }) => {
-    if (targetType === 'mission') {
-        if (missionId) {
-            return `mission:${missionId}`;
-        }
-        // Preserve the legacy command-scoped key for mission rows that do not expose mission_id.
-        return command ? `missioncmd:${command}` : '';
-    }
-    if (targetType === 'body') {
-        return bodyId ? `body:${bodyId}` : '';
-    }
-    return '';
-};
-
 export const buildTargetKeyFromCelestialRow = (row = {}) => {
-    const explicitKey = normalizeText(row?.target_key || row?.targetKey);
-    if (explicitKey) {
-        return explicitKey;
-    }
-
-    const explicitType = String(row?.target_type || row?.targetType || '').trim().toLowerCase();
-    if (explicitType === 'body') {
-        const bodyId = normalizeBodyId(row?.body_id || row?.bodyId || row?.command);
-        return bodyId ? `body:${bodyId}` : '';
-    }
-    if (explicitType === 'mission') {
-        const missionId = normalizeMissionId(row?.mission_id || row?.missionId);
-        if (missionId) {
-            return `mission:${missionId}`;
-        }
-        const command = normalizeText(row?.command);
-        return command ? `missioncmd:${command}` : '';
-    }
-    if (explicitType === 'satellite') {
-        return '';
-    }
-
-    // Fallback for partially populated rows where target_type is missing.
-    const fallbackBodyId = normalizeBodyId(row?.body_id || row?.bodyId);
-    if (fallbackBodyId) {
-        return `body:${fallbackBodyId}`;
-    }
-    const fallbackMissionId = normalizeMissionId(row?.mission_id || row?.missionId);
-    if (fallbackMissionId) {
-        return `mission:${fallbackMissionId}`;
-    }
-    const fallbackCommand = normalizeText(row?.command);
-    return fallbackCommand ? `missioncmd:${fallbackCommand}` : '';
+    // target_key is an opaque backend-owned identity. Metadata must never be
+    // used to manufacture an alternate owner in the browser.
+    return normalizeText(row?.target_key || row?.targetKey);
 };
 
 const isIdentifierOnlyName = ({ name, targetType, missionId, command, bodyId }) => {
@@ -103,48 +59,14 @@ const isIdentifierOnlyName = ({ name, targetType, missionId, command, bodyId }) 
     return false;
 };
 
-const resolveNameFromRows = ({ rows = [], targetType, missionId, command, bodyId, targetKey }) => {
+const resolveNameFromRows = ({ rows = [], targetKey }) => {
     const normalizedRows = Array.isArray(rows) ? rows : [];
     const normalizedKey = normalizeText(targetKey);
-    const normalizedMissionId = normalizeMissionId(missionId).toLowerCase();
-    const normalizedCommand = normalizeText(command).toLowerCase();
-    const normalizedBodyId = normalizeBodyId(bodyId);
 
     const keyMatch = normalizedRows.find((row) => normalizeText(row?.target_key || row?.targetKey) === normalizedKey);
     if (keyMatch) {
         const keyName = normalizeText(keyMatch?.name || keyMatch?.displayName || keyMatch?.display_name || keyMatch?.target_name);
         if (keyName) return keyName;
-    }
-
-    if (targetType === 'mission' && normalizedMissionId) {
-        const missionById = normalizedRows.find(
-            (row) => normalizeMissionId(row?.mission_id || row?.missionId).toLowerCase() === normalizedMissionId
-        );
-        const missionIdName = normalizeText(
-            missionById?.name || missionById?.displayName || missionById?.display_name || missionById?.target_name
-        );
-        if (missionIdName) return missionIdName;
-    }
-
-    if (targetType === 'mission' && normalizedCommand) {
-        const missionMatch = normalizedRows.find(
-            (row) => normalizeText(row?.command).toLowerCase() === normalizedCommand
-        );
-        const missionName = normalizeText(
-            missionMatch?.name || missionMatch?.displayName || missionMatch?.display_name || missionMatch?.target_name
-        );
-        if (missionName) return missionName;
-    }
-
-    if (targetType === 'body' && normalizedBodyId) {
-        const bodyMatch = normalizedRows.find((row) => {
-            const rowBodyId = normalizeBodyId(row?.body_id || row?.bodyId || row?.command);
-            return rowBodyId === normalizedBodyId;
-        });
-        const bodyName = normalizeText(
-            bodyMatch?.name || bodyMatch?.displayName || bodyMatch?.display_name || bodyMatch?.target_name
-        );
-        if (bodyName) return bodyName;
     }
 
     return '';
@@ -167,13 +89,13 @@ export const resolveTargetDisplayName = ({
     const missionId = normalizeMissionId(trackingState?.mission_id);
     const command = normalizeText(trackingState?.command);
     const bodyId = normalizeBodyId(trackingState?.body_id);
-    const targetKey = buildTargetKey({ targetType, missionId, command, bodyId });
+    const targetKey = buildTargetKeyFromCelestialRow(trackingState);
 
     const candidates = [
         normalizeText(trackingState?.target_name),
         normalizeText(satelliteDetails?.name),
-        resolveNameFromRows({ rows: celestialRows, targetType, missionId, command, bodyId, targetKey }),
-        resolveNameFromRows({ rows: monitoredRows, targetType, missionId, command, bodyId, targetKey }),
+        resolveNameFromRows({ rows: celestialRows, targetKey }),
+        resolveNameFromRows({ rows: monitoredRows, targetKey }),
     ].filter(Boolean);
 
     const preferredName = candidates.find(
@@ -199,14 +121,7 @@ export const clampTargetPassHours = (value) => {
 export const buildTargetKeyFromTrackingState = (trackingState = {}) => {
     const targetType = normalizeTargetType(trackingState);
     if (targetType === 'mission' || targetType === 'body') {
-        return buildTargetKeyFromCelestialRow({
-            target_type: targetType,
-            mission_id: trackingState?.mission_id,
-            command: trackingState?.command,
-            body_id: trackingState?.body_id,
-            target_key: trackingState?.target_key,
-            targetKey: trackingState?.targetKey,
-        });
+        return buildTargetKeyFromCelestialRow(trackingState);
     }
     return '';
 };

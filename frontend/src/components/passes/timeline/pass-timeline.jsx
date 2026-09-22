@@ -16,17 +16,7 @@ import { PassCurve, CurrentTimeMarker } from './timeline-components.jsx';
 import { useTimelineEvents } from './timeline-events.jsx';
 
 const buildPassTargetKey = (pass) => {
-  // Celestial pass payloads can omit `target_key`; derive the same canonical key used elsewhere.
-  const explicitKey = String(pass?.target_key || '').trim();
-  if (explicitKey) return explicitKey;
-
-  const targetType = String(pass?.target_type || 'mission').trim().toLowerCase();
-  if (targetType === 'body') {
-    const bodyId = String(pass?.body_id || pass?.command || '').trim().toLowerCase();
-    return bodyId ? `body:${bodyId}` : '';
-  }
-  const command = String(pass?.command || '').trim();
-  return command ? `mission:${command}` : '';
+  return String(pass?.target_key || '').trim();
 };
 
 const PassTimelineComponent = ({

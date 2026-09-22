@@ -26,6 +26,7 @@ from celestial.bodycatalog import get_celestial_body
 from celestial.scene import build_observer_sky_bodies
 from common.arguments import arguments
 from common.constants import RigStates, RotatorStates, SocketEvents, TrackerCommandScopes
+from common.targetkey import build_target_key, normalize_target_key
 from db import AsyncSessionLocal
 from session.tracker import session_tracker
 from tracker.contracts import InvalidTrackerIdError, get_tracking_state_name, require_tracker_id
@@ -124,12 +125,9 @@ def _build_non_satellite_transmitter_target_key(
     tracking_value: Dict[str, Any],
     target_type: str,
 ) -> str:
-    if target_type == "body":
-        body_id = str(tracking_value.get("body_id") or "").strip().lower()
-        return f"body:{body_id}" if body_id else ""
-    if target_type == "mission":
-        command = str(tracking_value.get("command") or "").strip()
-        return f"mission:{command}" if command else ""
+    explicit_key = normalize_target_key(tracking_value.get("target_key"))
+    if explicit_key and explicit_key.startswith(f"{target_type}:"):
+        return str(explicit_key)
     return ""
 
 
@@ -161,7 +159,22 @@ def _normalize_target_update_payload(value: Dict[str, Any]) -> Dict[str, Any]:
         payload["mission_id"] = mission_id or None
         payload_target_name = str(payload.get("target_name") or "").strip()
         payload["target_name"] = payload_target_name or command
-        payload["target_key"] = f"mission:{command}"
+        target_key = normalize_target_key(payload.get("target_key"))
+        if payload.get("target_key") and not target_key:
+            return {
+                "success": False,
+                "error": "invalid_target_key",
+                "message": "target_key must be a canonical mission key",
+            }
+        if target_key and not target_key.startswith("mission:"):
+            return {
+                "success": False,
+                "error": "target_key_type_mismatch",
+                "message": "target_key namespace must match target_type",
+            }
+        payload["target_key"] = target_key or build_target_key(
+            target_type="mission", command=command
+        )
         payload["body_id"] = None
         payload["norad_id"] = None
         payload["group_id"] = None
@@ -182,7 +195,20 @@ def _normalize_target_update_payload(value: Dict[str, Any]) -> Dict[str, Any]:
             payload["target_name"] = canonical_body_name or body_id
         else:
             payload["target_name"] = payload_target_name
-        payload["target_key"] = f"body:{body_id}"
+        target_key = normalize_target_key(payload.get("target_key"))
+        if payload.get("target_key") and not target_key:
+            return {
+                "success": False,
+                "error": "invalid_target_key",
+                "message": "target_key must be a canonical body key",
+            }
+        if target_key and not target_key.startswith("body:"):
+            return {
+                "success": False,
+                "error": "target_key_type_mismatch",
+                "message": "target_key namespace must match target_type",
+            }
+        payload["target_key"] = target_key or build_target_key(target_type="body", body_id=body_id)
         payload["command"] = None
         payload["mission_id"] = None
         payload["norad_id"] = None
@@ -268,6 +294,7 @@ async def emit_tracker_data(dbsession, sio, logger, tracker_id: str):
             satellite_data = {
                 "details": {
                     "name": target_name,
+                    "target_key": non_satellite_target_key,
                     "target_type": target_type,
                     "mission_id": tracking_value.get("mission_id"),
                     "command": tracking_value.get("command"),
@@ -866,21 +893,6 @@ def _normalize_tracker_target_type(value: Dict[str, Any]) -> str:
     return "satellite"
 
 
-def _build_non_satellite_target_key(
-    *,
-    target_type: str,
-    command: str = "",
-    body_id: str = "",
-) -> str:
-    if target_type == "mission":
-        normalized_command = str(command or "").strip()
-        return f"mission:{normalized_command}" if normalized_command else ""
-    if target_type == "body":
-        normalized_body_id = str(body_id or "").strip().lower()
-        return f"body:{normalized_body_id}" if normalized_body_id else ""
-    return ""
-
-
 def _parse_iso_to_ms(value: Any) -> Optional[int]:
     if not isinstance(value, str):
         return None
@@ -994,11 +1006,9 @@ async def fetch_next_pass_summaries_for_trackers(
         mission_id = str(raw.get("mission_id") or "").strip().lower()
         command = str(raw.get("command") or "").strip()
         body_id = str(raw.get("body_id") or "").strip().lower()
-        target_key = _build_non_satellite_target_key(
-            target_type=target_type,
-            command=command,
-            body_id=body_id,
-        )
+        target_key = normalize_target_key(raw.get("target_key"))
+        if target_key and not target_key.startswith(f"{target_type}:"):
+            target_key = None
         norad_id = _coerce_int(raw.get("norad_id"))
         if target_type != "satellite":
             norad_id = None
@@ -1073,6 +1083,7 @@ async def fetch_next_pass_summaries_for_trackers(
                 celestial_payload.append(
                     {
                         "target_type": "mission",
+                        "target_key": target["target_key"],
                         "command": command,
                         "name": command,
                     }
@@ -1085,6 +1096,7 @@ async def fetch_next_pass_summaries_for_trackers(
                 celestial_payload.append(
                     {
                         "target_type": "body",
+                        "target_key": target["target_key"],
                         "body_id": body_id,
                         "name": body_name,
                     }

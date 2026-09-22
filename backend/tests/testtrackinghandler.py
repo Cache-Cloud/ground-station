@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from common.constants import RigStates
 from handlers.entities.tracking import (
+    _build_non_satellite_transmitter_target_key,
     _normalize_target_update_payload,
     _normalize_tracker_target_type,
     _pick_active_or_upcoming_pass,
@@ -26,6 +27,7 @@ def test_mission_target_normalization_preserves_rig_control_fields():
     assert result["success"] is True
     payload = result["value"]
     assert payload["target_type"] == "mission"
+    assert payload["target_key"] == "mission:juno"
     assert payload["rig_id"] == "rig-123"
     assert payload["rig_state"] == RigStates.CONNECTED
     assert payload["transmitter_id"] == "tx-123"
@@ -49,6 +51,7 @@ def test_body_target_normalization_preserves_rig_control_fields():
     payload = result["value"]
     assert payload["target_type"] == "body"
     assert payload["body_id"] == "jupiter"
+    assert payload["target_key"] == "body:jupiter"
     assert payload["rig_id"] == "rig-abc"
     assert payload["rig_state"] == RigStates.TRACKING
     assert payload["transmitter_id"] == "tx-abc"
@@ -60,6 +63,46 @@ def test_tracker_target_type_inference_uses_command_and_body_id():
     assert _normalize_tracker_target_type({"command": "Voyager 1"}) == "mission"
     assert _normalize_tracker_target_type({"body_id": "rhea"}) == "body"
     assert _normalize_tracker_target_type({"norad_id": "25544"}) == "satellite"
+
+
+def test_tracking_target_uses_backend_key_as_stable_identity():
+    result = _normalize_target_update_payload(
+        {
+            "target_type": "mission",
+            "target_key": "mission:pioneer_10",
+            "command": "Pioneer 10 Extended",
+        }
+    )
+
+    assert result["success"] is True
+    assert result["value"]["target_key"] == "mission:pioneer_10"
+
+
+def test_tracking_target_rejects_legacy_key_namespace():
+    result = _normalize_target_update_payload(
+        {
+            "target_type": "mission",
+            "target_key": "missioncmd:Voyager 1",
+            "command": "Voyager 1",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "invalid_target_key"
+
+
+def test_transmitter_lookup_never_rebuilds_identity_from_metadata():
+    assert (
+        _build_non_satellite_transmitter_target_key(
+            {
+                "target_key": "mission:pioneer_10",
+                "command": "Pioneer 10 Extended",
+            },
+            "mission",
+        )
+        == "mission:pioneer_10"
+    )
+    assert _build_non_satellite_transmitter_target_key({"command": "Pioneer 10"}, "mission") == ""
 
 
 def test_pick_active_or_upcoming_pass_supports_celestial_peak_elevation_field():

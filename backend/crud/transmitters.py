@@ -20,10 +20,12 @@ from datetime import datetime, timezone
 from typing import Any, Union
 
 from sqlalchemy import delete, insert, or_, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.common import logger, serialize_object
-from db.models import Transmitters
+from common.targetkey import normalize_target_key
+from db.models import CelestialTargets, Transmitters
 
 NULL_MARKERS = {"", "-", None}
 UNSET = object()
@@ -53,61 +55,6 @@ def _uuid_to_short_transmitter_id(value: uuid.UUID | str) -> str:
 
 def _is_null_marker(value: Any) -> bool:
     return value in NULL_MARKERS or (isinstance(value, str) and value.strip() in NULL_MARKERS)
-
-
-def _normalize_identifier(value: Any) -> str:
-    if _is_null_marker(value):
-        return ""
-    return " ".join(str(value).strip().split()).lower()
-
-
-def _normalize_command_key(value: Any) -> str:
-    return _normalize_identifier(value)
-
-
-def normalize_target_key(value: Any) -> str | None:
-    if _is_null_marker(value):
-        return None
-    text = str(value).strip()
-    if not text or ":" not in text:
-        return None
-
-    prefix, raw_suffix = text.split(":", 1)
-    normalized_prefix = str(prefix or "").strip().lower()
-    suffix = ""
-
-    if normalized_prefix == "body":
-        suffix = _normalize_identifier(raw_suffix)
-    elif normalized_prefix == "mission":
-        suffix = _normalize_identifier(raw_suffix)
-    elif normalized_prefix == "missioncmd":
-        suffix = _normalize_command_key(raw_suffix)
-    else:
-        return None
-
-    if not suffix:
-        return None
-    return f"{normalized_prefix}:{suffix}"
-
-
-def build_target_key(
-    *,
-    target_type: Any,
-    mission_id: Any = None,
-    command: Any = None,
-    body_id: Any = None,
-) -> str | None:
-    normalized_target_type = str(target_type or "").strip().lower()
-    if normalized_target_type == "body":
-        normalized_body_id = _normalize_identifier(body_id)
-        return f"body:{normalized_body_id}" if normalized_body_id else None
-    if normalized_target_type == "mission":
-        normalized_mission_id = _normalize_identifier(mission_id)
-        if normalized_mission_id:
-            return f"mission:{normalized_mission_id}"
-        normalized_command = _normalize_command_key(command)
-        return f"missioncmd:{normalized_command}" if normalized_command else None
-    return None
 
 
 def _coerce_required_int(value: Any, field_name: str) -> int:
@@ -204,9 +151,7 @@ def _normalize_owner_fields(payload: dict, *, for_edit: bool = False) -> dict:
     if target_owner_provided:
         normalized_target_key = normalize_target_key(target_key_value)
         if not normalized_target_key:
-            raise ValueError(
-                "target_key must be in one of: mission:<id>, missioncmd:<command>, body:<id>"
-            )
+            raise ValueError("target_key must be in one of: mission:<id>, body:<id>")
         payload["norad_cat_id"] = None
         payload["target_key"] = normalized_target_key
         return payload
@@ -253,6 +198,28 @@ def _normalize_transmitter_payload(data: dict, for_edit: bool = False) -> dict:
         payload["itu_notification"] = None
 
     return payload
+
+
+async def _ensure_target_owner(session: AsyncSession, target_key: str | None) -> None:
+    """Create an opaque registry owner before enforcing the transmitter FK."""
+    if not target_key:
+        return
+    target_type = target_key.split(":", 1)[0]
+    now_utc = datetime.now(timezone.utc)
+    stmt = sqlite_insert(CelestialTargets).values(
+        id=target_key,
+        target_type=target_type,
+        body_class=None,
+        display_name=target_key,
+        horizons_command=None,
+        body_id=None,
+        parent_body_id=None,
+        always_in_scene=False,
+        enabled=True,
+        created_at=now_utc,
+        updated_at=now_utc,
+    )
+    await session.execute(stmt.on_conflict_do_nothing(index_elements=[CelestialTargets.id]))
 
 
 async def fetch_transmitters_for_satellite(session: AsyncSession, norad_id: int) -> dict:
@@ -366,6 +333,7 @@ async def add_transmitter(session: AsyncSession, data: dict) -> dict:
         if _is_null_marker(data.get("source")):
             data["source"] = "manual"
 
+        await _ensure_target_owner(session, data.get("target_key"))
         stmt = insert(Transmitters).values(**data).returning(Transmitters)
 
         result = await session.execute(stmt)
@@ -396,6 +364,7 @@ async def edit_transmitter(session: AsyncSession, data: dict) -> dict:
         data.pop("updated", None)
 
         data = _normalize_transmitter_payload(data, for_edit=True)
+        await _ensure_target_owner(session, data.get("target_key"))
 
         # Ensure the record exists first
         stmt = select(Transmitters).filter(

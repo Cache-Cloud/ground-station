@@ -21,26 +21,26 @@ describe('parseTargetSlotNumber', () => {
 
 describe('buildTargetKeyFromCelestialRow', () => {
   it('prefers explicit target keys when available', () => {
-    expect(buildTargetKeyFromCelestialRow({ target_key: 'mission:Voyager 1' })).toBe('mission:Voyager 1');
+    expect(buildTargetKeyFromCelestialRow({ target_key: 'mission:voyager_1' })).toBe('mission:voyager_1');
     expect(buildTargetKeyFromCelestialRow({ targetKey: 'body:rhea' })).toBe('body:rhea');
   });
 
-  it('derives mission/body keys when explicit key is missing', () => {
-    expect(buildTargetKeyFromCelestialRow({ target_type: 'mission', mission_id: 'voyager-1' })).toBe('mission:voyager-1');
-    expect(buildTargetKeyFromCelestialRow({ target_type: 'mission', command: 'Voyager 1' })).toBe('missioncmd:Voyager 1');
-    expect(buildTargetKeyFromCelestialRow({ targetType: 'body', bodyId: 'Rhea' })).toBe('body:rhea');
-    expect(buildTargetKeyFromCelestialRow({ command: 'Cassini' })).toBe('missioncmd:Cassini');
+  it('does not derive identities from metadata', () => {
+    expect(buildTargetKeyFromCelestialRow({ target_type: 'mission', mission_id: 'voyager-1' })).toBe('');
+    expect(buildTargetKeyFromCelestialRow({ target_type: 'mission', command: 'Voyager 1' })).toBe('');
+    expect(buildTargetKeyFromCelestialRow({ targetType: 'body', bodyId: 'Rhea' })).toBe('');
+    expect(buildTargetKeyFromCelestialRow({ command: 'Cassini' })).toBe('');
   });
 });
 
 describe('buildTargetSceneRequestKey', () => {
   it('keeps celestial target results isolated by target and projection window', () => {
     expect(buildTargetSceneRequestKey({
-      trackingState: { target_type: 'body', body_id: 'Venus' },
+      trackingState: { target_type: 'body', body_id: 'Venus', target_key: 'body:venus' },
       nextPassesHours: 24,
     })).toBe('body:venus:0:24:60');
     expect(buildTargetSceneRequestKey({
-      trackingState: { target_type: 'body', body_id: 'venus' },
+      trackingState: { target_type: 'body', body_id: 'venus', target_key: 'body:venus' },
       nextPassesHours: 12,
     })).toBe('body:venus:0:12:60');
   });
@@ -54,6 +54,7 @@ describe('buildTargetSlotNumberByTargetKey', () => {
         tracking_state: {
           target_type: 'mission',
           mission_id: 'voyager-1',
+          target_key: 'mission:voyager-1',
         },
       },
       {
@@ -61,6 +62,7 @@ describe('buildTargetSlotNumberByTargetKey', () => {
         tracking_state: {
           target_type: 'body',
           body_id: 'rhea',
+          target_key: 'body:rhea',
         },
       },
       {
@@ -68,6 +70,7 @@ describe('buildTargetSlotNumberByTargetKey', () => {
         tracking_state: {
           target_type: 'mission',
           command: 'Ignored',
+          target_key: 'mission:ignored',
         },
       },
       {
@@ -92,6 +95,7 @@ describe('buildTargetSlotNumberByTargetKey', () => {
         tracking_state: {
           target_type: 'mission',
           mission_id: 'voyager-1',
+          target_key: 'mission:voyager-1',
         },
       },
       {
@@ -99,6 +103,7 @@ describe('buildTargetSlotNumberByTargetKey', () => {
         tracking_state: {
           target_type: 'mission',
           mission_id: 'voyager-1',
+          target_key: 'mission:voyager-1',
         },
       },
       {
@@ -106,6 +111,7 @@ describe('buildTargetSlotNumberByTargetKey', () => {
         tracking_state: {
           target_type: 'mission',
           mission_id: 'voyager-1',
+          target_key: 'mission:voyager-1',
         },
       },
     ]);

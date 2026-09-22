@@ -26,6 +26,7 @@ import psutil
 from celestial.observermath import compute_observer_sky_position
 from common.arguments import arguments as args
 from common.constants import DictKeys, SocketEvents
+from common.targetkey import normalize_target_key
 from orbits import CentralBody, OrbitServiceError, get_propagation_input
 from tracker.contracts import require_tracker_id
 from tracker.data import compiled_satellite_data_from_inputs
@@ -473,6 +474,7 @@ class SatelliteTracker:
     @staticmethod
     def _build_non_satellite_data(
         *,
+        target_key: str,
         target_type: str,
         target_name: str,
         az_deg: float,
@@ -484,6 +486,7 @@ class SatelliteTracker:
         return {
             "details": {
                 "name": target_name,
+                "target_key": target_key,
                 "target_type": target_type,
                 "command": command,
                 "body_id": body_id,
@@ -604,14 +607,16 @@ class SatelliteTracker:
                 "satellite_tles": satellite_tles,
             }
 
-        target_identifier = str(
-            tracking_state.get("command")
-            or tracking_state.get("body_id")
-            or tracking_state.get("target_name")
-            or "unknown"
-        ).strip()
-        if not target_identifier:
-            target_identifier = "unknown"
+        target_key = normalize_target_key(tracking_state.get("target_key"))
+        if not target_key or not target_key.startswith(f"{target_type}:"):
+            logger.warning(
+                "Missing canonical target_key in tracker worker context "
+                "(tracker_id=%s target_type=%s)",
+                self.tracker_id,
+                target_type,
+            )
+            return None
+        target_identifier = target_key
 
         earth_position = self._interpolate_earth_position(input_payload, now_epoch)
         if not earth_position:
@@ -726,9 +731,10 @@ class SatelliteTracker:
             return {
                 "target_type": "mission",
                 "target_name": target_name,
-                "target_id": command,
+                "target_id": target_key,
                 "skypoint": (az_deg, el_deg),
                 "satellite_data": self._build_non_satellite_data(
+                    target_key=target_key,
                     target_type="mission",
                     target_name=target_name,
                     az_deg=az_deg,
@@ -799,9 +805,10 @@ class SatelliteTracker:
         return {
             "target_type": "body",
             "target_name": target_name,
-            "target_id": body_id,
+            "target_id": target_key,
             "skypoint": (az_deg, el_deg),
             "satellite_data": self._build_non_satellite_data(
+                target_key=target_key,
                 target_type="body",
                 target_name=target_name,
                 az_deg=az_deg,

@@ -81,7 +81,7 @@ class TestMonitoredCelestialCrud:
 
         assert added["success"] is True
         assert added["data"]["target_type"] == "mission"
-        assert added["data"]["target_key"] == "mission:Voyager 1"
+        assert added["data"]["target_key"] == "mission:voyager_1"
         assert added["data"]["color"] == "#FF6B6B"
 
         target_id = added["data"]["id"]
@@ -112,7 +112,7 @@ class TestMonitoredCelestialCrud:
         assert result["success"] is False
         assert error in result["error"]
 
-    async def test_edit_can_switch_mission_to_body_and_persist_refresh_state(self, db_session):
+    async def test_edit_preserves_identity_and_persists_refresh_state(self, db_session):
         added = await add_monitored_celestial(
             db_session,
             {"command": "Pioneer 10", "display_name": "Pioneer", "color": "#123abc"},
@@ -123,9 +123,9 @@ class TestMonitoredCelestialCrud:
             db_session,
             {
                 "id": target_id,
-                "target_type": "body",
-                "bodyId": "mars",
-                "displayName": "Mars",
+                "target_type": "mission",
+                "command": "Pioneer 10 Extended",
+                "displayName": "Pioneer Extended",
                 "color": "#abcdef",
             },
         )
@@ -143,12 +143,23 @@ class TestMonitoredCelestialCrud:
         fetched = await fetch_monitored_celestial(db_session, target_id)
 
         assert edited["success"] is True
-        assert edited["data"]["command"] == ""
-        assert edited["data"]["body_id"] == "mars"
-        assert edited["data"]["target_key"] == "body:mars"
+        assert edited["data"]["command"] == "Pioneer 10 Extended"
+        assert edited["data"]["body_id"] == ""
+        assert edited["data"]["target_key"] == "mission:pioneer_10"
         assert edited["data"]["color"] == "#ABCDEF"
         assert refreshed == {"success": True, "error": None}
         assert fetched["data"]["last_error"] == "timeout"
+
+    async def test_edit_rejects_target_type_changes(self, db_session):
+        added = await add_monitored_celestial(db_session, {"command": "Pioneer 10"})
+
+        edited = await edit_monitored_celestial(
+            db_session,
+            {"id": added["data"]["id"], "target_type": "body", "bodyId": "mars"},
+        )
+
+        assert edited["success"] is False
+        assert "target_type is immutable" in edited["error"]
 
     async def test_delete_requires_ids_and_reports_deleted_rows(self, db_session):
         added = await add_monitored_celestial(db_session, {"command": "Voyager 2"})

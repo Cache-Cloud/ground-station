@@ -36,6 +36,7 @@ from celestial.syncstate import (
     update_celestial_sync_progress,
 )
 from common.arguments import arguments
+from common.targetkey import build_target_key, normalize_target_key
 from db import AsyncSessionLocal
 
 
@@ -127,12 +128,14 @@ def _target_key_from_parts(
     command: Optional[str] = None,
     body_id: Optional[str] = None,
 ) -> str:
-    normalized_type = str(target_type or "mission").strip().lower()
-    if normalized_type == "body":
-        normalized_body = str(body_id or "").strip().lower()
-        return f"body:{normalized_body}" if normalized_body else ""
-    normalized_command = str(command or "").strip()
-    return f"mission:{normalized_command}" if normalized_command else ""
+    return (
+        build_target_key(
+            target_type=target_type,
+            command=command,
+            body_id=body_id,
+        )
+        or ""
+    )
 
 
 def _parse_epoch(data: Optional[Dict[str, Any]]) -> datetime:
@@ -172,12 +175,13 @@ def _build_body_target_payload(
     scene_role = str(catalog_entry.get("scene_role") or "").strip().lower() or None
     horizons_command = str(BODY_HORIZONS_COMMANDS.get(normalized_body_id) or "").strip()
     display_name = str(name or catalog_entry.get("name") or normalized_body_id).strip()
+    normalized_target_key = normalize_target_key(target_key)
+    if not normalized_target_key or not normalized_target_key.startswith("body:"):
+        normalized_target_key = _target_key_from_parts("body", body_id=normalized_body_id)
 
     return {
         "target_type": "body",
-        "target_key": str(
-            target_key or _target_key_from_parts("body", body_id=normalized_body_id)
-        ).strip(),
+        "target_key": normalized_target_key,
         "body_id": normalized_body_id,
         # Keep "command" populated for existing UI/tooling paths that expect a command-like field.
         "command": horizons_command or normalized_body_id,
@@ -221,6 +225,11 @@ def _normalize_targets(data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
             target_type = (
                 str(item.get("target_type") or item.get("targetType") or "mission").strip().lower()
             )
+            explicit_target_key = normalize_target_key(
+                item.get("target_key") or item.get("targetKey")
+            )
+            if explicit_target_key and not explicit_target_key.startswith(f"{target_type}:"):
+                explicit_target_key = None
 
             if target_type == "body":
                 body_id = (
@@ -240,7 +249,8 @@ def _normalize_targets(data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     body_id=body_id,
                     name=str(item.get("name") or body_id).strip(),
                     color=color,
-                    target_key=_target_key_from_parts("body", body_id=body_id),
+                    target_key=explicit_target_key
+                    or _target_key_from_parts("body", body_id=body_id),
                 )
                 if body_payload:
                     normalized.append(body_payload)
@@ -253,7 +263,8 @@ def _normalize_targets(data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
             normalized.append(
                 {
                     "target_type": "mission",
-                    "target_key": _target_key_from_parts("mission", command=command),
+                    "target_key": explicit_target_key
+                    or _target_key_from_parts("mission", command=command),
                     "command": command,
                     "horizons_command": command,
                     "name": name,
@@ -1735,7 +1746,7 @@ async def _get_vectors_snapshot(
     target_key: str = "",
     retry_horizons: bool = False,
 ) -> Dict[str, Any]:
-    normalized_target_key = str(target_key or "").strip()
+    normalized_target_key = normalize_target_key(target_key) or ""
     if not normalized_target_key:
         normalized_target_key = _target_key_from_parts("mission", command=command)
     if not normalized_target_key:

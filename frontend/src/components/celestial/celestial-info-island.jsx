@@ -24,16 +24,7 @@ const AU_PER_DAY_TO_KM_PER_S = AU_IN_KM / SECONDS_PER_DAY;
 const LIGHT_TIME_MIN_PER_AU = 8.316746397;
 
 const buildTargetKey = (entry) => {
-    const explicit = String(entry?.targetKey || entry?.target_key || '').trim();
-    if (explicit) return explicit;
-
-    const type = String(entry?.targetType || entry?.target_type || 'mission').toLowerCase();
-    if (type === 'body') {
-        const bodyId = String(entry?.bodyId || entry?.body_id || entry?.command || '').trim().toLowerCase();
-        return bodyId ? `body:${bodyId}` : '';
-    }
-    const command = String(entry?.command || '').trim();
-    return command ? `mission:${command}` : '';
+    return String(entry?.targetKey || entry?.target_key || '').trim();
 };
 
 const magnitude3 = (vector) => {
@@ -102,15 +93,9 @@ const buildTrackingTargetKey = (trackingState = {}) => {
         trackingState?.target_type
         || (trackingState?.command ? 'mission' : (trackingState?.body_id ? 'body' : 'satellite')),
     ).toLowerCase();
-    if (targetType === 'body') {
-        const bodyId = String(trackingState?.body_id || '').trim().toLowerCase();
-        return bodyId ? `body:${bodyId}` : '';
-    }
-    if (targetType === 'mission') {
-        const command = String(trackingState?.command || '').trim();
-        return command ? `mission:${command}` : '';
-    }
-    return '';
+    return targetType === 'mission' || targetType === 'body'
+        ? String(trackingState?.target_key || '').trim()
+        : '';
 };
 
 const CelestialInfoIsland = ({
@@ -174,22 +159,24 @@ const CelestialInfoIsland = ({
     const targetType = String(
         selectedTrack?.target_type
         || selectedMonitored?.targetType
-        || (normalizedTargetKey.startsWith('body:') ? 'body' : 'mission'),
+        || selectedMonitored?.target_type
+        || '',
     ).toLowerCase();
     const missionCommand = String(
         selectedTrack?.command
         || selectedMonitored?.command
-        || (normalizedTargetKey.startsWith('mission:') ? normalizedTargetKey.slice('mission:'.length) : ''),
+        || '',
     ).trim();
     const bodyTargetId = String(
         selectedTrack?.body_id
         || selectedMonitored?.bodyId
         || selectedMonitored?.body_id
-        || (normalizedTargetKey.startsWith('body:') ? normalizedTargetKey.slice('body:'.length) : ''),
+        || '',
     ).trim().toLowerCase();
     const targetName = resolveTargetDisplayName({
         trackingState: {
             target_type: targetType,
+            target_key: normalizedTargetKey,
             target_name: selectedTrack?.name || selectedMonitored?.displayName || selectedMonitored?.name || '',
             command: missionCommand || null,
             body_id: bodyTargetId || null,

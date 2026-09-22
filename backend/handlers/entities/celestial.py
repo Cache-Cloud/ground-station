@@ -25,6 +25,7 @@ from celestial.scene import (
 )
 from celestial.spacecraftindex import get_spacecraft_index, search_spacecraft_index
 from celestial.status import build_celestial_ephemeris_status, emit_celestial_ephemeris_status
+from common.targetkey import build_target_key, normalize_target_key
 from db import AsyncSessionLocal
 
 _monitored_refresh_lock = asyncio.Lock()
@@ -452,11 +453,9 @@ async def refresh_monitored_celestial_now(
         updates = []
         for target in targets:
             target_type = str(target.get("target_type") or "mission").strip().lower()
-            target_key = (
-                f"body:{str(target.get('body_id') or '').strip().lower()}"
-                if target_type == "body"
-                else f"mission:{str(target.get('command') or '').strip()}"
-            )
+            target_key = normalize_target_key(target.get("target_key")) or ""
+            if not target_key.startswith(f"{target_type}:"):
+                target_key = ""
             row = by_target_key.get(target_key)
             error = row.get("error") if isinstance(row, dict) else "No data returned"
             updates.append(
@@ -651,7 +650,19 @@ async def search_spacecraft_index_entries(
             if isinstance(requested_limit, int) and requested_limit > 0:
                 limit = min(requested_limit, 100)
 
-        rows = search_spacecraft_index(query=query, limit=limit)
+        rows = []
+        for row in search_spacecraft_index(query=query, limit=limit):
+            command = str(row.get("command") or "").strip()
+            target_key = build_target_key(target_type="mission", command=command)
+            if not target_key:
+                continue
+            rows.append(
+                {
+                    **row,
+                    "target_type": "mission",
+                    "target_key": target_key,
+                }
+            )
         return {"success": True, "data": rows, "error": None}
     except Exception as exc:
         logger.error(f"Failed searching spacecraft index: {exc}")
@@ -663,7 +674,12 @@ async def get_celestial_body_catalog(
 ) -> Dict[str, Any]:
     """Return static celestial body catalog entries."""
     try:
-        return {"success": True, "data": list_celestial_bodies(), "error": None}
+        rows = []
+        for row in list_celestial_bodies():
+            target_key = build_target_key(target_type="body", body_id=row.get("body_id"))
+            if target_key:
+                rows.append({**row, "target_type": "body", "target_key": target_key})
+        return {"success": True, "data": rows, "error": None}
     except Exception as exc:
         logger.error(f"Failed loading celestial body catalog: {exc}")
         return {"success": False, "error": str(exc), "data": []}

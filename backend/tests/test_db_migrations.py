@@ -1,9 +1,12 @@
 # Copyright (c) 2026 Efstratios Goudelis
 
+import json
 import os
 import sqlite3
 import uuid
 from pathlib import Path
+
+import pytest
 
 from alembic import command
 from db import migrations
@@ -158,3 +161,155 @@ def test_celestrak_migration_converts_known_sources_and_suspends_unknown_ones(
     assert unknown_url == "https://celestrak.org/NORAD/elements/gp.php?NAME=ISS*&FORMAT=CSV"
     assert unknown_enabled == 0
     assert "requires review" in states[source_ids["unknown"]]
+
+
+def test_target_key_migration_rewrites_all_persisted_owners(monkeypatch, tmp_path):
+    db_path = tmp_path / "legacy-target-keys.db"
+    monkeypatch.setenv("GS_DB", str(db_path))
+    monkeypatch.setenv("ALEMBIC_CONTEXT", "1")
+    alembic_config = migrations.get_alembic_config()
+    command.upgrade(alembic_config, "d7e5a9c2b4f1")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO celestial_targets
+                (id, target_type, display_name, horizons_command, always_in_scene,
+                 enabled, created_at, updated_at)
+            VALUES
+                ('mission:Voyager  1', 'mission', 'Voyager 1', 'Voyager 1', 0, 1,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO celestial_vector_snapshots
+                (id, target_id, epoch_bucket_utc, past_hours, future_hours, step_minutes,
+                 frame, center, position_xyz_au, velocity_xyz_au_per_day,
+                 orbit_samples_xyz_au, orbit_sample_times_utc, source, fetched_at,
+                 expires_at, created_at, updated_at)
+            VALUES
+                ('snapshot-1', 'mission:Voyager  1', CURRENT_TIMESTAMP, 1, 24, 60,
+                 'heliocentric-ecliptic', 'sun', '[]', '[]', '[]', '[]', 'horizons',
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO monitored_celestial
+                (id, display_name, command, enabled, created_at, updated_at, target_type)
+            VALUES
+                ('monitored-1', 'ExoMars', 'ExoMars', 1, CURRENT_TIMESTAMP,
+                 CURRENT_TIMESTAMP, 'mission')
+            """
+        )
+        connection.execute(
+            "INSERT INTO transmitters (id, target_key, status) "
+            "VALUES ('tx-legacy', 'missioncmd:Legacy  Mission', 'active')"
+        )
+        connection.execute(
+            "INSERT INTO transmitters (id, target_key, status) "
+            "VALUES ('tx-voyager', 'mission:Voyager 1', 'active')"
+        )
+        connection.execute(
+            "INSERT INTO transmitters (id, target_key, status) "
+            "VALUES ('tx-voyager-id', 'mission:voyager1', 'active')"
+        )
+        connection.execute(
+            "INSERT INTO tracking_state (id, name, value, added) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+            (
+                uuid.uuid4().hex,
+                "tracking-state-target-1",
+                json.dumps(
+                    {
+                        "target_type": "mission",
+                        "command": "Parker Solar Probe",
+                        "target_key": "missioncmd:Parker Solar Probe",
+                    }
+                ),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    command.upgrade(alembic_config, "head")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        target_ids = {row[0] for row in connection.execute("SELECT id FROM celestial_targets")}
+        snapshot_target = connection.execute(
+            "SELECT target_id FROM celestial_vector_snapshots WHERE id = 'snapshot-1'"
+        ).fetchone()[0]
+        monitored_key = connection.execute(
+            "SELECT target_key FROM monitored_celestial WHERE id = 'monitored-1'"
+        ).fetchone()[0]
+        transmitter_keys = dict(
+            connection.execute(
+                "SELECT id, target_key FROM transmitters WHERE target_key IS NOT NULL"
+            )
+        )
+        tracking_value = json.loads(
+            connection.execute(
+                "SELECT value FROM tracking_state WHERE name = 'tracking-state-target-1'"
+            ).fetchone()[0]
+        )
+    finally:
+        connection.close()
+
+    assert {
+        "mission:voyager_1",
+        "mission:exomars",
+        "mission:legacy_mission",
+        "mission:parker_solar_probe",
+    }.issubset(target_ids)
+    assert snapshot_target == "mission:voyager_1"
+    assert monitored_key == "mission:exomars"
+    assert transmitter_keys == {
+        "tx-legacy": "mission:legacy_mission",
+        "tx-voyager": "mission:voyager_1",
+        "tx-voyager-id": "mission:voyager_1",
+    }
+    assert tracking_value["target_key"] == "mission:parker_solar_probe"
+
+
+def test_target_key_migration_aborts_before_schema_changes_on_collision(monkeypatch, tmp_path):
+    db_path = tmp_path / "colliding-target-keys.db"
+    monkeypatch.setenv("GS_DB", str(db_path))
+    monkeypatch.setenv("ALEMBIC_CONTEXT", "1")
+    alembic_config = migrations.get_alembic_config()
+    command.upgrade(alembic_config, "d7e5a9c2b4f1")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executemany(
+            """
+            INSERT INTO celestial_targets
+                (id, target_type, display_name, horizons_command, always_in_scene,
+                 enabled, created_at, updated_at)
+            VALUES (?, 'mission', ?, ?, 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            [
+                ("mission:Voyager 1", "Voyager 1", "Voyager 1"),
+                ("mission:voyager_1", "Voyager One", "Voyager One"),
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(RuntimeError, match="Canonical target-key collision"):
+        command.upgrade(alembic_config, "head")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        monitored_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(monitored_celestial)")
+        }
+        target_ids = {row[0] for row in connection.execute("SELECT id FROM celestial_targets")}
+    finally:
+        connection.close()
+
+    assert "target_key" not in monitored_columns
+    assert target_ids == {"mission:Voyager 1", "mission:voyager_1"}

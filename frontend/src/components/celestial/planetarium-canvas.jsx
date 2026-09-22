@@ -122,17 +122,7 @@ const resolveStarRgba = (bv, alpha) => {
 };
 
 const buildTargetKey = (entry = {}) => {
-    const explicit = String(entry.target_key || entry.targetKey || '').trim();
-    if (explicit) return explicit;
-
-    const type = String(entry.target_type || entry.targetType || 'mission').toLowerCase();
-    if (type === 'body') {
-        const bodyId = String(entry.body_id || entry.bodyId || entry.id || entry.command || '').trim().toLowerCase();
-        return bodyId ? `body:${bodyId}` : '';
-    }
-
-    const command = String(entry.command || '').trim();
-    return command ? `mission:${command}` : '';
+    return String(entry.target_key || entry.targetKey || '').trim();
 };
 
 const resolveName = (entry = {}, fallbackLabel = 'Target') => {
@@ -207,7 +197,8 @@ const normalizeSkyObject = (entry, kind, fallbackLabel = 'Target') => {
     const el = toFiniteNumber(sky.el_deg);
     if (az == null || el == null) return null;
 
-    const key = buildTargetKey(entry) || `${kind}:${resolveName(entry, fallbackLabel).toLowerCase()}`;
+    const key = buildTargetKey(entry);
+    if (!key) return null;
     const visible = typeof entry?.visibility?.visible === 'boolean'
         ? entry.visibility.visible
         : el > 0;

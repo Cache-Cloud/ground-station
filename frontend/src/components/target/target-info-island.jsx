@@ -246,56 +246,19 @@ const TargetInfoIsland = () => {
         () => (Array.isArray(targetScene?.celestialTracks?.celestial_passes) ? targetScene.celestialTracks.celestial_passes : []),
         [targetScene?.celestialTracks?.celestial_passes],
     );
-    // Keep the info card resilient: prefer exact target_key, then fall back to command/body lookups.
     const nonSatelliteTrack = React.useMemo(() => {
-        if (isSatelliteTarget) return null;
-        if (nonSatelliteTargetKey) {
-            const keyMatch = celestialRows.find((row) => String(row?.target_key || '').trim() === nonSatelliteTargetKey);
-            if (keyMatch) return keyMatch;
-        }
-        if (targetType === 'mission') {
-            const missionId = String(trackingState?.mission_id || '').trim();
-            if (missionId) {
-                return celestialRows.find((row) => String(row?.mission_id || row?.missionId || '').trim() === missionId) || null;
-            }
-            const command = String(trackingState?.command || '').trim();
-            if (command) {
-                return celestialRows.find((row) => String(row?.command || '').trim() === command) || null;
-            }
-            return null;
-        }
-        const bodyId = String(trackingState?.body_id || '').trim().toLowerCase();
-        if (!bodyId) return null;
-        return celestialRows.find((row) => {
-            const rowBody = String(row?.body_id || row?.bodyId || row?.command || '').trim().toLowerCase();
-            return rowBody === bodyId;
-        }) || null;
-    }, [celestialRows, isSatelliteTarget, nonSatelliteTargetKey, targetType, trackingState?.body_id, trackingState?.command]);
+        if (isSatelliteTarget || !nonSatelliteTargetKey) return null;
+        return celestialRows.find(
+            (row) => String(row?.target_key || '').trim() === nonSatelliteTargetKey,
+        ) || null;
+    }, [celestialRows, isSatelliteTarget, nonSatelliteTargetKey]);
     // Monitored rows provide user-managed metadata (refresh timestamp, source mode, errors).
     const monitoredTarget = React.useMemo(() => {
-        if (isSatelliteTarget) return null;
-        if (nonSatelliteTargetKey) {
-            const keyMatch = monitoredRows.find((row) => String(row?.targetKey || row?.target_key || '').trim() === nonSatelliteTargetKey);
-            if (keyMatch) return keyMatch;
-        }
-        if (targetType === 'mission') {
-            const missionId = String(trackingState?.mission_id || '').trim();
-            if (missionId) {
-                return monitoredRows.find((row) => String(row?.mission_id || row?.missionId || '').trim() === missionId) || null;
-            }
-            const command = String(trackingState?.command || '').trim();
-            if (command) {
-                return monitoredRows.find((row) => String(row?.command || '').trim() === command) || null;
-            }
-            return null;
-        }
-        const bodyId = String(trackingState?.body_id || '').trim().toLowerCase();
-        if (!bodyId) return null;
-        return monitoredRows.find((row) => {
-            const rowBody = String(row?.bodyId || row?.body_id || row?.command || '').trim().toLowerCase();
-            return rowBody === bodyId;
-        }) || null;
-    }, [isSatelliteTarget, monitoredRows, nonSatelliteTargetKey, targetType, trackingState?.body_id, trackingState?.command]);
+        if (isSatelliteTarget || !nonSatelliteTargetKey) return null;
+        return monitoredRows.find(
+            (row) => String(row?.targetKey || row?.target_key || '').trim() === nonSatelliteTargetKey,
+        ) || null;
+    }, [isSatelliteTarget, monitoredRows, nonSatelliteTargetKey]);
     const nonSatelliteTargetName = String(
         resolveTargetDisplayName({
             trackingState,

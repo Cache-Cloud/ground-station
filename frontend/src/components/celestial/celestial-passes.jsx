@@ -344,15 +344,9 @@ const buildTrackingTargetKey = (trackingState = {}) => {
         trackingState?.target_type
         || (trackingState?.command ? 'mission' : (trackingState?.body_id ? 'body' : 'satellite')),
     ).toLowerCase();
-    if (targetType === 'body') {
-        const bodyId = String(trackingState?.body_id || '').trim().toLowerCase();
-        return bodyId ? `body:${bodyId}` : '';
-    }
-    if (targetType === 'mission') {
-        const command = String(trackingState?.command || '').trim();
-        return command ? `mission:${command}` : '';
-    }
-    return '';
+    return targetType === 'mission' || targetType === 'body'
+        ? String(trackingState?.target_key || '').trim()
+        : '';
 };
 
 const PassStatusCell = ({ status, targetNumber = null, t }) => {
@@ -600,28 +594,19 @@ const CelestialPasses = ({
         const targetTypeKey = String(pass.target_type || 'mission').toLowerCase() === 'body' ? 'body' : 'mission';
         const normalizedTargetKey = String(pass.target_key || '').trim();
         const track = trackByTargetKey[normalizedTargetKey] || {};
-        const derivedIdentifierFromKey = (() => {
-            if (!normalizedTargetKey) return '';
-            if (normalizedTargetKey.startsWith('body:')) return normalizedTargetKey.slice('body:'.length);
-            if (normalizedTargetKey.startsWith('missioncmd:')) return normalizedTargetKey.slice('missioncmd:'.length);
-            if (normalizedTargetKey.startsWith('mission:')) return normalizedTargetKey.slice('mission:'.length);
-            return '';
-        })();
         const missionCommand = String(
             pass.command
             || track.command
-            || (normalizedTargetKey.startsWith('missioncmd:') ? normalizedTargetKey.slice('missioncmd:'.length) : '')
             || ''
         ).trim();
         const missionId = String(pass.mission_id || pass.missionId || track.mission_id || track.missionId || '').trim().toLowerCase();
         const bodyId = String(pass.body_id || pass.bodyId || track.body_id || track.bodyId || '').trim().toLowerCase();
         const targetIdentifier = targetTypeKey === 'body'
-            ? String(bodyId || pass.target_identifier || derivedIdentifierFromKey || '').trim().toLowerCase()
+            ? String(bodyId || pass.target_identifier || '').trim().toLowerCase()
             : String(
                 missionCommand
                 || pass.target_identifier
                 || missionId
-                || derivedIdentifierFromKey
                 || ''
             ).trim();
         const rawCurrentElevationDeg = Number(track?.sky_position?.el_deg);

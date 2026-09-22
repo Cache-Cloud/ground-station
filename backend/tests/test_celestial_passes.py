@@ -13,7 +13,7 @@ def test_build_pass_events_extracts_crossing_window():
         {"time": start + timedelta(minutes=3), "az_deg": 26.0, "el_deg": -1.0},
     ]
     row = {
-        "target_key": "mission:Voyager 1",
+        "target_key": "mission:voyager_1",
         "target_type": "mission",
         "name": "Voyager 1",
         "command": "Voyager 1",
@@ -27,7 +27,7 @@ def test_build_pass_events_extracts_crossing_window():
 
     assert len(events) == 1
     event = events[0]
-    assert event["target_key"] == "mission:Voyager 1"
+    assert event["target_key"] == "mission:voyager_1"
     assert event["peak_elevation_deg"] == 8.0
     assert event["peak_altitude"] == event["peak_elevation_deg"]
     assert event["start_azimuth"] == event["start_azimuth_deg"]
@@ -78,7 +78,7 @@ def test_build_pass_events_densifies_sparse_curve_segments():
         {"time": start + timedelta(minutes=90), "az_deg": 100.0, "el_deg": -2.0},
     ]
     row = {
-        "target_key": "mission:CASSINI",
+        "target_key": "mission:cassini",
         "target_type": "mission",
         "name": "CASSINI",
         "command": "CASSINI",
@@ -180,7 +180,7 @@ def test_extract_row_observer_samples_does_not_call_local_earth_fallback(monkeyp
     start = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
     row = {
         "target_type": "mission",
-        "target_key": "mission:Voyager 1",
+        "target_key": "mission:voyager_1",
         "command": "Voyager 1",
         "orbit_samples_xyz_au": [
             [0.999, 0.001, 0.0],

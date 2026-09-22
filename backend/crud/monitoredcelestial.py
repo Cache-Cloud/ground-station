@@ -18,11 +18,13 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import delete, insert, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.common import logger, serialize_object
-from db.models import MonitoredCelestial
+from common.targetkey import build_target_key, normalize_target_identifier, normalize_target_key
+from db.models import CelestialTargets, MonitoredCelestial
 
 UNIQUE_CONSTRAINT_PATTERN = re.compile(r"UNIQUE constraint failed: \w+\.(\w+)")
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -105,15 +107,10 @@ def _normalize_entry(row: dict) -> dict:
     target_type = str(row.get("target_type") or "mission").strip().lower() or "mission"
     command = row.get("command")
     body_id = row.get("body_id")
-    target_key = ""
-    if target_type == "body":
-        target_key = f"body:{body_id}" if body_id else ""
-    else:
-        target_key = f"mission:{command}" if command else ""
     return {
         "id": row.get("id"),
         "target_type": target_type,
-        "target_key": target_key,
+        "target_key": row.get("target_key") or "",
         "display_name": row.get("display_name") or "",
         "command": command or "",
         "body_id": body_id or "",
@@ -124,6 +121,49 @@ def _normalize_entry(row: dict) -> dict:
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
+
+
+async def _ensure_registry_target(
+    session: AsyncSession,
+    *,
+    target_key: str,
+    target_type: str,
+    display_name: str,
+    command: str,
+    body_id: str,
+) -> None:
+    """Keep monitored metadata and its canonical registry owner in one transaction."""
+    now_utc = datetime.now(timezone.utc)
+    values = {
+        "id": target_key,
+        "target_type": target_type,
+        "body_class": None,
+        "display_name": display_name,
+        "horizons_command": command if target_type == "mission" else body_id,
+        "body_id": body_id if target_type == "body" else None,
+        "parent_body_id": None,
+        "always_in_scene": False,
+        "enabled": True,
+        "created_at": now_utc,
+        "updated_at": now_utc,
+    }
+    stmt = sqlite_insert(CelestialTargets).values(**values)
+    update_values = {
+        "display_name": values["display_name"],
+        "enabled": True,
+        "updated_at": now_utc,
+    }
+    if target_type == "mission":
+        update_values["horizons_command"] = values["horizons_command"]
+    else:
+        # Body catalog rows carry numeric Horizons commands; monitoring metadata
+        # must not replace those commands with a body label.
+        update_values["body_id"] = values["body_id"]
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[CelestialTargets.id],
+        set_=update_values,
+    )
+    await session.execute(stmt)
 
 
 async def fetch_monitored_celestial(
@@ -172,7 +212,7 @@ async def add_monitored_celestial(session: AsyncSession, data: dict) -> dict:
             return {"success": False, "error": "target_type must be either 'mission' or 'body'"}
 
         command = str(data.get("command") or "").strip()
-        body_id = str(data.get("body_id") or data.get("bodyId") or "").strip()
+        body_id = normalize_target_identifier(data.get("body_id") or data.get("bodyId"))
         default_display = body_id if target_type == "body" else command
         display_name = str(
             data.get("display_name") or data.get("displayName") or default_display
@@ -184,6 +224,13 @@ async def add_monitored_celestial(session: AsyncSession, data: dict) -> dict:
             return {"success": False, "error": "body_id is required for body targets"}
         if not display_name:
             return {"success": False, "error": "Display name is required"}
+        target_key = build_target_key(
+            target_type=target_type,
+            command=command,
+            body_id=body_id,
+        )
+        if not target_key:
+            return {"success": False, "error": "Unable to build target_key"}
         try:
             color = _normalize_color(data.get("color"))
         except ValueError as exc:
@@ -194,6 +241,7 @@ async def add_monitored_celestial(session: AsyncSession, data: dict) -> dict:
 
         payload = {
             "id": target_id,
+            "target_key": target_key,
             "target_type": target_type,
             "display_name": display_name,
             "command": command if target_type == "mission" else None,
@@ -206,6 +254,14 @@ async def add_monitored_celestial(session: AsyncSession, data: dict) -> dict:
             "updated_at": datetime.now(timezone.utc),
         }
 
+        await _ensure_registry_target(
+            session,
+            target_key=target_key,
+            target_type=target_type,
+            display_name=display_name,
+            command=command,
+            body_id=body_id,
+        )
         stmt = insert(MonitoredCelestial).values(**payload).returning(MonitoredCelestial)
         result = await session.execute(stmt)
         await session.commit()
@@ -222,7 +278,7 @@ async def add_monitored_celestial(session: AsyncSession, data: dict) -> dict:
         logger.warning(f"Database integrity error creating monitored celestial target: {e}")
         error_str = str(e.orig) if hasattr(e, "orig") else str(e)
         match = UNIQUE_CONSTRAINT_PATTERN.search(error_str)
-        if match and match.group(1) in {"command", "body_id"}:
+        if match and match.group(1) in {"command", "body_id", "target_key"}:
             return {
                 "success": False,
                 "error": "A target with this command/body already exists.",
@@ -262,6 +318,12 @@ async def edit_monitored_celestial(session: AsyncSession, data: dict) -> dict:
         )
         if target_type not in {"mission", "body"}:
             return {"success": False, "error": "target_type must be either 'mission' or 'body'"}
+        existing_target_type = str(existing_payload.get("target_type") or "mission").strip().lower()
+        if target_type != existing_target_type:
+            return {
+                "success": False,
+                "error": "target_type is immutable; create a new monitored target instead",
+            }
         update_data["target_type"] = target_type
         if "display_name" in data or "displayName" in data:
             update_data["display_name"] = str(
@@ -270,7 +332,9 @@ async def edit_monitored_celestial(session: AsyncSession, data: dict) -> dict:
         if "command" in data:
             update_data["command"] = str(data.get("command") or "").strip()
         if "body_id" in data or "bodyId" in data:
-            update_data["body_id"] = str(data.get("body_id") or data.get("bodyId") or "").strip()
+            update_data["body_id"] = normalize_target_identifier(
+                data.get("body_id") or data.get("bodyId")
+            )
         if "color" in data:
             try:
                 update_data["color"] = _normalize_color(data.get("color"))
@@ -302,6 +366,20 @@ async def edit_monitored_celestial(session: AsyncSession, data: dict) -> dict:
         if "display_name" in update_data and not update_data["display_name"]:
             return {"success": False, "error": "Display name is required"}
 
+        target_key = normalize_target_key(existing_payload.get("target_key"))
+        if not target_key:
+            return {"success": False, "error": "Stored target_key is invalid"}
+        final_display_name = str(
+            update_data.get("display_name", existing_payload.get("display_name") or "")
+        ).strip()
+        await _ensure_registry_target(
+            session,
+            target_key=target_key,
+            target_type=target_type,
+            display_name=final_display_name,
+            command=final_command,
+            body_id=final_body_id,
+        )
         update_data["updated_at"] = datetime.now(timezone.utc)
 
         stmt = (
@@ -328,7 +406,7 @@ async def edit_monitored_celestial(session: AsyncSession, data: dict) -> dict:
         logger.warning(f"Database integrity error updating monitored celestial target: {e}")
         error_str = str(e.orig) if hasattr(e, "orig") else str(e)
         match = UNIQUE_CONSTRAINT_PATTERN.search(error_str)
-        if match and match.group(1) in {"command", "body_id"}:
+        if match and match.group(1) in {"command", "body_id", "target_key"}:
             return {
                 "success": False,
                 "error": "A target with this command/body already exists.",

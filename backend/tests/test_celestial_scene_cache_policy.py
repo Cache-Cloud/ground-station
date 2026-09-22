@@ -55,6 +55,7 @@ async def test_monitored_refresh_waits_for_an_active_refresh(monkeypatch):
             "data": [
                 {
                     "id": "sun-id",
+                    "target_key": "body:sun",
                     "target_type": "body",
                     "body_id": "sun",
                     "display_name": "Sun",

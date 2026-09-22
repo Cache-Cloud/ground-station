@@ -649,14 +649,15 @@ export function CelestialCatalogPage() {
         loadCatalog();
     }, [loadCatalog]);
 
-    const monitoredByKey = useMemo(() => new Map(monitored.map((entry) => [
-        entry.targetType === 'body' ? `body:${entry.bodyId}` : `mission:${String(entry.command).toLowerCase()}`,
-        entry,
-    ])), [monitored]);
+    const monitoredByKey = useMemo(() => new Map(
+        monitored
+            .map((entry) => [String(entry.targetKey || '').trim(), entry])
+            .filter(([key]) => key),
+    ), [monitored]);
 
     const rows = useMemo(() => {
         const bodyRows = bodies.map((body) => ({
-            key: `body:${body.body_id}`,
+            key: String(body.target_key || '').trim(),
             kind: 'body',
             name: t(`admin.catalog.bodies.${body.body_id}`, { defaultValue: body.name }),
             identifier: body.body_id,
@@ -668,7 +669,7 @@ export function CelestialCatalogPage() {
             raw: body,
         }));
         const missionRows = missions.map((mission) => ({
-            key: `mission:${String(mission.command).toLowerCase()}`,
+            key: String(mission.target_key || '').trim(),
             kind: 'mission',
             name: mission.display_name,
             identifier: mission.command,
@@ -739,10 +740,6 @@ export function CelestialCatalogPage() {
         setUnmonitorError('');
         try {
             await dispatch(deleteMonitoredCelestial({ socket, ids: [existing.id] })).unwrap();
-            setMessage({
-                severity: 'success',
-                text: t('admin.catalog.feedback.unmonitored', { name: row.name }),
-            });
             setPendingUnmonitor(null);
         } catch (error) {
             setUnmonitorError(String(error?.message || error));

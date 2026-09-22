@@ -20,6 +20,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.common import logger, serialize_object
+from common.targetkey import normalize_target_key
 from db.models import CelestialTargets, CelestialVectorSnapshots
 
 _SNAPSHOT_UPSERT_CONFLICT_MISSING_CONSTRAINT_ERROR = (
@@ -116,13 +117,15 @@ async def ensure_celestial_target(
 ) -> dict:
     """Insert or update one celestial target row."""
     try:
-        target_id = str(data.get("id") or "").strip()
+        target_id = normalize_target_key(data.get("id"))
         target_type = str(data.get("target_type") or "").strip().lower()
         display_name = str(data.get("display_name") or "").strip()
         if not target_id:
             return {"success": False, "error": "id is required"}
         if target_type not in {"mission", "body"}:
             return {"success": False, "error": "target_type must be one of: mission, body"}
+        if target_id and not target_id.startswith(f"{target_type}:"):
+            return {"success": False, "error": "id namespace must match target_type"}
         if not display_name:
             return {"success": False, "error": "display_name is required"}
 
@@ -182,7 +185,7 @@ async def fetch_celestial_target(
 ) -> dict:
     """Fetch one celestial target by ID."""
     try:
-        target_key = str(target_id or "").strip()
+        target_key = normalize_target_key(target_id)
         if not target_key:
             return {"success": False, "error": "target_id is required"}
 
@@ -308,7 +311,7 @@ async def fetch_celestial_vector_snapshot(
 ) -> dict:
     """Fetch one vector snapshot by unique lookup key."""
     try:
-        target_key = str(target_id or "").strip()
+        target_key = normalize_target_key(target_id)
         if not target_key:
             return {"success": False, "error": "target_id is required"}
 
@@ -354,7 +357,7 @@ async def fetch_latest_celestial_vector_snapshot(
 ) -> dict:
     """Fetch the latest vector snapshot for target + projection options."""
     try:
-        target_key = str(target_id or "").strip()
+        target_key = normalize_target_key(target_id)
         if not target_key:
             return {"success": False, "error": "target_id is required"}
 
@@ -397,7 +400,7 @@ async def fetch_latest_celestial_vector_snapshot_for_target(
 ) -> dict:
     """Fetch the latest vector snapshot for a target across projection options."""
     try:
-        target_key = str(target_id or "").strip()
+        target_key = normalize_target_key(target_id)
         if not target_key:
             return {"success": False, "error": "target_id is required"}
 
@@ -433,7 +436,7 @@ async def upsert_celestial_vector_snapshot(
 ) -> dict:
     """Insert or update one celestial vector snapshot."""
     try:
-        target_id = str(data.get("target_id") or "").strip()
+        target_id = normalize_target_key(data.get("target_id"))
         epoch_bucket_utc = data.get("epoch_bucket_utc")
         if not target_id:
             return {"success": False, "error": "target_id is required"}
@@ -558,10 +561,15 @@ async def ensure_celestial_targets(
     try:
         normalized: List[Dict[str, Any]] = []
         for row in rows:
-            target_id = str(row.get("id") or "").strip()
+            target_id = normalize_target_key(row.get("id"))
             target_type = str(row.get("target_type") or "").strip().lower()
             display_name = str(row.get("display_name") or "").strip()
-            if not target_id or target_type not in {"mission", "body"} or not display_name:
+            if (
+                not target_id
+                or target_type not in {"mission", "body"}
+                or not target_id.startswith(f"{target_type}:")
+                or not display_name
+            ):
                 continue
             normalized.append(
                 {
