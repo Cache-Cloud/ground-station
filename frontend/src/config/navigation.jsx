@@ -261,6 +261,37 @@ const CelestialIconWithStatus = () => {
     );
 };
 
+export const getCelestialDataIconStatus = (celestialState = {}) => {
+    const syncState = celestialState.ephemerisSync || {};
+    const sceneHorizonsStatus = celestialState.solarScene?.meta?.horizons
+        || celestialState.celestialTracks?.meta?.horizons
+        || {};
+    const providerStatus = syncState.providerStatus || sceneHorizonsStatus;
+    const isSynchronizing = syncState.status === 'inprogress';
+    const hasSyncError = syncState.status === 'failed';
+    const providerUnavailable = providerStatus.availability === 'unavailable';
+
+    return {
+        showOverlay: isSynchronizing || hasSyncError || providerUnavailable,
+        overlayType: isSynchronizing ? 'sync' : 'error',
+    };
+};
+
+// Keep ephemeris synchronization state on the Celestial Data parent, matching
+// the working/error overlays used by the Satellite Data parent.
+const CelestialDataIconWithStatus = () => {
+    const presentation = useSelector((state) => getCelestialDataIconStatus(state.celestial));
+
+    return (
+        <IconWithOverlay
+            showOverlay={presentation.showOverlay}
+            overlayType={presentation.overlayType}
+        >
+            <CelestialSolarIcon />
+        </IconWithOverlay>
+    );
+};
+
 // Wrapper component for earth view icon that reads Redux state
 const EarthViewIconWithStatus = () => {
     const loadingSatellites = useSelector((state) => state.earthViewTrack?.loadingSatellites);
@@ -380,7 +411,7 @@ export const getNavigation = ({ isAdmin = false } = {}) => {
         {
             segment: 'admin/celestial',
             title: i18n.t('celestial_data', { ns: 'navigation', defaultValue: 'Celestial Data' }),
-            icon: <CelestialIconWithStatus />,
+            icon: <CelestialDataIconWithStatus />,
             children: [
                 {
                     segment: 'ephemeris',

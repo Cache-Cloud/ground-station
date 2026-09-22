@@ -721,6 +721,14 @@ async def refresh_celestial_cache_now(
         progress_callback=emit_progress,
     )
 
+    # Return the breaker snapshot from the same point in time as the refresh.
+    # This lets the UI explain an upstream outage even if status changes before
+    # its follow-up status request completes.
+    response_data = {
+        **result,
+        "provider_status": get_horizons_status(),
+    }
+
     if result.get("success"):
         try:
             projection = result.get("projection")
@@ -738,7 +746,7 @@ async def refresh_celestial_cache_now(
 
     return {
         "success": bool(result.get("success")),
-        "data": result,
+        "data": response_data,
         "error": result.get("error"),
     }
 

@@ -518,7 +518,11 @@ async def test_cache_refresh_reports_per_target_progress(monkeypatch):
 
     async def snapshot(*_args, **kwargs):
         if kwargs["target_key"] == "body:mars":
-            return {"payload": None, "error": "unavailable"}
+            return {
+                "payload": None,
+                "error": "NASA JPL Horizons could not be reached",
+                "error_code": "connection_failure",
+            }
         return {"payload": {"position_xyz_au": [1, 0, 0]}, "error": None}
 
     targets = [
@@ -544,6 +548,14 @@ async def test_cache_refresh_reports_per_target_progress(monkeypatch):
 
     assert result["refreshed"] == 1
     assert result["failed"] == 1
+    assert result["errors"] == [
+        {
+            "target_key": "body:mars",
+            "target_name": "Mars",
+            "error_code": "connection_failure",
+            "error": "NASA JPL Horizons could not be reached",
+        }
+    ]
     assert [event["phase"] for event in progress] == [
         "starting",
         "processing",
@@ -717,6 +729,16 @@ async def test_failed_cache_refresh_does_not_broadcast_tracks(monkeypatch):
         "_build_scene_payload",
         unexpected_payload,
     )
+    monkeypatch.setattr(
+        celestial_handlers,
+        "get_horizons_status",
+        lambda: {
+            "availability": "unavailable",
+            "circuit": "open",
+            "reason": "connection_failure",
+            "retry_at_utc": "2026-09-22T08:45:00+00:00",
+        },
+    )
 
     result = await celestial_handlers.refresh_celestial_cache_now(
         sio=_Sio(),
@@ -726,6 +748,12 @@ async def test_failed_cache_refresh_does_not_broadcast_tracks(monkeypatch):
     )
 
     assert result["success"] is False
+    assert result["data"]["provider_status"] == {
+        "availability": "unavailable",
+        "circuit": "open",
+        "reason": "connection_failure",
+        "retry_at_utc": "2026-09-22T08:45:00+00:00",
+    }
     assert emitted == []
 
 

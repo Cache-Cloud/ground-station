@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert,
+    AlertTitle,
     Box,
     Button,
     Chip,
@@ -56,7 +57,15 @@ import {
     toggleMonitoredCelestialEnabled,
     updateMonitoredCelestial,
 } from './monitored-slice.jsx';
-import { refreshMonitoredCelestialNow } from './celestial-slice.jsx';
+import {
+    refreshMonitoredCelestialNow,
+    setCelestialEphemerisProviderStatus,
+    setCelestialEphemerisSyncCompleted,
+    setCelestialEphemerisSyncFailed,
+    setCelestialEphemerisSyncProgress,
+    setCelestialEphemerisSyncStarted,
+} from './celestial-slice.jsx';
+import { buildEphemerisSyncFailure, describeHorizonsFailure } from './ephemeris-errors.js';
 import { toRowSelectionModel, toSelectedIds } from '../../utils/datagrid-selection.js';
 
 const PAGE_PAPER_SX = { padding: 2, marginTop: 0, borderRadius: 0 };
@@ -161,6 +170,7 @@ function MetricCard({ icon, label, value, detail, tone = 'info' }) {
 }
 
 export function CelestialEphemerisPage() {
+    const dispatch = useDispatch();
     const { socket } = useSocket();
     const [status, setStatus] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -184,14 +194,16 @@ export function CelestialEphemerisPage() {
         }
         setLoading(true);
         try {
-            setStatus(await apiCall(socket, 'get-celestial-ephemeris-status'));
+            const nextStatus = await apiCall(socket, 'get-celestial-ephemeris-status');
+            setStatus(nextStatus);
+            dispatch(setCelestialEphemerisProviderStatus(nextStatus?.provider?.status || null));
             if (!preserveMessage) setMessage(null);
         } catch (error) {
             setMessage({ severity: 'error', text: error.message });
         } finally {
             setLoading(false);
         }
-    }, [socket]);
+    }, [dispatch, socket]);
 
     useEffect(() => {
         loadStatus();
@@ -202,12 +214,14 @@ export function CelestialEphemerisPage() {
 
         const handleProgress = (progress) => {
             setSyncProgress((current) => ({ ...current, ...(progress || {}) }));
+            dispatch(setCelestialEphemerisSyncProgress(progress));
         };
         socket.on('celestial-cache-refresh-progress', handleProgress);
         return () => socket.off('celestial-cache-refresh-progress', handleProgress);
-    }, [socket]);
+    }, [dispatch, socket]);
 
     const handleRefreshCache = async () => {
+        dispatch(setCelestialEphemerisSyncStarted());
         setRefreshing(true);
         setMessage(null);
         setSyncProgress({
@@ -221,6 +235,7 @@ export function CelestialEphemerisPage() {
         });
         try {
             const result = await apiCall(socket, 'refresh-celestial-cache-now');
+            dispatch(setCelestialEphemerisSyncCompleted(result));
             setSyncProgress((current) => ({
                 ...current,
                 processed: result?.count ?? current.processed,
@@ -232,11 +247,10 @@ export function CelestialEphemerisPage() {
             }));
         } catch (error) {
             const result = error.response?.data;
-            const detail = result
-                ? `${result.refreshed ?? 0} refreshed, ${result.failed ?? 0} failed.`
-                : error.message;
+            const failure = buildEphemerisSyncFailure(result, error.message);
+            dispatch(setCelestialEphemerisSyncFailed({ result, error: error.message }));
             setSyncProgress((current) => ({ ...current, phase: 'failed' }));
-            setMessage({ severity: 'error', text: `Cache refresh failed. ${detail}` });
+            setMessage({ severity: 'error', failure });
         } finally {
             setRefreshing(false);
             await loadStatus({ preserveMessage: true });
@@ -267,11 +281,20 @@ export function CelestialEphemerisPage() {
     const syncPercent = Math.max(0, Math.min(100, Number(syncProgress.percent || 0)));
     const syncHasTotal = Number(syncProgress.total || 0) > 0;
     const currentTargetName = syncProgress.current_target?.name || syncProgress.current_target?.key;
+    const activeFailureStatus = message?.failure || {};
+    const failureReason = activeFailureStatus.reason || providerStatus.reason;
+    const failureCause = failureReason
+        ? describeHorizonsFailure(failureReason)
+        : activeFailureStatus.cause;
+    const failureRetryAt = activeFailureStatus.retryAtUtc || providerStatus.retry_at_utc;
+    const lastFailureAt = activeFailureStatus.lastFailureAtUtc || providerStatus.last_failure_at_utc;
     const outputMessage = refreshing
         ? currentTargetName
             ? `${syncProgress.phase === 'processed' ? 'Processed' : 'Processing'} ${currentTargetName} (${syncProgress.processed}/${syncProgress.total})`
             : 'Preparing celestial ephemeris synchronization…'
-        : message?.text || (availability === 'available'
+        : message?.text || (message?.failure
+            ? 'Synchronization stopped with errors. See details below.'
+            : availability === 'available'
             ? 'Ephemeris cache is ready.'
             : availability === 'unavailable'
                 ? 'Using cached ephemeris data while Horizons is unavailable.'
@@ -378,15 +401,61 @@ export function CelestialEphemerisPage() {
                                 </Typography>
                             </Stack>
 
-                            {message ? <Alert severity={message.severity} sx={{ mb: 1.5 }}>{message.text}</Alert> : null}
-                            {availability === 'unavailable' ? (
+                            {message ? (
+                                <Alert severity={message.severity} sx={{ mb: 1.5 }}>
+                                    {message.failure ? (
+                                        <>
+                                            <AlertTitle>{message.failure.title}</AlertTitle>
+                                            <Typography variant="body2">{message.failure.summary}</Typography>
+                                            {failureCause ? (
+                                                <Typography variant="body2" sx={{ mt: 0.75 }}>
+                                                    <Box component="span" sx={{ fontWeight: 700 }}>Cause:</Box>{' '}
+                                                    {failureCause}
+                                                </Typography>
+                                            ) : null}
+                                            {failureRetryAt ? (
+                                                <Typography variant="body2">
+                                                    <Box component="span" sx={{ fontWeight: 700 }}>Next connection attempt:</Box>{' '}
+                                                    {formatDateTime(failureRetryAt)}
+                                                </Typography>
+                                            ) : null}
+                                            {lastFailureAt ? (
+                                                <Typography variant="body2">
+                                                    <Box component="span" sx={{ fontWeight: 700 }}>Last failed attempt:</Box>{' '}
+                                                    {formatDateTime(lastFailureAt)}
+                                                </Typography>
+                                            ) : null}
+                                            {message.failure.errors.length > 0 ? (
+                                                <Box component="details" sx={{ mt: 1 }}>
+                                                    <Box component="summary" sx={{ cursor: 'pointer', fontWeight: 600 }}>
+                                                        Failed targets ({message.failure.errors.length})
+                                                    </Box>
+                                                    <Box component="ul" sx={{ maxHeight: 180, overflowY: 'auto', mt: 0.75, mb: 0, pl: 2.5 }}>
+                                                        {message.failure.errors.map((entry, index) => (
+                                                            <Box component="li" key={`${entry.targetKey}-${index}`} sx={{ mb: 0.5 }}>
+                                                                <Typography component="span" variant="body2" sx={{ fontWeight: 600 }}>
+                                                                    {entry.targetName}
+                                                                </Typography>
+                                                                <Typography component="span" variant="body2">
+                                                                    {` — ${entry.message}`}
+                                                                </Typography>
+                                                            </Box>
+                                                        ))}
+                                                    </Box>
+                                                </Box>
+                                            ) : null}
+                                        </>
+                                    ) : message.text}
+                                </Alert>
+                            ) : null}
+                            {availability === 'unavailable' && !message?.failure ? (
                                 <Box sx={(theme) => ({ backgroundColor: `${theme.palette.error.main}1A`, border: `1px solid ${theme.palette.error.main}4D`, borderRadius: 1, p: 1.25, mb: 1.5 })}>
                                     <Stack direction="row" spacing={1} alignItems="center">
                                         <CloudOffIcon color="error" fontSize="small" />
                                         <Box>
                                             <Typography variant="body2" color="error.main" fontWeight={600}>NASA JPL Horizons is unavailable</Typography>
                                             <Typography variant="caption" color="text.secondary">
-                                                Cached data remains available. Next automatic probe: {formatDateTime(providerStatus.retry_at_utc)}. Reason: {providerStatus.reason || 'connection failure'}.
+                                                {describeHorizonsFailure(failureReason)} Cached data remains available. Next automatic probe: {formatDateTime(providerStatus.retry_at_utc)}.
                                             </Typography>
                                         </Box>
                                     </Stack>

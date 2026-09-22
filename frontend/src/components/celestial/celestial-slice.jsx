@@ -283,6 +283,12 @@ const celestialSlice = createSlice({
         passesTableDefaultsVersion: CELESTIAL_PASSES_DEFAULTS_VERSION,
         solarLoading: false,
         tracksLoading: false,
+        ephemerisSync: {
+            status: 'idle',
+            progress: 0,
+            error: null,
+            providerStatus: null,
+        },
         error: null,
         lastUpdated: null,
     },
@@ -420,6 +426,60 @@ const celestialSlice = createSlice({
             state.passesTablePageSize = CELESTIAL_PASSES_DEFAULT_PAGE_SIZE;
             state.passesTableSortModel = [...CELESTIAL_PASSES_DEFAULT_SORT_MODEL];
             state.passesTableDefaultsVersion = CELESTIAL_PASSES_DEFAULTS_VERSION;
+        },
+        setCelestialEphemerisSyncStarted: (state) => {
+            state.ephemerisSync = {
+                ...state.ephemerisSync,
+                status: 'inprogress',
+                progress: 0,
+                error: null,
+            };
+        },
+        setCelestialEphemerisSyncProgress: (state, action) => {
+            const progress = action.payload || {};
+            state.ephemerisSync = {
+                ...state.ephemerisSync,
+                status: 'inprogress',
+                progress: Number(progress.percent || 0),
+                processed: Number(progress.processed || 0),
+                total: Number(progress.total || 0),
+                refreshed: Number(progress.refreshed || 0),
+                failed: Number(progress.failed || 0),
+                currentTarget: progress.current_target || null,
+            };
+        },
+        setCelestialEphemerisSyncCompleted: (state, action) => {
+            const result = action.payload || {};
+            state.ephemerisSync = {
+                status: 'complete',
+                progress: 100,
+                processed: Number(result.count || 0),
+                total: Number(result.count || 0),
+                refreshed: Number(result.refreshed || 0),
+                failed: Number(result.failed || 0),
+                currentTarget: null,
+                error: null,
+                providerStatus: result.provider_status || state.ephemerisSync?.providerStatus || null,
+            };
+        },
+        setCelestialEphemerisSyncFailed: (state, action) => {
+            const payload = action.payload || {};
+            const result = payload.result || {};
+            state.ephemerisSync = {
+                ...state.ephemerisSync,
+                status: 'failed',
+                progress: Number(state.ephemerisSync?.progress || 0),
+                processed: Number(result.count || state.ephemerisSync?.processed || 0),
+                total: Number(result.count || state.ephemerisSync?.total || 0),
+                refreshed: Number(result.refreshed || 0),
+                failed: Number(result.failed || 0),
+                currentTarget: null,
+                error: payload.error || result.error || 'Ephemeris synchronization failed',
+                providerStatus: result.provider_status || state.ephemerisSync?.providerStatus || null,
+            };
+        },
+        setCelestialEphemerisProviderStatus: (state, action) => {
+            state.ephemerisSync.providerStatus = action.payload || null;
         },
     },
     extraReducers: (builder) => {
@@ -617,5 +677,10 @@ export const {
     setCelestialPassesTablePageSize,
     setCelestialPassesTableSortModel,
     resetCelestialPassesTableSettings,
+    setCelestialEphemerisSyncStarted,
+    setCelestialEphemerisSyncProgress,
+    setCelestialEphemerisSyncCompleted,
+    setCelestialEphemerisSyncFailed,
+    setCelestialEphemerisProviderStatus,
 } = celestialSlice.actions;
 export default celestialSlice.reducer;

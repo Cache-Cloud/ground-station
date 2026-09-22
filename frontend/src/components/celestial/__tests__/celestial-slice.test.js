@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import celestialReducer, {
   fetchTargetCelestialScene,
+  setCelestialEphemerisProviderStatus,
+  setCelestialEphemerisSyncCompleted,
+  setCelestialEphemerisSyncFailed,
+  setCelestialEphemerisSyncProgress,
+  setCelestialEphemerisSyncStarted,
   setTargetCelestialLivePointing,
   setCelestialTracksLive,
 } from '../celestial-slice';
@@ -90,5 +95,70 @@ describe('target celestial scenes', () => {
     expect(tracks.celestial[0].sky_position).toEqual({ az_deg: 105.2, el_deg: 0.54, ra_deg: 30 });
     expect(tracks.celestial[0].visibility).toMatchObject({ above_horizon: true, visible: true });
     expect(tracks.celestial_passes).toEqual([{ target_key: 'body:venus' }]);
+  });
+});
+
+describe('celestial ephemeris synchronization state', () => {
+  it('tracks progress and clears a previous error when a new sync succeeds', () => {
+    let state = celestialReducer(undefined, setCelestialEphemerisSyncStarted());
+    expect(state.ephemerisSync.status).toBe('inprogress');
+
+    state = celestialReducer(state, setCelestialEphemerisSyncProgress({
+      percent: 50,
+      processed: 2,
+      total: 4,
+      refreshed: 2,
+      failed: 0,
+      current_target: { key: 'body:mars', name: 'Mars' },
+    }));
+    expect(state.ephemerisSync).toMatchObject({
+      status: 'inprogress',
+      progress: 50,
+      processed: 2,
+      total: 4,
+      currentTarget: { key: 'body:mars', name: 'Mars' },
+    });
+
+    state = celestialReducer(state, setCelestialEphemerisSyncFailed({
+      error: 'Horizons unavailable',
+      result: {
+        count: 4,
+        refreshed: 2,
+        failed: 2,
+        provider_status: { availability: 'unavailable' },
+      },
+    }));
+    expect(state.ephemerisSync).toMatchObject({
+      status: 'failed',
+      error: 'Horizons unavailable',
+      failed: 2,
+      providerStatus: { availability: 'unavailable' },
+    });
+
+    state = celestialReducer(state, setCelestialEphemerisSyncStarted());
+    state = celestialReducer(state, setCelestialEphemerisSyncCompleted({
+      count: 4,
+      refreshed: 4,
+      failed: 0,
+      provider_status: { availability: 'available' },
+    }));
+    expect(state.ephemerisSync).toMatchObject({
+      status: 'complete',
+      progress: 100,
+      error: null,
+      providerStatus: { availability: 'available' },
+    });
+  });
+
+  it('stores provider availability independently of a manual sync', () => {
+    const state = celestialReducer(undefined, setCelestialEphemerisProviderStatus({
+      availability: 'unavailable',
+      reason: 'connection_failure',
+    }));
+
+    expect(state.ephemerisSync.providerStatus).toEqual({
+      availability: 'unavailable',
+      reason: 'connection_failure',
+    });
   });
 });

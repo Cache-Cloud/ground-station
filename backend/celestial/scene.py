@@ -2634,7 +2634,14 @@ async def refresh_celestial_vector_snapshots_cache(
             if not target_key or not command:
                 failed += 1
                 error = "Missing Horizons command"
-                errors.append({"target_key": target_key or "unknown", "error": error})
+                errors.append(
+                    {
+                        "target_key": target_key or "unknown",
+                        "target_name": str(target.get("name") or target_key or "Unknown"),
+                        "error_code": "invalid_target",
+                        "error": error,
+                    }
+                )
                 await report_progress(
                     processed=index + 1,
                     target=target,
@@ -2666,7 +2673,14 @@ async def refresh_celestial_vector_snapshots_cache(
                 continue
             failed += 1
             error = str(snapshot.get("error") or "Unknown error")
-            errors.append({"target_key": target_key, "error": error})
+            errors.append(
+                {
+                    "target_key": target_key,
+                    "target_name": str(target.get("name") or target_key),
+                    "error_code": str(snapshot.get("error_code") or "target_error"),
+                    "error": error,
+                }
+            )
             await report_progress(
                 processed=index + 1,
                 target=target,
