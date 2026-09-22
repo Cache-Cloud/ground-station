@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from celestial import horizons, scene
+from celestial import horizons, scene, syncstate
 from crud.celestialvectors import fetch_celestial_vector_snapshot_stats
 from db.models import CelestialTargets, CelestialVectorSnapshots
 from handlers.entities import celestial as celestial_handlers
@@ -38,8 +38,10 @@ async def test_earth_cannot_be_created_as_a_monitored_target():
 @pytest.fixture(autouse=True)
 def _reset_horizons_availability():
     horizons.reset_horizons_circuit()
+    syncstate.reset_celestial_sync_state()
     yield
     horizons.reset_horizons_circuit()
+    syncstate.reset_celestial_sync_state()
 
 
 @pytest.mark.asyncio
@@ -534,12 +536,16 @@ async def test_cache_refresh_reports_per_target_progress(monkeypatch):
     async def collect_progress(event):
         progress.append(event)
 
+    async def finish_without_database(result):
+        return result
+
     monkeypatch.setattr(scene, "AsyncSessionLocal", lambda: _SessionContext())
     monkeypatch.setattr(scene.crud_monitored, "fetch_monitored_celestial", fetch_monitored)
     monkeypatch.setattr(scene.crud_preferences, "get_map_settings", fetch_settings)
     monkeypatch.setattr(scene, "_build_builtin_body_targets", lambda: targets)
     monkeypatch.setattr(scene, "_ensure_scene_targets_registered", noop)
     monkeypatch.setattr(scene, "_get_vectors_snapshot", snapshot)
+    monkeypatch.setattr(scene, "finish_celestial_sync", finish_without_database)
 
     result = await scene.refresh_celestial_vector_snapshots_cache(
         _DummyLogger(),
@@ -576,7 +582,8 @@ async def test_cache_refresh_progress_is_sent_only_to_requesting_client(monkeypa
         async def emit(self, event, payload, to=None):
             emitted.append((event, payload, to))
 
-    async def refresh(_logger, *, progress_callback=None):
+    async def refresh(_logger, *, progress_callback=None, trigger="manual"):
+        assert trigger == "manual"
         await progress_callback({"processed": 1, "total": 2, "percent": 50.0})
         return {"success": True, "count": 2, "refreshed": 2, "failed": 0}
 
@@ -634,7 +641,8 @@ async def test_successful_cache_refresh_broadcasts_rebuilt_cached_tracks(monkeyp
         async def emit(self, event, payload, to=None):
             emitted.append((event, payload, to))
 
-    async def refresh(_logger, *, progress_callback=None):
+    async def refresh(_logger, *, progress_callback=None, trigger="manual"):
+        assert trigger == "manual"
         return {"success": True, "count": 1, "refreshed": 1, "failed": 0}
 
     async def build_payload(_data, _logger):
@@ -707,7 +715,8 @@ async def test_failed_cache_refresh_does_not_broadcast_tracks(monkeypatch):
         async def emit(self, event, payload, to=None):
             emitted.append((event, payload, to))
 
-    async def refresh(_logger, *, progress_callback=None):
+    async def refresh(_logger, *, progress_callback=None, trigger="manual"):
+        assert trigger == "manual"
         return {
             "success": False,
             "count": 1,

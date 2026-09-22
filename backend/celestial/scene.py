@@ -30,6 +30,11 @@ from celestial.horizons import (
 )
 from celestial.observermath import compute_observer_sky_position
 from celestial.solarsystem import compute_solar_system_snapshot
+from celestial.syncstate import (
+    finish_celestial_sync,
+    start_celestial_sync,
+    update_celestial_sync_progress,
+)
 from common.arguments import arguments
 from db import AsyncSessionLocal
 
@@ -2493,7 +2498,7 @@ async def build_celestial_tracks(
     }
 
 
-async def refresh_celestial_vector_snapshots_cache(
+async def _refresh_celestial_vector_snapshots_cache(
     logger: Any,
     *,
     progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
@@ -2703,3 +2708,45 @@ async def refresh_celestial_vector_snapshots_cache(
                 "step_minutes": step_minutes,
             },
         }
+
+
+async def refresh_celestial_vector_snapshots_cache(
+    logger: Any,
+    *,
+    progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    trigger: str = "manual",
+) -> Dict[str, Any]:
+    """Run a whole cache sync while maintaining its shared persistent state."""
+    # A second caller must not replace the active run's state with a skipped result.
+    if _scheduled_sync_lock.locked():
+        return {
+            "success": False,
+            "skipped": True,
+            "error": "Scheduled celestial vectors sync already running",
+        }
+
+    start_celestial_sync(trigger)
+
+    async def track_progress(progress: Dict[str, Any]) -> None:
+        update_celestial_sync_progress(progress)
+        if progress_callback is not None:
+            await progress_callback(progress)
+
+    try:
+        result = await _refresh_celestial_vector_snapshots_cache(
+            logger,
+            progress_callback=track_progress,
+        )
+    except Exception as exc:
+        await finish_celestial_sync(
+            {
+                "success": False,
+                "error": str(exc),
+                "errors": [{"error": str(exc)}],
+            }
+        )
+        raise
+
+    if not result.get("skipped"):
+        await finish_celestial_sync(result)
+    return result

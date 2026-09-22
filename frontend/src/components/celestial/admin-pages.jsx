@@ -41,6 +41,8 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -50,7 +52,6 @@ import ToggleOffIcon from '@mui/icons-material/ToggleOff';
 import ToggleOnIcon from '@mui/icons-material/ToggleOn';
 import { useDispatch, useSelector } from 'react-redux';
 import { useSocket } from '../common/socket.jsx';
-import { humanizeDate } from '../common/common.jsx';
 import {
     createMonitoredCelestial,
     deleteMonitoredCelestial,
@@ -128,18 +129,6 @@ const formatDateTime = (value) => {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
 };
-
-function PageHeading({ title, subtitle, actions }) {
-    return (
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" sx={{ mb: 2 }}>
-            <Box>
-                <Typography variant="h6">{title}</Typography>
-                <Typography variant="body2" color="text.secondary">{subtitle}</Typography>
-            </Box>
-            {actions ? <Stack direction="row" spacing={1} alignItems="center">{actions}</Stack> : null}
-        </Stack>
-    );
-}
 
 function ResponsiveActionButton({ label, icon, ...buttonProps }) {
     return (
@@ -284,25 +273,23 @@ export function CelestialEphemerisPage() {
     const providerStatus = provider.status || {};
     const cache = status?.cache || {};
     const sync = status?.sync || {};
+    const persistedSyncState = sync.state || {};
     const availability = providerStatus.availability || 'unknown';
-    const providerPresentation = availability === 'available'
-        ? { label: 'Online', color: 'success', detail: 'The last live request succeeded.' }
-        : availability === 'unavailable'
-            ? { label: 'Unavailable', color: 'error', detail: 'Live requests are paused during backoff.' }
-            : { label: 'Not checked', color: 'default', detail: 'No live request has been made since the backend started.' };
-    const circuitLabel = providerStatus.circuit === 'open'
-        ? 'Requests paused'
-        : providerStatus.circuit === 'half_open'
-            ? 'Checking connection'
-            : null;
     const totalSnapshots = Number(cache.total_snapshots || 0);
     const freshSnapshots = Number(cache.fresh_snapshots || 0);
     const freshnessPercent = totalSnapshots > 0
         ? Math.round((freshSnapshots / totalSnapshots) * 100)
         : 0;
-    const lastSuccessfulFetch = providerStatus.last_success_at_utc || cache.newest_fetch_at;
     const syncPercent = Math.max(0, Math.min(100, Number(syncProgress.percent || 0)));
     const syncHasTotal = Number(syncProgress.total || 0) > 0;
+    const normalizedSyncStatus = String(persistedSyncState.status || 'idle').toLowerCase();
+    const syncIsRunning = refreshing || normalizedSyncStatus === 'inprogress';
+    const syncIsCompleted = !message?.failure
+        && normalizedSyncStatus === 'complete'
+        && persistedSyncState.success !== false;
+    const syncNeedsAttention = Boolean(message?.failure) || (
+        normalizedSyncStatus === 'complete' && persistedSyncState.success === false
+    ) || normalizedSyncStatus === 'failed';
     const currentTargetName = syncProgress.current_target?.name || syncProgress.current_target?.key;
     const activeFailureStatus = message?.failure || {};
     const failureReason = activeFailureStatus.reason || providerStatus.reason;
@@ -377,24 +364,30 @@ export function CelestialEphemerisPage() {
                         </Stack>
                     </Box>
 
-                    <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, mt: 1 }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>Status</Typography>
-                        <Chip size="small" color={providerPresentation.color} label={providerPresentation.label} />
-                        {circuitLabel ? <Chip size="small" variant="outlined" color={availability === 'unavailable' ? 'error' : 'default'} label={circuitLabel} /> : null}
-                        <Typography variant="caption" color="text.secondary">
-                            {providerPresentation.detail}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 1 }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+                            Status
                         </Typography>
-                        <Box sx={{ ml: 'auto', minWidth: 0 }}>
-                            <Tooltip title={`Last successful fetch: ${formatDateTime(lastSuccessfulFetch)}`}>
-                                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', fontFamily: 'monospace', textAlign: 'right' }}>
-                                    Last successful fetch: {humanizeDate(lastSuccessfulFetch)}
-                                </Typography>
-                            </Tooltip>
-                            <Typography variant="caption" color="text.disabled" sx={{ display: 'block', fontFamily: 'monospace', textAlign: 'right' }}>
-                                Periodic sync: {sync.enabled ? `every ${sync.interval_minutes ?? 60} minutes` : 'disabled'}
+                        {syncIsRunning ? (
+                            <Chip size="small" color="info" icon={<PendingActionsIcon />} label="Running" />
+                        ) : syncIsCompleted ? (
+                            <Chip size="small" color="success" icon={<CheckCircleOutlineIcon />} label="Completed" />
+                        ) : syncNeedsAttention ? (
+                            <Chip size="small" color="error" icon={<ErrorOutlineIcon />} label="Action required" />
+                        ) : (
+                            <Chip size="small" variant="outlined" label="Idle" />
+                        )}
+                        {persistedSyncState.last_update ? (
+                            <Typography
+                                variant="caption"
+                                color="text.disabled"
+                                sx={{ ml: 'auto', fontFamily: 'monospace', textAlign: 'right' }}
+                            >
+                                Last update: {formatDateTime(persistedSyncState.last_update)}
                             </Typography>
-                        </Box>
+                        ) : null}
                     </Box>
+
                 </Box>
 
                 <Box sx={{ px: { xs: 2, md: 2.5 }, pt: 1.75, pb: 2 }}>
@@ -1042,10 +1035,6 @@ export function CelestialTargetsPage() {
 
     return (
         <Paper elevation={3} sx={PAGE_PAPER_SX}>
-            <PageHeading
-                title="Monitored Celestial Targets"
-                subtitle="Enable, refresh, edit, and remove the bodies and spacecraft used by the Solar System view."
-            />
             {message ? <Alert severity={message.severity} sx={{ mb: 2 }} onClose={() => setMessage(null)}>{message.text}</Alert> : null}
             <TextField size="small" label="Search targets" value={search} onChange={(event) => setSearch(event.target.value)} sx={{ mb: 2, minWidth: { xs: '100%', sm: 320 } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }} />
             <DataGrid
@@ -1068,6 +1057,10 @@ export function CelestialTargetsPage() {
                 <ResponsiveActionButton label="Delete" icon={<DeleteOutlineIcon />} variant="contained" color="error" disabled={!socket || busy || selected.length === 0} onClick={() => setPendingDeleteIds(selected)} />
                 <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center', ml: { sm: 'auto' } }}>{selected.length} selected</Typography>
             </Stack>
+            <Alert severity="info" sx={{ mt: 2 }}>
+                <AlertTitle>Monitored Celestial Targets</AlertTitle>
+                Enable, refresh, edit, and remove the bodies and spacecraft used by the Solar System view.
+            </Alert>
 
             <Dialog open={Boolean(editTarget)} onClose={() => setEditTarget(null)} maxWidth="sm" fullWidth>
                 <DialogTitle>Edit celestial target</DialogTitle>

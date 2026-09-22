@@ -93,10 +93,44 @@ describe('CelestialEphemerisPage synchronization failures', () => {
         expect(screen.getAllByText(/could not establish a network connection/).length).toBeGreaterThan(0);
         expect(screen.getByText('Failed targets (1)')).toBeInTheDocument();
         expect(screen.getByText('Mars')).toBeInTheDocument();
+        expect(screen.getByText('Action required')).toBeInTheDocument();
         expect(store.getState().celestial.ephemerisSync).toMatchObject({
             status: 'failed',
             failed: 2,
             providerStatus: { availability: 'unavailable' },
         });
+    });
+
+    it('shows a persisted successful terminal sync as completed', async () => {
+        socket.emit.mockImplementation((_event, request, acknowledge) => {
+            if (request.cmd === 'get-celestial-ephemeris-status') {
+                acknowledge({
+                    ...statusResponse,
+                    data: {
+                        ...statusResponse.data,
+                        sync: {
+                            ...statusResponse.data.sync,
+                            state: {
+                                status: 'complete',
+                                success: true,
+                                progress: 100,
+                                last_update: '2026-09-22T08:01:00+00:00',
+                            },
+                        },
+                    },
+                });
+                return;
+            }
+            acknowledge({ success: true, data: {} });
+        });
+
+        const store = configureStore({ reducer: { celestial: celestialReducer } });
+        render(
+            <Provider store={store}>
+                <CelestialEphemerisPage />
+            </Provider>,
+        );
+
+        expect(await screen.findByText('Completed')).toBeInTheDocument();
     });
 });

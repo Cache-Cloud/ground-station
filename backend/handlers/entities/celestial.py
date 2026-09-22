@@ -25,6 +25,7 @@ from celestial.scene import (
     refresh_celestial_vector_snapshots_cache,
 )
 from celestial.spacecraftindex import get_spacecraft_index, search_spacecraft_index
+from celestial.syncstate import get_celestial_sync_state, hydrate_celestial_sync_state
 from common.arguments import arguments
 from db import AsyncSessionLocal
 
@@ -675,6 +676,12 @@ async def get_celestial_ephemeris_status(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Any]:
     """Return Horizons availability, cache health, and periodic sync settings."""
+    try:
+        sync_state = await hydrate_celestial_sync_state()
+    except Exception:
+        logger.exception("Failed to hydrate celestial ephemeris sync state")
+        sync_state = get_celestial_sync_state()
+
     async with AsyncSessionLocal() as dbsession:
         cache_result = await crud_vectors.fetch_celestial_vector_snapshot_stats(dbsession)
 
@@ -698,6 +705,7 @@ async def get_celestial_ephemeris_status(
                     getattr(arguments, "celestial_periodic_sync_interval_minutes", 60)
                 ),
                 "past_hours": int(getattr(arguments, "celestial_sync_past_hours", 1)),
+                "state": sync_state,
             },
         },
         "error": None,
@@ -719,6 +727,7 @@ async def refresh_celestial_cache_now(
     result = await refresh_celestial_vector_snapshots_cache(
         logger,
         progress_callback=emit_progress,
+        trigger="manual",
     )
 
     # Return the breaker snapshot from the same point in time as the refresh.

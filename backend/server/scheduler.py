@@ -358,7 +358,11 @@ async def run_initial_observation_generation():
         logger.exception(e)
 
 
-async def sync_celestial_vector_snapshots_job(background_task_manager, sio=None):
+async def sync_celestial_vector_snapshots_job(
+    background_task_manager,
+    sio=None,
+    trigger="scheduled",
+):
     """Periodic cache-fill job that prefetches celestial vector snapshots from Horizons."""
     try:
         # During first-time setup we avoid scheduled celestial writes so setup auth/bootstrap
@@ -379,7 +383,10 @@ async def sync_celestial_vector_snapshots_job(background_task_manager, sio=None)
                 )
                 return
 
-        result = await refresh_celestial_vector_snapshots_cache(logger=logger)
+        result = await refresh_celestial_vector_snapshots_cache(
+            logger=logger,
+            trigger=trigger,
+        )
         if result.get("success"):
             logger.info(
                 "Scheduled celestial vector snapshot sync completed: refreshed=%s failed=%s count=%s",
@@ -439,7 +446,11 @@ async def run_celestial_sync_warmup_job(
             await asyncio.sleep(poll_interval_seconds)
             waited_seconds += poll_interval_seconds
 
-        await sync_celestial_vector_snapshots_job(background_task_manager, sio=sio)
+        await sync_celestial_vector_snapshots_job(
+            background_task_manager,
+            sio=sio,
+            trigger="startup",
+        )
     except Exception:
         logger.exception("Celestial sync warmup job failed")
 

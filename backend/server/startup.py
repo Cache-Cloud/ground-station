@@ -18,6 +18,7 @@ from sqlalchemy import select
 
 from audio.audiobroadcaster import AudioBroadcaster
 from audio.audiostreamer import WebAudioStreamer
+from celestial.syncstate import hydrate_celestial_sync_state
 from common import auth as authsvc
 from common.arguments import arguments
 from common.audio_queue_config import get_audio_queue_config
@@ -123,6 +124,12 @@ async def lifespan(fastapiapp: FastAPI):
             sync_state_manager.set_state(persisted_sync_state, touch_timestamp=False)
     except Exception:
         logger.exception("Failed to hydrate orbital sync state at startup")
+
+    # Hydrate the last whole celestial sync result for post-restart UI continuity.
+    try:
+        await hydrate_celestial_sync_state()
+    except Exception:
+        logger.exception("Failed to hydrate celestial ephemeris sync state at startup")
 
     # Trim stale auth-session history at startup. Active sessions are excluded by policy.
     try:
