@@ -63,6 +63,11 @@ async def _validate_monitored_target_payload(data: Dict[str, Any]) -> Dict[str, 
         body = get_celestial_body(body_id)
         if not body:
             return {"success": False, "error": f"Unknown body_id '{body_id}'"}
+        if body.get("monitorable") is False:
+            return {
+                "success": False,
+                "error": f"Body '{body.get('name') or body_id}' cannot be monitored",
+            }
         return {
             "success": True,
             "data": {

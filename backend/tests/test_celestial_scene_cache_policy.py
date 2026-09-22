@@ -19,6 +19,22 @@ class _DummyLogger:
         return None
 
 
+@pytest.mark.asyncio
+async def test_earth_cannot_be_created_as_a_monitored_target():
+    result = await celestial_handlers._validate_monitored_target_payload(
+        {
+            "target_type": "body",
+            "body_id": "earth",
+            "display_name": "Earth",
+        }
+    )
+
+    assert result == {
+        "success": False,
+        "error": "Body 'Earth' cannot be monitored",
+    }
+
+
 @pytest.fixture(autouse=True)
 def _reset_horizons_availability():
     horizons.reset_horizons_circuit()

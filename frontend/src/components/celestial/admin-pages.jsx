@@ -441,7 +441,7 @@ export function CelestialCatalogPage() {
                 apiCall(socket, 'get-spacecraft-index', { limit: 1000 }),
                 dispatch(fetchMonitoredCelestial({ socket })).unwrap(),
             ]);
-            setBodies(bodyRows || []);
+            setBodies((bodyRows || []).filter((body) => body?.monitorable !== false));
             setMissions(missionRows || []);
             setMessage(null);
         } catch (error) {

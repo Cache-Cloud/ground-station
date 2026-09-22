@@ -19,6 +19,14 @@ def test_body_catalog_includes_sun():
     assert pluto.get("body_type") == "dwarf"
 
 
+def test_earth_remains_a_system_body_but_is_not_monitorable():
+    earth = get_celestial_body("earth")
+
+    assert earth is not None
+    assert earth.get("scene_role") == "system"
+    assert earth.get("monitorable") is False
+
+
 def test_body_catalog_includes_uranus_neptune_and_pluto_moons():
     expected = {
         "miranda": ("uranus", "705"),

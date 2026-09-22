@@ -39,6 +39,9 @@ _BODY_CATALOG: List[Dict[str, object]] = [
         "body_type": "planet",
         "parent_body_id": None,
         "sort_order": 30,
+        # Earth remains a required system-scene observer body, but it is not a
+        # meaningful target for an Earth-based ground station to monitor.
+        "monitorable": False,
     },
     {
         "body_id": "moon",

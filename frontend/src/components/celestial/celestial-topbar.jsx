@@ -228,6 +228,7 @@ const CelestialTopBar = ({
     const safeBodyCatalogEntries = useMemo(
         () => (Array.isArray(bodyCatalogEntries) ? bodyCatalogEntries : [])
             .filter((entry) => entry && typeof entry === 'object')
+            .filter((entry) => entry.monitorable !== false)
             .map((entry) => ({
                 ...entry,
                 body_id: String(entry.body_id || '').toLowerCase(),
