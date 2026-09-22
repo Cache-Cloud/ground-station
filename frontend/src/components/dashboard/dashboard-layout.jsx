@@ -32,6 +32,7 @@ import {
     Box,
     Checkbox,
     Chip,
+    Collapse,
     CssBaseline,
     Dialog,
     DialogActions,
@@ -90,6 +91,8 @@ import BackgroundTasksPopover from "../tasks/tasks-popover.jsx";
 import LocationPage from "../settings/location-form.jsx";
 import MenuIcon from '@mui/icons-material/Menu';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import LogoutIcon from '@mui/icons-material/Logout';
 import TuneIcon from '@mui/icons-material/Tune';
 import {getNavigation} from "../../config/navigation.jsx";
@@ -888,6 +891,7 @@ export default function Layout() {
     const userMenuButtonId = 'sidebar-user-menu-button';
     const userMenuId = 'sidebar-user-menu';
     const [navigation, setNavigation] = React.useState(getNavigation({ isAdmin }));
+    const [expandedNavigationGroup, setExpandedNavigationGroup] = React.useState(null);
     const { timezone, locale } = useUserTimeSettings();
 
     const {
@@ -1004,6 +1008,10 @@ export default function Layout() {
         }
     };
 
+    const handleNavigationGroupToggle = (segment) => {
+        setExpandedNavigationGroup((current) => current === segment ? null : segment);
+    };
+
     const handleOpenUserMenu = (event) => {
         setUserMenuAnchorEl(event.currentTarget);
     };
@@ -1068,6 +1076,18 @@ export default function Layout() {
         if (segment && currentPath.startsWith(segment)) return true;
         return false;
     };
+
+    React.useEffect(() => {
+        const currentPath = location.pathname.slice(1);
+        const activeGroup = navigation.find((item) => (
+            Array.isArray(item.children)
+            && item.children.some((child) => {
+                const childPath = `${item.segment}/${child.segment}`;
+                return currentPath === childPath || currentPath.startsWith(`${childPath}/`);
+            })
+        ));
+        setExpandedNavigationGroup(activeGroup?.segment || null);
+    }, [location.pathname, navigation]);
 
     // Get scheduler state for dynamic tooltip
     const schedulerObservations = useSelector((state) => state.scheduler?.observations || []);
@@ -1197,52 +1217,114 @@ export default function Layout() {
                                 return <Divider key={index} sx={{ my: 1 }} />;
                             }
 
-                            const isActive = isActiveRoute(item.segment);
+                            const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+                            const isActive = hasChildren
+                                ? item.children.some((child) => isActiveRoute(`${item.segment}/${child.segment}`))
+                                : isActiveRoute(item.segment);
+                            const isGroupExpanded = hasChildren
+                                && isExpanded
+                                && expandedNavigationGroup === item.segment;
 
                             return (
-                                <ListItem key={index} disablePadding sx={{ display: 'block' }}>
-                                    <Tooltip
-                                        title={getTooltipText(item, isExpanded)}
-                                        placement="right"
-                                        disableFocusListener
-                                        disableTouchListener
-                                    >
-                                        <ListItemButton
-                                            onClick={() => handleNavigation(item.segment)}
-                                            selected={isActive}
-                                            sx={{
-                                                minHeight: 40,
-                                                justifyContent: isExpanded ? 'flex-start' : 'center',
-                                                px: isExpanded ? 2 : 0,
-                                                py: 0.75,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                            }}
+                                <React.Fragment key={item.segment || index}>
+                                    <ListItem disablePadding sx={{ display: 'block' }}>
+                                        <Tooltip
+                                            title={getTooltipText(item, isExpanded)}
+                                            placement="right"
+                                            disableFocusListener
+                                            disableTouchListener
                                         >
-                                            <ListItemIcon
+                                            <ListItemButton
+                                                onClick={() => {
+                                                    if (hasChildren && isExpanded) {
+                                                        handleNavigationGroupToggle(item.segment);
+                                                        return;
+                                                    }
+                                                    handleNavigation(item.segment);
+                                                }}
+                                                selected={isActive}
+                                                aria-expanded={hasChildren && isExpanded ? isGroupExpanded : undefined}
                                                 sx={{
-                                                    minWidth: 0,
-                                                    mr: isExpanded ? 2 : 0,
+                                                    minHeight: 40,
+                                                    justifyContent: isExpanded ? 'flex-start' : 'center',
+                                                    px: isExpanded ? 2 : 0,
+                                                    py: 0.75,
                                                     display: 'flex',
-                                                    justifyContent: 'center',
                                                     alignItems: 'center',
                                                 }}
                                             >
-                                                {item.icon}
-                                            </ListItemIcon>
-                                            {isExpanded && (
-                                                <ListItemText
-                                                    primary={item.title}
+                                                <ListItemIcon
                                                     sx={{
-                                                        '& .MuiTypography-root': {
-                                                            fontSize: '0.875rem'
-                                                        }
+                                                        minWidth: 0,
+                                                        mr: isExpanded ? 2 : 0,
+                                                        display: 'flex',
+                                                        justifyContent: 'center',
+                                                        alignItems: 'center',
                                                     }}
-                                                />
-                                            )}
-                                        </ListItemButton>
-                                    </Tooltip>
-                                </ListItem>
+                                                >
+                                                    {item.icon}
+                                                </ListItemIcon>
+                                                {isExpanded && (
+                                                    <ListItemText
+                                                        primary={item.title}
+                                                        sx={{
+                                                            '& .MuiTypography-root': {
+                                                                fontSize: '0.875rem'
+                                                            }
+                                                        }}
+                                                    />
+                                                )}
+                                                {hasChildren && isExpanded && (
+                                                    isGroupExpanded
+                                                        ? <ExpandLessIcon fontSize="small" />
+                                                        : <ExpandMoreIcon fontSize="small" />
+                                                )}
+                                            </ListItemButton>
+                                        </Tooltip>
+                                    </ListItem>
+                                    {hasChildren && isExpanded && (
+                                        <Collapse in={isGroupExpanded} timeout="auto" unmountOnExit>
+                                            <List component="div" disablePadding>
+                                                {item.children.map((child) => {
+                                                    const childPath = `${item.segment}/${child.segment}`;
+                                                    return (
+                                                        <ListItem key={child.segment} disablePadding sx={{ display: 'block' }}>
+                                                            <ListItemButton
+                                                                onClick={() => handleNavigation(childPath)}
+                                                                selected={isActiveRoute(childPath)}
+                                                                sx={{
+                                                                    minHeight: 36,
+                                                                    pl: 4.5,
+                                                                    pr: 2,
+                                                                    py: 0.5,
+                                                                }}
+                                                            >
+                                                                <ListItemIcon
+                                                                    sx={{
+                                                                        minWidth: 32,
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        '& .MuiSvgIcon-root': { fontSize: '1.15rem' },
+                                                                    }}
+                                                                >
+                                                                    {child.icon}
+                                                                </ListItemIcon>
+                                                                <ListItemText
+                                                                    primary={child.title}
+                                                                    sx={{
+                                                                        '& .MuiTypography-root': {
+                                                                            fontSize: '0.8125rem',
+                                                                        },
+                                                                    }}
+                                                                />
+                                                            </ListItemButton>
+                                                        </ListItem>
+                                                    );
+                                                })}
+                                            </List>
+                                        </Collapse>
+                                    )}
+                                </React.Fragment>
                             );
                         })}
                     </List>

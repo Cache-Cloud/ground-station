@@ -230,8 +230,8 @@ const WaterfallIconWithStatus = () => {
     );
 };
 
-// Wrapper component for orbital sources icon that reads Redux state
-const OrbitalSourcesIconWithStatus = () => {
+// Wrapper component for the satellite data icon that reads orbital sync state.
+const SatelliteDataIconWithStatus = () => {
     const isSynchronizing = useSelector((state) => state.syncSatellite?.synchronizing);
     const syncState = useSelector((state) => state.syncSatellite?.syncState);
     const normalizedStatus = String(syncState?.status || '').toLowerCase();
@@ -243,7 +243,7 @@ const OrbitalSourcesIconWithStatus = () => {
 
     return (
         <IconWithOverlay showOverlay={showOverlay} overlayType={overlayType}>
-            <TleIcon />
+            <Satellite03Icon />
         </IconWithOverlay>
     );
 };
@@ -353,42 +353,51 @@ export const getNavigation = ({ isAdmin = false } = {}) => {
         {kind: 'divider'},
         {
             kind: 'header',
-            title: i18n.t('satellites', { ns: 'navigation' }),
+            title: i18n.t('data_administration', { ns: 'navigation', defaultValue: 'Data Administration' }),
         },
         {
-            segment: 'admin/satellites/sources',
-            title: i18n.t('orbital_sources', { ns: 'navigation', defaultValue: 'Orbital Data' }),
-            icon: <OrbitalSourcesIconWithStatus />,
+            segment: 'admin/satellites',
+            title: i18n.t('satellite_data', { ns: 'navigation', defaultValue: 'Satellite Data' }),
+            icon: <SatelliteDataIconWithStatus />,
+            children: [
+                {
+                    segment: 'sources',
+                    title: i18n.t('sources_sync', { ns: 'navigation', defaultValue: 'Sources & Sync' }),
+                    icon: <TleIcon />,
+                },
+                {
+                    segment: 'catalog',
+                    title: i18n.t('catalog', { ns: 'navigation', defaultValue: 'Catalog' }),
+                    icon: <Satellite03Icon/>,
+                },
+                {
+                    segment: 'groups',
+                    title: i18n.t('groups', { ns: 'navigation' }),
+                    icon: <GroupWorkIcon/>,
+                },
+            ],
         },
         {
-            segment: 'admin/satellites/catalog',
-            title: i18n.t('catalog', { ns: 'navigation', defaultValue: 'Catalog' }),
-            icon: <Satellite03Icon/>,
-        },
-        {
-            segment: 'admin/satellites/groups',
-            title: i18n.t('groups', { ns: 'navigation' }),
-            icon: <GroupWorkIcon/>,
-        },
-        {kind: 'divider'},
-        {
-            kind: 'header',
+            segment: 'admin/celestial',
             title: i18n.t('celestial_data', { ns: 'navigation', defaultValue: 'Celestial Data' }),
-        },
-        {
-            segment: 'admin/celestial/ephemeris',
-            title: i18n.t('ephemeris_data', { ns: 'navigation', defaultValue: 'Ephemeris Data' }),
-            icon: <SyncIcon />,
-        },
-        {
-            segment: 'admin/celestial/catalog',
-            title: i18n.t('catalog', { ns: 'navigation', defaultValue: 'Catalog' }),
-            icon: <CelestialSolarIcon />,
-        },
-        {
-            segment: 'admin/celestial/targets',
-            title: i18n.t('celestial_targets', { ns: 'navigation', defaultValue: 'Targets' }),
-            icon: <ListAltIcon />,
+            icon: <CelestialIconWithStatus />,
+            children: [
+                {
+                    segment: 'ephemeris',
+                    title: i18n.t('ephemeris_sync', { ns: 'navigation', defaultValue: 'Ephemeris & Sync' }),
+                    icon: <SyncIcon />,
+                },
+                {
+                    segment: 'catalog',
+                    title: i18n.t('catalog', { ns: 'navigation', defaultValue: 'Catalog' }),
+                    icon: <CelestialSolarIcon />,
+                },
+                {
+                    segment: 'targets',
+                    title: i18n.t('celestial_targets', { ns: 'navigation', defaultValue: 'Targets' }),
+                    icon: <ListAltIcon />,
+                },
+            ],
         },
         {kind: 'divider'},
         {
