@@ -51,6 +51,7 @@ import PublicIcon from '@mui/icons-material/Public';
 import ToggleOffIcon from '@mui/icons-material/ToggleOff';
 import ToggleOnIcon from '@mui/icons-material/ToggleOn';
 import { useDispatch, useSelector } from 'react-redux';
+import { useTranslation } from 'react-i18next';
 import { useSocket } from '../common/socket.jsx';
 import {
     createMonitoredCelestial,
@@ -109,9 +110,11 @@ const DATA_GRID_SX = {
     },
 };
 
-const apiCall = (socket, cmd, data = null) => new Promise((resolve, reject) => {
+const apiCall = (socket, cmd, data = null, t = null) => new Promise((resolve, reject) => {
     if (!socket) {
-        reject(new Error('No active backend connection.'));
+        reject(new Error(t
+            ? t('admin.common.no_backend_connection')
+            : 'No active backend connection.'));
         return;
     }
     socket.emit('api.call', { cmd, data }, (response) => {
@@ -119,16 +122,18 @@ const apiCall = (socket, cmd, data = null) => new Promise((resolve, reject) => {
             resolve(response.data);
             return;
         }
-        const error = new Error(response?.error || `Command ${cmd} failed.`);
+        const error = new Error(response?.error || (t
+            ? t('admin.common.command_failed', { command: cmd })
+            : `Command ${cmd} failed.`));
         error.response = response;
         reject(error);
     });
 });
 
-const formatDateTime = (value, timezone, locale) => {
-    if (!value) return 'Never';
+const formatDateTime = (value, timezone, locale, t = null) => {
+    if (!value) return t ? t('common.never') : 'Never';
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return 'Unknown';
+    if (Number.isNaN(date.getTime())) return t ? t('common.unknown') : 'Unknown';
     const options = timezone ? { timeZone: timezone } : undefined;
     return date.toLocaleString(locale, options);
 };
@@ -187,6 +192,7 @@ function MetricCard({ icon, label, value, detail, tone = 'info' }) {
 export function CelestialEphemerisPage() {
     const dispatch = useDispatch();
     const { socket } = useSocket();
+    const { t } = useTranslation('celestial');
     const { timezone, locale } = useUserTimeSettings();
     const [status, setStatus] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -216,29 +222,29 @@ export function CelestialEphemerisPage() {
                 failure: buildEphemerisSyncFailure({
                     ...terminalState,
                     provider_status: nextStatus?.provider?.status || null,
-                }, terminalState.message),
+                }, terminalState.message, t),
             });
         } else if (normalizedStatus === 'complete' && terminalState.success === true) {
             setMessage(null);
         }
-    }, [dispatch]);
+    }, [dispatch, t]);
 
     const loadStatus = useCallback(async () => {
         if (!socket) {
             setLoading(false);
-            setMessage({ severity: 'error', text: 'No active backend connection.' });
+            setMessage({ severity: 'error', text: t('admin.common.no_backend_connection') });
             return;
         }
         setLoading(true);
         try {
-            const nextStatus = await apiCall(socket, 'get-celestial-ephemeris-status');
+            const nextStatus = await apiCall(socket, 'get-celestial-ephemeris-status', null, t);
             applyStatus(nextStatus);
         } catch (error) {
             setMessage({ severity: 'error', text: error.message });
         } finally {
             setLoading(false);
         }
-    }, [applyStatus, socket]);
+    }, [applyStatus, socket, t]);
 
     useEffect(() => {
         loadStatus();
@@ -283,7 +289,7 @@ export function CelestialEphemerisPage() {
             current_target: null,
         });
         try {
-            const result = await apiCall(socket, 'refresh-celestial-cache-now');
+            const result = await apiCall(socket, 'refresh-celestial-cache-now', null, t);
             dispatch(setCelestialEphemerisSyncCompleted(result));
             setSyncProgress((current) => ({
                 ...current,
@@ -296,7 +302,7 @@ export function CelestialEphemerisPage() {
             }));
         } catch (error) {
             const result = error.response?.data;
-            const failure = buildEphemerisSyncFailure(result, error.message);
+            const failure = buildEphemerisSyncFailure(result, error.message, t);
             dispatch(setCelestialEphemerisSyncFailed({ result, error: error.message }));
             setSyncProgress((current) => ({ ...current, phase: 'failed' }));
             setMessage({ severity: 'error', failure });
@@ -330,21 +336,27 @@ export function CelestialEphemerisPage() {
     const activeFailureStatus = message?.failure || {};
     const failureReason = activeFailureStatus.reason || providerStatus.reason;
     const failureCause = failureReason
-        ? describeHorizonsFailure(failureReason)
+        ? describeHorizonsFailure(failureReason, t)
         : activeFailureStatus.cause;
     const failureRetryAt = activeFailureStatus.retryAtUtc || providerStatus.retry_at_utc;
     const lastFailureAt = activeFailureStatus.lastFailureAtUtc || providerStatus.last_failure_at_utc;
     const outputMessage = refreshing
         ? currentTargetName
-            ? `${syncProgress.phase === 'processed' ? 'Processed' : 'Processing'} ${currentTargetName} (${syncProgress.processed}/${syncProgress.total})`
-            : 'Preparing celestial ephemeris synchronization…'
+            ? t(syncProgress.phase === 'processed'
+                ? 'admin.ephemeris.output.processed_target'
+                : 'admin.ephemeris.output.processing_target', {
+                target: currentTargetName,
+                processed: syncProgress.processed,
+                total: syncProgress.total,
+            })
+            : t('admin.ephemeris.output.preparing_sync')
         : message?.text || (message?.failure
-            ? 'Synchronization stopped with errors. See details below.'
+            ? t('admin.ephemeris.output.stopped_with_errors')
             : availability === 'available'
-            ? 'Ephemeris cache is ready.'
+            ? t('admin.ephemeris.output.cache_ready')
             : availability === 'unavailable'
-                ? 'Using cached ephemeris data while Horizons is unavailable.'
-                : 'Ready to synchronize ephemeris data.');
+                ? t('admin.ephemeris.output.using_cached_data')
+                : t('admin.ephemeris.output.ready'));
 
     return (
         <Paper elevation={3} sx={PAGE_PAPER_SX}>
@@ -383,32 +395,32 @@ export function CelestialEphemerisPage() {
                             </Box>
                             <Box>
                                 <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
-                                    Synchronize Celestial Ephemeris
+                                    {t('admin.ephemeris.title')}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4 }}>
-                                    Refresh celestial vectors from {provider.name || 'NASA JPL Horizons'}.
+                                    {t('admin.ephemeris.subtitle', { provider: provider.name || 'NASA JPL Horizons' })}
                                 </Typography>
                             </Box>
                         </Stack>
                         <Stack direction="row" spacing={1}>
                             <Button size="small" variant="contained" startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <SyncIcon />} onClick={handleRefreshCache} disabled={!socket || loading || refreshing}>
-                                Synchronize now
+                                {t('admin.ephemeris.actions.synchronize_now')}
                             </Button>
                         </Stack>
                     </Box>
 
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 1 }}>
                         <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
-                            Status
+                            {t('admin.ephemeris.labels.status')}
                         </Typography>
                         {syncIsRunning ? (
-                            <Chip size="small" color="info" icon={<PendingActionsIcon />} label="Running" />
+                            <Chip size="small" color="info" icon={<PendingActionsIcon />} label={t('admin.ephemeris.status.running')} />
                         ) : syncIsCompleted ? (
-                            <Chip size="small" color="success" icon={<CheckCircleOutlineIcon />} label="Completed" />
+                            <Chip size="small" color="success" icon={<CheckCircleOutlineIcon />} label={t('admin.ephemeris.status.completed')} />
                         ) : syncNeedsAttention ? (
-                            <Chip size="small" color="error" icon={<ErrorOutlineIcon />} label="Action required" />
+                            <Chip size="small" color="error" icon={<ErrorOutlineIcon />} label={t('admin.ephemeris.status.action_required')} />
                         ) : (
-                            <Chip size="small" variant="outlined" label="Idle" />
+                            <Chip size="small" variant="outlined" label={t('admin.ephemeris.status.idle')} />
                         )}
                         {persistedSyncState.last_update ? (
                             <Typography
@@ -416,7 +428,9 @@ export function CelestialEphemerisPage() {
                                 color="text.disabled"
                                 sx={{ ml: 'auto', fontFamily: 'monospace', textAlign: 'right' }}
                             >
-                                Last update: {formatDateTime(persistedSyncState.last_update, timezone, locale)}
+                                {t('admin.ephemeris.labels.last_update', {
+                                    value: formatDateTime(persistedSyncState.last_update, timezone, locale, t),
+                                })}
                             </Typography>
                         ) : null}
                     </Box>
@@ -428,13 +442,15 @@ export function CelestialEphemerisPage() {
                         <>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
                                 <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
-                                    {refreshing ? 'Synchronization progress' : 'Cache freshness'}
+                                    {refreshing
+                                        ? t('admin.ephemeris.labels.synchronization_progress')
+                                        : t('admin.ephemeris.labels.cache_freshness')}
                                 </Typography>
                                 <Typography variant="caption" color="text.disabled" sx={{ fontFamily: 'monospace' }}>
                                     {refreshing
                                         ? syncHasTotal
                                             ? `${syncProgress.processed}/${syncProgress.total} · ${Math.round(syncPercent)}%`
-                                            : 'Preparing…'
+                                            : t('admin.ephemeris.labels.preparing')
                                         : `${freshnessPercent}%`}
                                 </Typography>
                             </Box>
@@ -444,7 +460,7 @@ export function CelestialEphemerisPage() {
                                 sx={{ height: 3, borderRadius: 999, mb: 0.75 }}
                             />
                             <Stack direction="row" spacing={0.75} alignItems="baseline" sx={{ mb: 1.5 }}>
-                                <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, flexShrink: 0 }}>Output:</Typography>
+                                <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, flexShrink: 0 }}>{t('admin.ephemeris.labels.output')}</Typography>
                                 <Typography variant="caption" color="text.secondary" title={outputMessage} sx={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {outputMessage}
                                 </Typography>
@@ -458,26 +474,26 @@ export function CelestialEphemerisPage() {
                                             <Typography variant="body2">{message.failure.summary}</Typography>
                                             {failureCause ? (
                                                 <Typography variant="body2" sx={{ mt: 0.75 }}>
-                                                    <Box component="span" sx={{ fontWeight: 700 }}>Cause:</Box>{' '}
+                                                    <Box component="span" sx={{ fontWeight: 700 }}>{t('admin.ephemeris.labels.cause')}</Box>{' '}
                                                     {failureCause}
                                                 </Typography>
                                             ) : null}
                                             {failureRetryAt ? (
                                                 <Typography variant="body2">
-                                                    <Box component="span" sx={{ fontWeight: 700 }}>Next connection attempt:</Box>{' '}
-                                                    {formatDateTime(failureRetryAt, timezone, locale)}
+                                                    <Box component="span" sx={{ fontWeight: 700 }}>{t('admin.ephemeris.labels.next_connection_attempt')}</Box>{' '}
+                                                    {formatDateTime(failureRetryAt, timezone, locale, t)}
                                                 </Typography>
                                             ) : null}
                                             {lastFailureAt ? (
                                                 <Typography variant="body2">
-                                                    <Box component="span" sx={{ fontWeight: 700 }}>Last failed attempt:</Box>{' '}
-                                                    {formatDateTime(lastFailureAt, timezone, locale)}
+                                                    <Box component="span" sx={{ fontWeight: 700 }}>{t('admin.ephemeris.labels.last_failed_attempt')}</Box>{' '}
+                                                    {formatDateTime(lastFailureAt, timezone, locale, t)}
                                                 </Typography>
                                             ) : null}
                                             {message.failure.errors.length > 0 ? (
                                                 <Box component="details" sx={{ mt: 1 }}>
                                                     <Box component="summary" sx={{ cursor: 'pointer', fontWeight: 600 }}>
-                                                        Failed targets ({message.failure.errors.length})
+                                                        {t('admin.ephemeris.labels.failed_targets', { count: message.failure.errors.length })}
                                                     </Box>
                                                     <Box component="ul" sx={{ maxHeight: 180, overflowY: 'auto', mt: 0.75, mb: 0, pl: 2.5 }}>
                                                         {message.failure.errors.map((entry, index) => (
@@ -502,9 +518,12 @@ export function CelestialEphemerisPage() {
                                     <Stack direction="row" spacing={1} alignItems="center">
                                         <CloudOffIcon color="error" fontSize="small" />
                                         <Box>
-                                            <Typography variant="body2" color="error.main" fontWeight={600}>NASA JPL Horizons is unavailable</Typography>
+                                            <Typography variant="body2" color="error.main" fontWeight={600}>{t('admin.ephemeris.horizons_unavailable.title')}</Typography>
                                             <Typography variant="caption" color="text.secondary">
-                                                {describeHorizonsFailure(failureReason)} Cached data remains available. Next automatic probe: {formatDateTime(providerStatus.retry_at_utc, timezone, locale)}.
+                                                {t('admin.ephemeris.horizons_unavailable.detail', {
+                                                    cause: describeHorizonsFailure(failureReason, t),
+                                                    value: formatDateTime(providerStatus.retry_at_utc, timezone, locale, t),
+                                                })}
                                             </Typography>
                                         </Box>
                                     </Stack>
@@ -512,19 +531,19 @@ export function CelestialEphemerisPage() {
                             ) : null}
 
                             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
-                                <MetricCard icon={<StorageIcon />} label="Stored snapshots" value={cache.total_snapshots ?? 0} detail={`${cache.distinct_targets ?? 0} targets`} tone="info" />
-                                <MetricCard icon={<CheckCircleOutlineIcon />} label="Fresh snapshots" value={cache.fresh_snapshots ?? 0} detail={`Newest: ${formatDateTime(cache.newest_fetch_at, timezone, locale)}`} tone="success" />
-                                <MetricCard icon={<CloudOffIcon />} label="Expired snapshots" value={cache.expired_snapshots ?? 0} detail={`${cache.error_snapshots ?? 0} with errors`} tone="warning" />
+                                <MetricCard icon={<StorageIcon />} label={t('admin.ephemeris.metrics.stored_snapshots')} value={cache.total_snapshots ?? 0} detail={t('admin.ephemeris.metrics.targets', { count: cache.distinct_targets ?? 0 })} tone="info" />
+                                <MetricCard icon={<CheckCircleOutlineIcon />} label={t('admin.ephemeris.metrics.fresh_snapshots')} value={cache.fresh_snapshots ?? 0} detail={t('admin.ephemeris.metrics.newest', { value: formatDateTime(cache.newest_fetch_at, timezone, locale, t) })} tone="success" />
+                                <MetricCard icon={<CloudOffIcon />} label={t('admin.ephemeris.metrics.expired_snapshots')} value={cache.expired_snapshots ?? 0} detail={t('admin.ephemeris.metrics.with_errors', { count: cache.error_snapshots ?? 0 })} tone="warning" />
                             </Stack>
 
                             <Box sx={{ mt: 2, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
-                                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, mb: 1 }}>Periodic synchronization</Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, mb: 1 }}>{t('admin.ephemeris.periodic.title')}</Typography>
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
-                                    <Box><Typography variant="caption" color="text.secondary">Status</Typography><Box><Chip size="small" color={sync.enabled ? 'success' : 'default'} label={sync.enabled ? 'Enabled' : 'Disabled'} /></Box></Box>
-                                    <Box><Typography variant="caption" color="text.secondary">Interval</Typography><Typography variant="body2">Every {sync.interval_minutes ?? 60} minutes</Typography></Box>
-                                    <Box><Typography variant="caption" color="text.secondary">Past projection</Typography><Typography variant="body2">{sync.past_hours ?? 1} hours</Typography></Box>
-                                    <Box><Typography variant="caption" color="text.secondary">Next cache expiry</Typography><Typography variant="body2">{formatDateTime(cache.next_expiry_at, timezone, locale)}</Typography></Box>
-                                    <Box><Typography variant="caption" color="text.secondary">Last failure</Typography><Typography variant="body2">{formatDateTime(providerStatus.last_failure_at_utc, timezone, locale)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.labels.status')}</Typography><Box><Chip size="small" color={sync.enabled ? 'success' : 'default'} label={sync.enabled ? t('admin.ephemeris.periodic.enabled') : t('admin.ephemeris.periodic.disabled')} /></Box></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.interval')}</Typography><Typography variant="body2">{t('admin.ephemeris.periodic.every_minutes', { count: sync.interval_minutes ?? 60 })}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.past_projection')}</Typography><Typography variant="body2">{t('admin.ephemeris.periodic.hours', { count: sync.past_hours ?? 1 })}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.next_cache_expiry')}</Typography><Typography variant="body2">{formatDateTime(cache.next_expiry_at, timezone, locale, t)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.last_failure')}</Typography><Typography variant="body2">{formatDateTime(providerStatus.last_failure_at_utc, timezone, locale, t)}</Typography></Box>
                                 </Stack>
                             </Box>
                         </>
@@ -538,6 +557,7 @@ export function CelestialEphemerisPage() {
 export function CelestialCatalogPage() {
     const dispatch = useDispatch();
     const { socket } = useSocket();
+    const { t } = useTranslation('celestial');
     const monitored = useSelector((state) => state.celestialMonitored?.monitored || []);
     const [bodies, setBodies] = useState([]);
     const [missions, setMissions] = useState([]);
@@ -556,8 +576,8 @@ export function CelestialCatalogPage() {
         setLoading(true);
         try {
             const [bodyRows, missionRows] = await Promise.all([
-                apiCall(socket, 'get-celestial-body-catalog'),
-                apiCall(socket, 'get-spacecraft-index', { limit: 1000 }),
+                apiCall(socket, 'get-celestial-body-catalog', null, t),
+                apiCall(socket, 'get-spacecraft-index', { limit: 1000 }, t),
                 dispatch(fetchMonitoredCelestial({ socket })).unwrap(),
             ]);
             setBodies((bodyRows || []).filter((body) => body?.monitorable !== false));
@@ -568,7 +588,7 @@ export function CelestialCatalogPage() {
         } finally {
             setLoading(false);
         }
-    }, [dispatch, socket]);
+    }, [dispatch, socket, t]);
 
     useEffect(() => {
         loadCatalog();
@@ -583,10 +603,12 @@ export function CelestialCatalogPage() {
         const bodyRows = bodies.map((body) => ({
             key: `body:${body.body_id}`,
             kind: 'body',
-            name: body.name,
+            name: t(`admin.catalog.bodies.${body.body_id}`, { defaultValue: body.name }),
             identifier: body.body_id,
             type: body.body_type,
-            parent: body.parent_body_id || 'Sun',
+            parent: body.parent_body_id
+                ? t(`admin.catalog.bodies.${body.parent_body_id}`, { defaultValue: body.parent_body_id })
+                : t('admin.catalog.parent_sun'),
             status: 'available',
             raw: body,
         }));
@@ -596,7 +618,7 @@ export function CelestialCatalogPage() {
             name: mission.display_name,
             identifier: mission.command,
             type: 'spacecraft',
-            parent: mission.agency || 'Unknown agency',
+            parent: mission.agency || t('admin.catalog.unknown_agency'),
             status: mission.mission_status || 'unknown',
             raw: mission,
         }));
@@ -609,7 +631,7 @@ export function CelestialCatalogPage() {
             return [row.name, row.identifier, row.type, row.parent, ...aliases]
                 .some((value) => String(value || '').toLowerCase().includes(needle));
         });
-    }, [bodies, kind, missions, search, statusFilter]);
+    }, [bodies, kind, missions, search, statusFilter, t]);
 
     const handleMonitor = async (row) => {
         // State updates do not disable the button until React renders again.
@@ -635,10 +657,18 @@ export function CelestialCatalogPage() {
             if (refreshMonitoredCelestialNow.rejected.match(refreshResult)) {
                 setMessage({
                     severity: 'warning',
-                    text: `${row.name} is monitored, but its first data refresh failed: ${refreshResult.payload || refreshResult.error?.message || 'Unknown error'}`,
+                    text: t('admin.catalog.feedback.first_refresh_failed', {
+                        name: row.name,
+                        error: refreshResult.payload
+                            || refreshResult.error?.message
+                            || t('admin.common.unknown_error'),
+                    }),
                 });
             } else {
-                setMessage({ severity: 'success', text: `${row.name} is now monitored and its data was refreshed.` });
+                setMessage({
+                    severity: 'success',
+                    text: t('admin.catalog.feedback.monitored', { name: row.name }),
+                });
             }
         } catch (error) {
             setMessage({ severity: 'error', text: String(error?.message || error) });
@@ -658,7 +688,10 @@ export function CelestialCatalogPage() {
         setUnmonitorError('');
         try {
             await dispatch(deleteMonitoredCelestial({ socket, ids: [existing.id] })).unwrap();
-            setMessage({ severity: 'success', text: `${row.name} is no longer monitored.` });
+            setMessage({
+                severity: 'success',
+                text: t('admin.catalog.feedback.unmonitored', { name: row.name }),
+            });
             setPendingUnmonitor(null);
         } catch (error) {
             setUnmonitorError(String(error?.message || error));
@@ -672,33 +705,33 @@ export function CelestialCatalogPage() {
     const columns = [
         {
             field: 'name',
-            headerName: 'Name',
+            headerName: t('admin.catalog.columns.name'),
             minWidth: 180,
             flex: 1,
             renderCell: (params) => <Typography variant="body2" fontWeight={500}>{params.value}</Typography>,
         },
         {
             field: 'type',
-            headerName: 'Type',
+            headerName: t('admin.catalog.columns.type'),
             width: 120,
-            renderCell: (params) => <Chip size="small" variant="outlined" label={params.value} />,
+            renderCell: (params) => <Chip size="small" variant="outlined" label={t(`admin.catalog.types.${params.value}`, { defaultValue: params.value })} />,
         },
-        { field: 'parent', headerName: 'Agency / Parent', minWidth: 150, flex: 0.8 },
+        { field: 'parent', headerName: t('admin.catalog.columns.agency_parent'), minWidth: 150, flex: 0.8 },
         {
             field: 'status',
-            headerName: 'Status',
+            headerName: t('admin.catalog.columns.status'),
             width: 120,
             renderCell: (params) => (
                 <Chip
                     size="small"
                     color={params.value === 'active' || params.value === 'available' ? 'success' : 'default'}
-                    label={params.value}
+                    label={t(`admin.catalog.status.${params.value}`, { defaultValue: params.value })}
                 />
             ),
         },
         {
             field: 'identifier',
-            headerName: 'Horizons command / ID',
+            headerName: t('admin.catalog.columns.identifier'),
             minWidth: 190,
             flex: 1,
             renderCell: (params) => <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{params.value}</Typography>,
@@ -735,7 +768,11 @@ export function CelestialCatalogPage() {
                                 ? <DeleteOutlineIcon fontSize="small" sx={{ display: 'block' }} />
                                 : <AddIcon fontSize="small" sx={{ display: 'block' }} />}
                             <Box component="span" sx={{ lineHeight: 1 }}>
-                                {busyKey === params.row.key ? 'Working…' : isMonitored ? 'Unmonitor' : 'Monitor'}
+                                {busyKey === params.row.key
+                                    ? t('admin.catalog.actions.working')
+                                    : isMonitored
+                                        ? t('admin.catalog.actions.unmonitor')
+                                        : t('admin.catalog.actions.monitor')}
                             </Box>
                         </Stack>
                     </Button>
@@ -749,23 +786,23 @@ export function CelestialCatalogPage() {
             {message ? <Alert severity={message.severity} sx={{ mb: 2 }} onClose={() => setMessage(null)}>{message.text}</Alert> : null}
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }}>
                 <FormControl size="small" sx={{ minWidth: 160 }}>
-                    <InputLabel>Catalog</InputLabel>
-                    <Select label="Catalog" value={kind} onChange={(event) => setKind(event.target.value)}>
-                        <MenuItem value="all">All entries</MenuItem>
-                        <MenuItem value="body">Solar bodies</MenuItem>
-                        <MenuItem value="mission">Spacecraft</MenuItem>
+                    <InputLabel>{t('admin.catalog.filters.catalog')}</InputLabel>
+                    <Select label={t('admin.catalog.filters.catalog')} value={kind} onChange={(event) => setKind(event.target.value)}>
+                        <MenuItem value="all">{t('admin.catalog.filters.all_entries')}</MenuItem>
+                        <MenuItem value="body">{t('admin.catalog.filters.solar_bodies')}</MenuItem>
+                        <MenuItem value="mission">{t('admin.catalog.filters.spacecraft')}</MenuItem>
                     </Select>
                 </FormControl>
                 <FormControl size="small" sx={{ minWidth: 160 }} disabled={kind === 'body'}>
-                    <InputLabel>Status</InputLabel>
-                    <Select label="Status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-                        <MenuItem value="all">All statuses</MenuItem>
-                        {statuses.map((status) => <MenuItem key={status} value={status}>{status}</MenuItem>)}
+                    <InputLabel>{t('admin.catalog.filters.status')}</InputLabel>
+                    <Select label={t('admin.catalog.filters.status')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                        <MenuItem value="all">{t('admin.catalog.filters.all_statuses')}</MenuItem>
+                        {statuses.map((status) => <MenuItem key={status} value={status}>{t(`admin.catalog.status.${status}`, { defaultValue: status })}</MenuItem>)}
                     </Select>
                 </FormControl>
                 <TextField
                     size="small"
-                    label="Search catalog"
+                    label={t('admin.catalog.filters.search')}
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                     sx={{ flex: 1, minWidth: 220 }}
@@ -780,13 +817,13 @@ export function CelestialCatalogPage() {
                 pageSizeOptions={[5, 10, 25, 50, 100]}
                 initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
                 disableRowSelectionOnClick
-                localeText={{ noRowsLabel: 'No catalog entries match the filters.' }}
+                localeText={{ noRowsLabel: t('admin.catalog.empty') }}
                 sx={DATA_GRID_SX}
             />
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>{rows.length} entries shown · {monitored.length} monitored</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>{t('admin.catalog.summary', { entries: rows.length, monitored: monitored.length })}</Typography>
             <Alert severity="info" sx={{ mt: 2 }}>
-                <AlertTitle>Celestial Catalog</AlertTitle>
-                Browse solar-system bodies and the built-in spacecraft catalog, then choose what to monitor.
+                <AlertTitle>{t('admin.catalog.info.title')}</AlertTitle>
+                {t('admin.catalog.info.description')}
             </Alert>
 
             <Dialog
@@ -825,14 +862,16 @@ export function CelestialCatalogPage() {
                     >
                         !
                     </Box>
-                    Confirm unmonitor
+                    {t('admin.catalog.confirm.title')}
                 </DialogTitle>
                 <DialogContent sx={{ px: 3, pt: 3, pb: 3 }}>
                     <Typography variant="body1" sx={{ mt: 2, mb: 1 }}>
-                        Stop monitoring <strong>{pendingUnmonitor?.name || 'this target'}</strong>?
+                        {t('admin.catalog.confirm.question', {
+                            target: pendingUnmonitor?.name || t('admin.catalog.confirm.this_target'),
+                        })}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                        It will stop appearing in the Solar System view. You can monitor it again from this catalog later.
+                        {t('admin.catalog.confirm.description')}
                     </Typography>
                     {unmonitorError ? <Alert severity="error" sx={{ mt: 2 }}>{unmonitorError}</Alert> : null}
                 </DialogContent>
@@ -847,7 +886,7 @@ export function CelestialCatalogPage() {
                     }}
                 >
                     <Button variant="outlined" onClick={() => setPendingUnmonitor(null)} disabled={Boolean(busyKey)}>
-                        Cancel
+                        {t('admin.common.cancel')}
                     </Button>
                     <Button
                         variant="contained"
@@ -856,7 +895,7 @@ export function CelestialCatalogPage() {
                         disabled={!pendingUnmonitor || Boolean(busyKey)}
                         onClick={handleConfirmUnmonitor}
                     >
-                        Unmonitor
+                        {t('admin.catalog.actions.unmonitor')}
                     </Button>
                 </DialogActions>
             </Dialog>
@@ -867,6 +906,7 @@ export function CelestialCatalogPage() {
 export function CelestialTargetsPage() {
     const dispatch = useDispatch();
     const { socket } = useSocket();
+    const { t } = useTranslation('celestial');
     const { timezone, locale } = useUserTimeSettings();
     const { monitored = [], loading = false, saveLoading = false } = useSelector((state) => state.celestialMonitored || {});
     const [selected, setSelected] = useState([]);
@@ -936,7 +976,12 @@ export function CelestialTargetsPage() {
                     return next;
                 });
             } else if (action !== 'delete') {
-                setMessage({ severity: 'success', text: `Selected targets ${action}d.` });
+                setMessage({
+                    severity: 'success',
+                    text: t(action === 'enable'
+                        ? 'admin.targets.feedback.selected_enabled'
+                        : 'admin.targets.feedback.selected_disabled'),
+                });
             }
         } catch (error) {
             const errorText = String(error?.message || error);
@@ -956,14 +1001,14 @@ export function CelestialTargetsPage() {
             ? String(editTarget.bodyId || '').trim()
             : String(editTarget?.command || '').trim();
         if (!name || !identifier) {
-            setEditError('Name and target identifier are required.');
+            setEditError(t('admin.targets.errors.name_identifier_required'));
             return;
         }
         try {
             await dispatch(updateMonitoredCelestial({ socket, entry: editTarget })).unwrap();
             setEditTarget(null);
             setEditError('');
-            setMessage({ severity: 'success', text: 'Target updated.' });
+            setMessage({ severity: 'success', text: t('admin.targets.feedback.updated') });
         } catch (error) {
             setEditError(String(error?.message || error));
         }
@@ -973,7 +1018,7 @@ export function CelestialTargetsPage() {
     const columns = [
         {
             field: 'displayName',
-            headerName: 'Target',
+            headerName: t('admin.targets.columns.target'),
             minWidth: 220,
             flex: 1.2,
             renderCell: (params) => (
@@ -991,7 +1036,7 @@ export function CelestialTargetsPage() {
                                 fontStyle: (params.row.targetType === 'body' ? params.row.bodyId : params.row.command) ? 'normal' : 'italic',
                             }}
                         >
-                            {(params.row.targetType === 'body' ? params.row.bodyId : params.row.command) || 'N/A'}
+                            {(params.row.targetType === 'body' ? params.row.bodyId : params.row.command) || t('admin.common.not_available')}
                         </Typography>
                     </Box>
                 </Stack>
@@ -999,13 +1044,13 @@ export function CelestialTargetsPage() {
         },
         {
             field: 'targetType',
-            headerName: 'Type',
+            headerName: t('admin.targets.columns.type'),
             width: 110,
-            renderCell: (params) => <Chip size="small" variant="outlined" label={params.value} />,
+            renderCell: (params) => <Chip size="small" variant="outlined" label={t(`common.${params.value}`, { defaultValue: params.value })} />,
         },
         {
             field: 'enabled',
-            headerName: 'Enabled',
+            headerName: t('admin.targets.columns.enabled'),
             width: 95,
             align: 'center',
             headerAlign: 'center',
@@ -1025,33 +1070,33 @@ export function CelestialTargetsPage() {
         },
         {
             field: 'lastRefreshAt',
-            headerName: 'Last refresh',
+            headerName: t('admin.targets.columns.last_refresh'),
             minWidth: 180,
             flex: 0.8,
-            renderCell: (params) => formatDateTime(params.value, timezone, locale),
+            renderCell: (params) => formatDateTime(params.value, timezone, locale, t),
         },
         {
             field: 'lastError',
-            headerName: 'Status',
+            headerName: t('admin.targets.columns.status'),
             width: 135,
             renderCell: (params) => {
                 const refreshState = rowRefreshStates[params.row.id];
                 if (refreshState?.status === 'refreshing') {
-                    return <Chip size="small" color="info" icon={<CircularProgress size={14} color="inherit" />} label="Refreshing" />;
+                    return <Chip size="small" color="info" icon={<CircularProgress size={14} color="inherit" />} label={t('admin.targets.status.refreshing')} />;
                 }
                 if (refreshState?.status === 'success') {
-                    return <Chip size="small" color="success" label="Refreshed" />;
+                    return <Chip size="small" color="success" label={t('admin.targets.status.refreshed')} />;
                 }
                 if (refreshState?.status === 'error') {
-                    return <Tooltip title={refreshState.error || 'Refresh failed'}><Chip size="small" color="error" label="Refresh failed" /></Tooltip>;
+                    return <Tooltip title={refreshState.error || t('admin.targets.status.refresh_failed')}><Chip size="small" color="error" label={t('admin.targets.status.refresh_failed')} /></Tooltip>;
                 }
                 return params.value ? (
-                    <Tooltip title={params.value}><Chip size="small" color="error" label="Error" /></Tooltip>
+                    <Tooltip title={params.value}><Chip size="small" color="error" label={t('common.error')} /></Tooltip>
                 ) : (
                     <Chip
                         size="small"
                         color={params.row.lastRefreshAt ? 'success' : 'warning'}
-                        label={params.row.lastRefreshAt ? 'Ready' : 'Not fetched'}
+                        label={params.row.lastRefreshAt ? t('admin.targets.status.ready') : t('admin.targets.status.not_fetched')}
                     />
                 );
             },
@@ -1067,9 +1112,9 @@ export function CelestialTargetsPage() {
             headerAlign: 'center',
             renderCell: (params) => (
                 <Stack direction="row" spacing={0.25}>
-                    <Tooltip title="Refresh"><span><IconButton size="small" disabled={!socket || busy} onClick={(event) => { event.stopPropagation(); runBulk('refresh', [params.row.id]); }}>{rowRefreshStates[params.row.id]?.status === 'refreshing' ? <CircularProgress size={18} /> : <RefreshIcon fontSize="small" />}</IconButton></span></Tooltip>
-                    <Tooltip title="Edit"><span><IconButton size="small" disabled={!socket || busy} onClick={(event) => { event.stopPropagation(); setEditTarget({ ...params.row }); }}><EditIcon fontSize="small" /></IconButton></span></Tooltip>
-                    <Tooltip title="Delete"><span><IconButton size="small" color="error" disabled={!socket || busy} onClick={(event) => { event.stopPropagation(); setPendingDeleteIds([params.row.id]); }}><DeleteOutlineIcon fontSize="small" /></IconButton></span></Tooltip>
+                    <Tooltip title={t('admin.targets.actions.refresh')}><span><IconButton size="small" disabled={!socket || busy} onClick={(event) => { event.stopPropagation(); runBulk('refresh', [params.row.id]); }}>{rowRefreshStates[params.row.id]?.status === 'refreshing' ? <CircularProgress size={18} /> : <RefreshIcon fontSize="small" />}</IconButton></span></Tooltip>
+                    <Tooltip title={t('admin.targets.actions.edit')}><span><IconButton size="small" disabled={!socket || busy} onClick={(event) => { event.stopPropagation(); setEditTarget({ ...params.row }); }}><EditIcon fontSize="small" /></IconButton></span></Tooltip>
+                    <Tooltip title={t('admin.targets.actions.delete')}><span><IconButton size="small" color="error" disabled={!socket || busy} onClick={(event) => { event.stopPropagation(); setPendingDeleteIds([params.row.id]); }}><DeleteOutlineIcon fontSize="small" /></IconButton></span></Tooltip>
                 </Stack>
             ),
         },
@@ -1078,7 +1123,7 @@ export function CelestialTargetsPage() {
     return (
         <Paper elevation={3} sx={PAGE_PAPER_SX}>
             {message ? <Alert severity={message.severity} sx={{ mb: 2 }} onClose={() => setMessage(null)}>{message.text}</Alert> : null}
-            <TextField size="small" label="Search targets" value={search} onChange={(event) => setSearch(event.target.value)} sx={{ mb: 2, minWidth: { xs: '100%', sm: 320 } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }} />
+            <TextField size="small" label={t('admin.targets.search')} value={search} onChange={(event) => setSearch(event.target.value)} sx={{ mb: 2, minWidth: { xs: '100%', sm: 320 } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }} />
             <DataGrid
                 loading={loading}
                 rows={rows}
@@ -1089,33 +1134,33 @@ export function CelestialTargetsPage() {
                 checkboxSelection
                 rowSelectionModel={rowSelectionModel}
                 onRowSelectionModelChange={(model) => setSelected(toSelectedIds(model))}
-                localeText={{ noRowsLabel: 'No monitored targets found.' }}
+                localeText={{ noRowsLabel: t('admin.targets.empty') }}
                 sx={DATA_GRID_SX}
             />
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
-                <ResponsiveActionButton label="Refresh selected" icon={<RefreshIcon />} variant="contained" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('refresh')} />
-                <ResponsiveActionButton label="Enable" icon={<ToggleOnIcon />} variant="outlined" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('enable')} />
-                <ResponsiveActionButton label="Disable" icon={<ToggleOffIcon />} variant="outlined" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('disable')} />
-                <ResponsiveActionButton label="Delete" icon={<DeleteOutlineIcon />} variant="contained" color="error" disabled={!socket || busy || selected.length === 0} onClick={() => setPendingDeleteIds(selected)} />
-                <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center', ml: { sm: 'auto' } }}>{selected.length} selected</Typography>
+                <ResponsiveActionButton label={t('admin.targets.actions.refresh_selected')} icon={<RefreshIcon />} variant="contained" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('refresh')} />
+                <ResponsiveActionButton label={t('admin.targets.actions.enable')} icon={<ToggleOnIcon />} variant="outlined" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('enable')} />
+                <ResponsiveActionButton label={t('admin.targets.actions.disable')} icon={<ToggleOffIcon />} variant="outlined" disabled={!socket || busy || selected.length === 0} onClick={() => runBulk('disable')} />
+                <ResponsiveActionButton label={t('admin.targets.actions.delete')} icon={<DeleteOutlineIcon />} variant="contained" color="error" disabled={!socket || busy || selected.length === 0} onClick={() => setPendingDeleteIds(selected)} />
+                <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center', ml: { sm: 'auto' } }}>{t('admin.targets.selected_count', { count: selected.length })}</Typography>
             </Stack>
             <Alert severity="info" sx={{ mt: 2 }}>
-                <AlertTitle>Monitored Celestial Targets</AlertTitle>
-                Enable, refresh, edit, and remove the bodies and spacecraft used by the Solar System view.
+                <AlertTitle>{t('admin.targets.info.title')}</AlertTitle>
+                {t('admin.targets.info.description')}
             </Alert>
 
             <Dialog open={Boolean(editTarget)} onClose={() => setEditTarget(null)} maxWidth="sm" fullWidth>
-                <DialogTitle>Edit celestial target</DialogTitle>
+                <DialogTitle>{t('admin.targets.edit.title')}</DialogTitle>
                 <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
-                    <TextField label="Display name" size="small" value={editTarget?.displayName || ''} onChange={(event) => setEditTarget((current) => ({ ...current, displayName: event.target.value }))} />
-                    <TextField label={editTarget?.targetType === 'body' ? 'Body ID' : 'Horizons command'} size="small" value={editTarget?.targetType === 'body' ? editTarget?.bodyId || '' : editTarget?.command || ''} onChange={(event) => setEditTarget((current) => ({ ...current, [current.targetType === 'body' ? 'bodyId' : 'command']: event.target.value }))} />
+                    <TextField label={t('admin.targets.edit.display_name')} size="small" value={editTarget?.displayName || ''} onChange={(event) => setEditTarget((current) => ({ ...current, displayName: event.target.value }))} />
+                    <TextField label={editTarget?.targetType === 'body' ? t('admin.targets.edit.body_id') : t('admin.targets.edit.horizons_command')} size="small" value={editTarget?.targetType === 'body' ? editTarget?.bodyId || '' : editTarget?.command || ''} onChange={(event) => setEditTarget((current) => ({ ...current, [current.targetType === 'body' ? 'bodyId' : 'command']: event.target.value }))} />
                     <Stack direction="row" spacing={1} alignItems="center">
-                        <TextField label="Color" size="small" value={editTarget?.color || ''} onChange={(event) => setEditTarget((current) => ({ ...current, color: event.target.value }))} sx={{ flex: 1 }} />
-                        <input type="color" aria-label="Pick target color" value={/^#[0-9a-f]{6}$/i.test(editTarget?.color || '') ? editTarget.color : '#06D6A0'} onChange={(event) => setEditTarget((current) => ({ ...current, color: event.target.value.toUpperCase() }))} style={{ width: 44, height: 36 }} />
+                        <TextField label={t('admin.targets.edit.color')} size="small" value={editTarget?.color || ''} onChange={(event) => setEditTarget((current) => ({ ...current, color: event.target.value }))} sx={{ flex: 1 }} />
+                        <input type="color" aria-label={t('admin.targets.edit.pick_color')} value={/^#[0-9a-f]{6}$/i.test(editTarget?.color || '') ? editTarget.color : '#06D6A0'} onChange={(event) => setEditTarget((current) => ({ ...current, color: event.target.value.toUpperCase() }))} style={{ width: 44, height: 36 }} />
                     </Stack>
                     {editError ? <Alert severity="error">{editError}</Alert> : null}
                 </Stack></DialogContent>
-                <DialogActions><Button onClick={() => setEditTarget(null)}>Cancel</Button><Button variant="contained" onClick={handleSaveEdit} disabled={saveLoading}>Save</Button></DialogActions>
+                <DialogActions><Button onClick={() => setEditTarget(null)}>{t('admin.common.cancel')}</Button><Button variant="contained" onClick={handleSaveEdit} disabled={saveLoading}>{t('admin.common.save')}</Button></DialogActions>
             </Dialog>
 
             <Dialog
@@ -1154,16 +1199,14 @@ export function CelestialTargetsPage() {
                     >
                         !
                     </Box>
-                    Confirm target deletion
+                    {t('admin.targets.delete.title')}
                 </DialogTitle>
                 <DialogContent sx={{ px: 3, pt: 3, pb: 3 }}>
                     <Typography variant="body1" sx={{ mt: 2, mb: 1 }}>
-                        {pendingDeleteIds.length === 1
-                            ? 'This target will be removed from the monitored list.'
-                            : `${pendingDeleteIds.length} targets will be removed from the monitored list.`}
+                        {t('admin.targets.delete.remove_count', { count: pendingDeleteIds.length })}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                        Deleted targets stop appearing in the Solar System view. You can monitor them again from the Celestial Catalog.
+                        {t('admin.targets.delete.description')}
                     </Typography>
                 </DialogContent>
                 <DialogActions
@@ -1176,7 +1219,7 @@ export function CelestialTargetsPage() {
                         gap: 1,
                     }}
                 >
-                    <Button variant="outlined" onClick={() => setPendingDeleteIds([])} disabled={busy}>Cancel</Button>
+                    <Button variant="outlined" onClick={() => setPendingDeleteIds([])} disabled={busy}>{t('admin.common.cancel')}</Button>
                     <Button
                         variant="contained"
                         color="error"
@@ -1188,7 +1231,7 @@ export function CelestialTargetsPage() {
                             await runBulk('delete', ids);
                         }}
                     >
-                        Delete
+                        {t('admin.targets.actions.delete')}
                     </Button>
                 </DialogActions>
             </Dialog>

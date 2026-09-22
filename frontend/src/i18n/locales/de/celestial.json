@@ -481,5 +481,76 @@
       "fallback": "Mondphase",
       "description": "{{label}}, {{percent}}% beleuchtet"
     }
+  },
+  "admin": {
+    "common": {
+      "no_backend_connection": "Keine aktive Backend-Verbindung.",
+      "unknown_error": "Unbekannter Fehler",
+      "unknown_target": "Unbekanntes Ziel",
+      "not_available": "k. A.",
+      "cancel": "Abbrechen",
+      "save": "Speichern"
+    },
+    "ephemeris": {
+      "title": "Himmelsephemeriden synchronisieren",
+      "subtitle": "Himmelsvektoren von {{provider}} aktualisieren.",
+      "actions": { "synchronize_now": "Jetzt synchronisieren" },
+      "labels": {
+        "status": "Status",
+        "last_update": "Letzte Aktualisierung: {{value}}",
+        "synchronization_progress": "Synchronisierungsfortschritt",
+        "cache_freshness": "Cache-Aktualität",
+        "preparing": "Wird vorbereitet…",
+        "output": "Ausgabe:"
+      },
+      "status": {
+        "running": "Läuft",
+        "completed": "Abgeschlossen",
+        "action_required": "Aktion erforderlich",
+        "idle": "Leerlauf"
+      }
+    },
+    "catalog": {
+      "columns": {
+        "name": "Name",
+        "type": "Typ",
+        "agency_parent": "Agentur / Übergeordnet",
+        "status": "Status",
+        "identifier": "Horizons-Befehl / ID"
+      },
+      "actions": { "working": "Wird ausgeführt…", "monitor": "Überwachen", "unmonitor": "Überwachung beenden" },
+      "filters": {
+        "catalog": "Katalog",
+        "all_entries": "Alle Einträge",
+        "solar_bodies": "Himmelskörper",
+        "spacecraft": "Raumsonden",
+        "status": "Status",
+        "all_statuses": "Alle Status",
+        "search": "Katalog durchsuchen"
+      },
+      "empty": "Keine Katalogeinträge entsprechen den Filtern.",
+      "info": {
+        "title": "Himmelskatalog",
+        "description": "Durchsuchen Sie Himmelskörper und Raumsonden und wählen Sie die zu überwachenden Ziele aus."
+      },
+      "confirm": {
+        "title": "Überwachungsende bestätigen",
+        "question": "Überwachung von {{target}} beenden?",
+        "this_target": "diesem Ziel",
+        "description": "Das Ziel wird nicht mehr in der Sonnensystemansicht angezeigt und kann später erneut überwacht werden."
+      }
+    },
+    "targets": {
+      "columns": { "target": "Ziel", "type": "Typ", "enabled": "Aktiviert", "last_refresh": "Letzte Aktualisierung", "status": "Status" },
+      "status": { "refreshing": "Wird aktualisiert", "refreshed": "Aktualisiert", "refresh_failed": "Aktualisierung fehlgeschlagen", "ready": "Bereit", "not_fetched": "Nicht abgerufen" },
+      "actions": { "refresh": "Aktualisieren", "edit": "Bearbeiten", "delete": "Löschen", "refresh_selected": "Ausgewählte aktualisieren", "enable": "Aktivieren", "disable": "Deaktivieren" },
+      "search": "Ziele durchsuchen",
+      "empty": "Keine überwachten Ziele gefunden.",
+      "selected_count_one": "{{count}} ausgewählt",
+      "selected_count_other": "{{count}} ausgewählt",
+      "info": { "title": "Überwachte Himmelsziele", "description": "Verwalten Sie die Himmelskörper und Raumsonden der Sonnensystemansicht." },
+      "edit": { "title": "Himmelsziel bearbeiten", "display_name": "Anzeigename", "body_id": "Körper-ID", "horizons_command": "Horizons-Befehl", "color": "Farbe", "pick_color": "Zielfarbe auswählen" },
+      "delete": { "title": "Löschen des Ziels bestätigen", "remove_count_one": "Dieses Ziel wird aus der Überwachungsliste entfernt.", "remove_count_other": "{{count}} Ziele werden aus der Überwachungsliste entfernt.", "description": "Gelöschte Ziele werden nicht mehr in der Sonnensystemansicht angezeigt." }
+    }
   }
 }

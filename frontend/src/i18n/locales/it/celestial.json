@@ -480,5 +480,42 @@
       "fallback": "Fase lunare",
       "description": "{{label}}, {{percent}}% illuminato"
     }
+  },
+  "admin": {
+    "common": {
+      "no_backend_connection": "Nessuna connessione attiva al backend.",
+      "unknown_error": "Errore sconosciuto",
+      "unknown_target": "Obiettivo sconosciuto",
+      "not_available": "N/D",
+      "cancel": "Annulla",
+      "save": "Salva"
+    },
+    "ephemeris": {
+      "title": "Sincronizza effemeridi celesti",
+      "subtitle": "Aggiorna i vettori celesti da {{provider}}.",
+      "actions": { "synchronize_now": "Sincronizza ora" },
+      "labels": { "status": "Stato", "last_update": "Ultimo aggiornamento: {{value}}", "synchronization_progress": "Avanzamento sincronizzazione", "cache_freshness": "Validità cache", "preparing": "Preparazione…", "output": "Output:" },
+      "status": { "running": "In corso", "completed": "Completato", "action_required": "Azione richiesta", "idle": "Inattivo" }
+    },
+    "catalog": {
+      "columns": { "name": "Nome", "type": "Tipo", "agency_parent": "Agenzia / Corpo principale", "status": "Stato", "identifier": "Comando Horizons / ID" },
+      "actions": { "working": "Elaborazione…", "monitor": "Monitora", "unmonitor": "Interrompi monitoraggio" },
+      "filters": { "catalog": "Catalogo", "all_entries": "Tutte le voci", "solar_bodies": "Corpi del sistema solare", "spacecraft": "Veicoli spaziali", "status": "Stato", "all_statuses": "Tutti gli stati", "search": "Cerca nel catalogo" },
+      "empty": "Nessuna voce corrisponde ai filtri.",
+      "info": { "title": "Catalogo celeste", "description": "Esplora i corpi del sistema solare e i veicoli spaziali, quindi scegli cosa monitorare." },
+      "confirm": { "title": "Conferma interruzione monitoraggio", "question": "Interrompere il monitoraggio di {{target}}?", "this_target": "questo obiettivo", "description": "Non apparirà più nella vista del Sistema Solare e potrà essere monitorato nuovamente in seguito." }
+    },
+    "targets": {
+      "columns": { "target": "Obiettivo", "type": "Tipo", "enabled": "Attivo", "last_refresh": "Ultimo aggiornamento", "status": "Stato" },
+      "status": { "refreshing": "Aggiornamento", "refreshed": "Aggiornato", "refresh_failed": "Aggiornamento non riuscito", "ready": "Pronto", "not_fetched": "Non recuperato" },
+      "actions": { "refresh": "Aggiorna", "edit": "Modifica", "delete": "Elimina", "refresh_selected": "Aggiorna selezionati", "enable": "Attiva", "disable": "Disattiva" },
+      "search": "Cerca obiettivi",
+      "empty": "Nessun obiettivo monitorato trovato.",
+      "selected_count_one": "{{count}} selezionato",
+      "selected_count_other": "{{count}} selezionati",
+      "info": { "title": "Obiettivi celesti monitorati", "description": "Gestisci i corpi e i veicoli spaziali usati nella vista del Sistema Solare." },
+      "edit": { "title": "Modifica obiettivo celeste", "display_name": "Nome visualizzato", "body_id": "ID corpo", "horizons_command": "Comando Horizons", "color": "Colore", "pick_color": "Scegli il colore dell'obiettivo" },
+      "delete": { "title": "Conferma eliminazione obiettivo", "remove_count_one": "Questo obiettivo verrà rimosso dall'elenco monitorato.", "remove_count_other": "{{count}} obiettivi verranno rimossi dall'elenco monitorato.", "description": "Gli obiettivi eliminati non appariranno più nella vista del Sistema Solare." }
+    }
   }
 }

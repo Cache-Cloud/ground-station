@@ -481,5 +481,42 @@
       "fallback": "Phase de lune",
       "description": "{{label}}, {{percent}}% allumé"
     }
+  },
+  "admin": {
+    "common": {
+      "no_backend_connection": "Aucune connexion active au backend.",
+      "unknown_error": "Erreur inconnue",
+      "unknown_target": "Cible inconnue",
+      "not_available": "N/D",
+      "cancel": "Annuler",
+      "save": "Enregistrer"
+    },
+    "ephemeris": {
+      "title": "Synchroniser les éphémérides célestes",
+      "subtitle": "Actualiser les vecteurs célestes depuis {{provider}}.",
+      "actions": { "synchronize_now": "Synchroniser maintenant" },
+      "labels": { "status": "État", "last_update": "Dernière mise à jour : {{value}}", "synchronization_progress": "Progression de la synchronisation", "cache_freshness": "Fraîcheur du cache", "preparing": "Préparation…", "output": "Sortie :" },
+      "status": { "running": "En cours", "completed": "Terminé", "action_required": "Action requise", "idle": "Inactif" }
+    },
+    "catalog": {
+      "columns": { "name": "Nom", "type": "Type", "agency_parent": "Agence / Corps parent", "status": "État", "identifier": "Commande Horizons / ID" },
+      "actions": { "working": "Traitement…", "monitor": "Surveiller", "unmonitor": "Arrêter la surveillance" },
+      "filters": { "catalog": "Catalogue", "all_entries": "Toutes les entrées", "solar_bodies": "Corps du système solaire", "spacecraft": "Sondes spatiales", "status": "État", "all_statuses": "Tous les états", "search": "Rechercher dans le catalogue" },
+      "empty": "Aucune entrée ne correspond aux filtres.",
+      "info": { "title": "Catalogue céleste", "description": "Parcourez les corps du système solaire et les sondes, puis choisissez les cibles à surveiller." },
+      "confirm": { "title": "Confirmer l'arrêt de la surveillance", "question": "Arrêter de surveiller {{target}} ?", "this_target": "cette cible", "description": "La cible n'apparaîtra plus dans la vue du Système solaire et pourra être surveillée à nouveau plus tard." }
+    },
+    "targets": {
+      "columns": { "target": "Cible", "type": "Type", "enabled": "Activé", "last_refresh": "Dernière actualisation", "status": "État" },
+      "status": { "refreshing": "Actualisation", "refreshed": "Actualisé", "refresh_failed": "Échec de l'actualisation", "ready": "Prêt", "not_fetched": "Non récupéré" },
+      "actions": { "refresh": "Actualiser", "edit": "Modifier", "delete": "Supprimer", "refresh_selected": "Actualiser la sélection", "enable": "Activer", "disable": "Désactiver" },
+      "search": "Rechercher des cibles",
+      "empty": "Aucune cible surveillée trouvée.",
+      "selected_count_one": "{{count}} sélectionnée",
+      "selected_count_other": "{{count}} sélectionnées",
+      "info": { "title": "Cibles célestes surveillées", "description": "Gérez les corps et sondes utilisés dans la vue du Système solaire." },
+      "edit": { "title": "Modifier la cible céleste", "display_name": "Nom affiché", "body_id": "ID du corps", "horizons_command": "Commande Horizons", "color": "Couleur", "pick_color": "Choisir la couleur de la cible" },
+      "delete": { "title": "Confirmer la suppression", "remove_count_one": "Cette cible sera retirée de la liste surveillée.", "remove_count_other": "{{count}} cibles seront retirées de la liste surveillée.", "description": "Les cibles supprimées n'apparaîtront plus dans la vue du Système solaire." }
+    }
   }
 }

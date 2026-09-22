@@ -481,5 +481,42 @@
       "fallback": "fase lunar",
       "description": "{{label}}, {{percent}}% iluminado"
     }
+  },
+  "admin": {
+    "common": {
+      "no_backend_connection": "No hay conexión activa con el backend.",
+      "unknown_error": "Error desconocido",
+      "unknown_target": "Objetivo desconocido",
+      "not_available": "N/D",
+      "cancel": "Cancelar",
+      "save": "Guardar"
+    },
+    "ephemeris": {
+      "title": "Sincronizar efemérides celestes",
+      "subtitle": "Actualizar vectores celestes desde {{provider}}.",
+      "actions": { "synchronize_now": "Sincronizar ahora" },
+      "labels": { "status": "Estado", "last_update": "Última actualización: {{value}}", "synchronization_progress": "Progreso de sincronización", "cache_freshness": "Vigencia de la caché", "preparing": "Preparando…", "output": "Salida:" },
+      "status": { "running": "En curso", "completed": "Completado", "action_required": "Acción requerida", "idle": "Inactivo" }
+    },
+    "catalog": {
+      "columns": { "name": "Nombre", "type": "Tipo", "agency_parent": "Agencia / Cuerpo principal", "status": "Estado", "identifier": "Comando Horizons / ID" },
+      "actions": { "working": "Procesando…", "monitor": "Monitorizar", "unmonitor": "Dejar de monitorizar" },
+      "filters": { "catalog": "Catálogo", "all_entries": "Todas las entradas", "solar_bodies": "Cuerpos del sistema solar", "spacecraft": "Naves espaciales", "status": "Estado", "all_statuses": "Todos los estados", "search": "Buscar en el catálogo" },
+      "empty": "Ninguna entrada coincide con los filtros.",
+      "info": { "title": "Catálogo celeste", "description": "Explore cuerpos del sistema solar y naves espaciales y elija qué monitorizar." },
+      "confirm": { "title": "Confirmar fin de monitorización", "question": "¿Dejar de monitorizar {{target}}?", "this_target": "este objetivo", "description": "Dejará de aparecer en la vista del Sistema Solar y podrá monitorizarse de nuevo más adelante." }
+    },
+    "targets": {
+      "columns": { "target": "Objetivo", "type": "Tipo", "enabled": "Activado", "last_refresh": "Última actualización", "status": "Estado" },
+      "status": { "refreshing": "Actualizando", "refreshed": "Actualizado", "refresh_failed": "Error al actualizar", "ready": "Listo", "not_fetched": "No obtenido" },
+      "actions": { "refresh": "Actualizar", "edit": "Editar", "delete": "Eliminar", "refresh_selected": "Actualizar seleccionados", "enable": "Activar", "disable": "Desactivar" },
+      "search": "Buscar objetivos",
+      "empty": "No se encontraron objetivos monitorizados.",
+      "selected_count_one": "{{count}} seleccionado",
+      "selected_count_other": "{{count}} seleccionados",
+      "info": { "title": "Objetivos celestes monitorizados", "description": "Gestione los cuerpos y naves espaciales usados en la vista del Sistema Solar." },
+      "edit": { "title": "Editar objetivo celeste", "display_name": "Nombre visible", "body_id": "ID del cuerpo", "horizons_command": "Comando Horizons", "color": "Color", "pick_color": "Elegir color del objetivo" },
+      "delete": { "title": "Confirmar eliminación del objetivo", "remove_count_one": "Este objetivo se eliminará de la lista monitorizada.", "remove_count_other": "Se eliminarán {{count}} objetivos de la lista monitorizada.", "description": "Los objetivos eliminados dejarán de aparecer en la vista del Sistema Solar." }
+    }
   }
 }

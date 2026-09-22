@@ -481,5 +481,42 @@
       "fallback": "Maanfase",
       "description": "{{label}}, {{percent}}% verlicht"
     }
+  },
+  "admin": {
+    "common": {
+      "no_backend_connection": "Geen actieve backendverbinding.",
+      "unknown_error": "Onbekende fout",
+      "unknown_target": "Onbekend doel",
+      "not_available": "N.v.t.",
+      "cancel": "Annuleren",
+      "save": "Opslaan"
+    },
+    "ephemeris": {
+      "title": "Hemelefemeriden synchroniseren",
+      "subtitle": "Hemelvectoren vernieuwen vanuit {{provider}}.",
+      "actions": { "synchronize_now": "Nu synchroniseren" },
+      "labels": { "status": "Status", "last_update": "Laatst bijgewerkt: {{value}}", "synchronization_progress": "Synchronisatievoortgang", "cache_freshness": "Cacheversheid", "preparing": "Voorbereiden…", "output": "Uitvoer:" },
+      "status": { "running": "Bezig", "completed": "Voltooid", "action_required": "Actie vereist", "idle": "Inactief" }
+    },
+    "catalog": {
+      "columns": { "name": "Naam", "type": "Type", "agency_parent": "Agentschap / Hoofdlichaam", "status": "Status", "identifier": "Horizons-opdracht / ID" },
+      "actions": { "working": "Bezig…", "monitor": "Volgen", "unmonitor": "Stoppen met volgen" },
+      "filters": { "catalog": "Catalogus", "all_entries": "Alle vermeldingen", "solar_bodies": "Zonnestelsellichamen", "spacecraft": "Ruimtesondes", "status": "Status", "all_statuses": "Alle statussen", "search": "Catalogus doorzoeken" },
+      "empty": "Geen catalogusvermeldingen passen bij de filters.",
+      "info": { "title": "Hemelcatalogus", "description": "Bekijk zonnestelsellichamen en ruimtesondes en kies wat u wilt volgen." },
+      "confirm": { "title": "Stoppen met volgen bevestigen", "question": "Stoppen met het volgen van {{target}}?", "this_target": "dit doel", "description": "Het doel verdwijnt uit de zonnestelselweergave en kan later opnieuw worden gevolgd." }
+    },
+    "targets": {
+      "columns": { "target": "Doel", "type": "Type", "enabled": "Ingeschakeld", "last_refresh": "Laatste vernieuwing", "status": "Status" },
+      "status": { "refreshing": "Vernieuwen", "refreshed": "Vernieuwd", "refresh_failed": "Vernieuwen mislukt", "ready": "Gereed", "not_fetched": "Niet opgehaald" },
+      "actions": { "refresh": "Vernieuwen", "edit": "Bewerken", "delete": "Verwijderen", "refresh_selected": "Selectie vernieuwen", "enable": "Inschakelen", "disable": "Uitschakelen" },
+      "search": "Doelen zoeken",
+      "empty": "Geen gevolgde doelen gevonden.",
+      "selected_count_one": "{{count}} geselecteerd",
+      "selected_count_other": "{{count}} geselecteerd",
+      "info": { "title": "Gevolgde hemelobjecten", "description": "Beheer de lichamen en ruimtesondes in de zonnestelselweergave." },
+      "edit": { "title": "Hemeldoel bewerken", "display_name": "Weergavenaam", "body_id": "Lichaam-ID", "horizons_command": "Horizons-opdracht", "color": "Kleur", "pick_color": "Doelkleur kiezen" },
+      "delete": { "title": "Verwijderen van doel bevestigen", "remove_count_one": "Dit doel wordt uit de volglijst verwijderd.", "remove_count_other": "{{count}} doelen worden uit de volglijst verwijderd.", "description": "Verwijderde doelen verschijnen niet meer in de zonnestelselweergave." }
+    }
   }
 }

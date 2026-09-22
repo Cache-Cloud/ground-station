@@ -508,5 +508,242 @@
       "fallback": "Moon Phase",
       "description": "{{label}}, {{percent}}% illuminated"
     }
+  },
+  "admin": {
+    "common": {
+      "no_backend_connection": "No active backend connection.",
+      "command_failed": "Command {{command}} failed.",
+      "unknown_error": "Unknown error",
+      "unknown_target": "Unknown target",
+      "not_available": "N/A",
+      "cancel": "Cancel",
+      "save": "Save"
+    },
+    "ephemeris": {
+      "title": "Synchronize Celestial Ephemeris",
+      "subtitle": "Refresh celestial vectors from {{provider}}.",
+      "actions": {
+        "synchronize_now": "Synchronize now"
+      },
+      "labels": {
+        "status": "Status",
+        "last_update": "Last update: {{value}}",
+        "synchronization_progress": "Synchronization progress",
+        "cache_freshness": "Cache freshness",
+        "preparing": "Preparing…",
+        "output": "Output:",
+        "cause": "Cause:",
+        "next_connection_attempt": "Next connection attempt:",
+        "last_failed_attempt": "Last failed attempt:",
+        "failed_targets_one": "Failed targets ({{count}})",
+        "failed_targets_other": "Failed targets ({{count}})"
+      },
+      "status": {
+        "running": "Running",
+        "completed": "Completed",
+        "action_required": "Action required",
+        "idle": "Idle"
+      },
+      "output": {
+        "processed_target": "Processed {{target}} ({{processed}}/{{total}})",
+        "processing_target": "Processing {{target}} ({{processed}}/{{total}})",
+        "preparing_sync": "Preparing celestial ephemeris synchronization…",
+        "stopped_with_errors": "Synchronization stopped with errors. See details below.",
+        "cache_ready": "Ephemeris cache is ready.",
+        "using_cached_data": "Using cached ephemeris data while Horizons is unavailable.",
+        "ready": "Ready to synchronize ephemeris data."
+      },
+      "horizons_unavailable": {
+        "title": "NASA JPL Horizons is unavailable",
+        "detail": "{{cause}} Cached data remains available. Next automatic probe: {{value}}."
+      },
+      "metrics": {
+        "stored_snapshots": "Stored snapshots",
+        "targets_one": "{{count}} target",
+        "targets_other": "{{count}} targets",
+        "fresh_snapshots": "Fresh snapshots",
+        "newest": "Newest: {{value}}",
+        "expired_snapshots": "Expired snapshots",
+        "with_errors_one": "{{count}} with errors",
+        "with_errors_other": "{{count}} with errors"
+      },
+      "periodic": {
+        "title": "Periodic synchronization",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "interval": "Interval",
+        "every_minutes_one": "Every {{count}} minute",
+        "every_minutes_other": "Every {{count}} minutes",
+        "past_projection": "Past projection",
+        "hours_one": "{{count}} hour",
+        "hours_other": "{{count}} hours",
+        "next_cache_expiry": "Next cache expiry",
+        "last_failure": "Last failure"
+      },
+      "failure": {
+        "default_summary": "The ephemeris synchronization could not be completed.",
+        "count_summary": "{{refreshed}} of {{total}} targets refreshed; {{failed}} failed. Existing cached snapshots were left available.",
+        "connection_title": "Could not reach NASA JPL Horizons",
+        "incomplete_title": "Ephemeris synchronization incomplete",
+        "reasons": {
+          "default": "NASA JPL Horizons could not complete the request.",
+          "unavailable": "NASA JPL Horizons is temporarily unavailable.",
+          "connect_timeout": "The connection to NASA JPL Horizons timed out.",
+          "read_timeout": "NASA JPL Horizons did not respond before the request timed out.",
+          "dns_failure": "The backend could not resolve ssd.jpl.nasa.gov.",
+          "connection_failure": "The backend could not establish a network connection to ssd.jpl.nasa.gov.",
+          "tls_failure": "The secure connection to NASA JPL Horizons could not be established.",
+          "rate_limited": "NASA JPL Horizons is temporarily rate limiting requests.",
+          "server_error": "NASA JPL Horizons returned a server error.",
+          "invalid_response": "NASA JPL Horizons returned an invalid response.",
+          "invalid_target": "One or more targets do not have a valid Horizons command.",
+          "target_error": "NASA JPL Horizons did not return usable ephemeris data for one or more targets."
+        }
+      }
+    },
+    "catalog": {
+      "parent_sun": "Sun",
+      "unknown_agency": "Unknown agency",
+      "feedback": {
+        "first_refresh_failed": "{{name}} is monitored, but its first data refresh failed: {{error}}",
+        "monitored": "{{name}} is now monitored and its data was refreshed.",
+        "unmonitored": "{{name}} is no longer monitored."
+      },
+      "columns": {
+        "name": "Name",
+        "type": "Type",
+        "agency_parent": "Agency / Parent",
+        "status": "Status",
+        "identifier": "Horizons command / ID"
+      },
+      "types": {
+        "star": "Star",
+        "planet": "Planet",
+        "moon": "Moon",
+        "dwarf-planet": "Dwarf planet",
+        "spacecraft": "Spacecraft"
+      },
+      "status": {
+        "available": "Available",
+        "active": "Active",
+        "completed": "Completed",
+        "failed": "Failed",
+        "unknown": "Unknown"
+      },
+      "actions": {
+        "working": "Working…",
+        "monitor": "Monitor",
+        "unmonitor": "Unmonitor"
+      },
+      "filters": {
+        "catalog": "Catalog",
+        "all_entries": "All entries",
+        "solar_bodies": "Solar bodies",
+        "spacecraft": "Spacecraft",
+        "status": "Status",
+        "all_statuses": "All statuses",
+        "search": "Search catalog"
+      },
+      "empty": "No catalog entries match the filters.",
+      "summary": "{{entries}} entries shown · {{monitored}} monitored",
+      "info": {
+        "title": "Celestial Catalog",
+        "description": "Browse solar-system bodies and the built-in spacecraft catalog, then choose what to monitor."
+      },
+      "confirm": {
+        "title": "Confirm unmonitor",
+        "question": "Stop monitoring {{target}}?",
+        "this_target": "this target",
+        "description": "It will stop appearing in the Solar System view. You can monitor it again from this catalog later."
+      },
+      "bodies": {
+        "sun": "Sun",
+        "mercury": "Mercury",
+        "venus": "Venus",
+        "earth": "Earth",
+        "moon": "Moon",
+        "mars": "Mars",
+        "ceres": "Ceres",
+        "jupiter": "Jupiter",
+        "io": "Io",
+        "europa": "Europa",
+        "ganymede": "Ganymede",
+        "callisto": "Callisto",
+        "saturn": "Saturn",
+        "enceladus": "Enceladus",
+        "rhea": "Rhea",
+        "titan": "Titan",
+        "iapetus": "Iapetus",
+        "uranus": "Uranus",
+        "miranda": "Miranda",
+        "ariel": "Ariel",
+        "umbriel": "Umbriel",
+        "titania": "Titania",
+        "oberon": "Oberon",
+        "neptune": "Neptune",
+        "triton": "Triton",
+        "nereid": "Nereid",
+        "proteus": "Proteus",
+        "pluto": "Pluto",
+        "charon": "Charon",
+        "haumea": "Haumea",
+        "makemake": "Makemake",
+        "eris": "Eris"
+      }
+    },
+    "targets": {
+      "feedback": {
+        "selected_enabled": "Selected targets enabled.",
+        "selected_disabled": "Selected targets disabled.",
+        "updated": "Target updated."
+      },
+      "errors": {
+        "name_identifier_required": "Name and target identifier are required."
+      },
+      "columns": {
+        "target": "Target",
+        "type": "Type",
+        "enabled": "Enabled",
+        "last_refresh": "Last refresh",
+        "status": "Status"
+      },
+      "status": {
+        "refreshing": "Refreshing",
+        "refreshed": "Refreshed",
+        "refresh_failed": "Refresh failed",
+        "ready": "Ready",
+        "not_fetched": "Not fetched"
+      },
+      "actions": {
+        "refresh": "Refresh",
+        "edit": "Edit",
+        "delete": "Delete",
+        "refresh_selected": "Refresh selected",
+        "enable": "Enable",
+        "disable": "Disable"
+      },
+      "search": "Search targets",
+      "empty": "No monitored targets found.",
+      "selected_count_one": "{{count}} selected",
+      "selected_count_other": "{{count}} selected",
+      "info": {
+        "title": "Monitored Celestial Targets",
+        "description": "Enable, refresh, edit, and remove the bodies and spacecraft used by the Solar System view."
+      },
+      "edit": {
+        "title": "Edit celestial target",
+        "display_name": "Display name",
+        "body_id": "Body ID",
+        "horizons_command": "Horizons command",
+        "color": "Color",
+        "pick_color": "Pick target color"
+      },
+      "delete": {
+        "title": "Confirm target deletion",
+        "remove_count_one": "This target will be removed from the monitored list.",
+        "remove_count_other": "{{count}} targets will be removed from the monitored list.",
+        "description": "Deleted targets stop appearing in the Solar System view. You can monitor them again from the Celestial Catalog."
+      }
+    }
   }
 }

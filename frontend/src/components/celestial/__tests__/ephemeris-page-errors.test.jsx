@@ -13,6 +13,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import '../../../i18n/config.js';
 import { CelestialEphemerisPage } from '../admin-pages.jsx';
 import celestialReducer from '../celestial-slice.jsx';
 

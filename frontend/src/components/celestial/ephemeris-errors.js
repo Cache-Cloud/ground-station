@@ -30,8 +30,14 @@ const CONNECTION_FAILURES = new Set([
     'tls_failure',
 ]);
 
-export const describeHorizonsFailure = (reason) => (
-    HORIZONS_FAILURES[reason] || 'NASA JPL Horizons could not complete the request.'
+const translated = (t, key, defaultValue, options = {}) => (
+    typeof t === 'function' ? t(key, { defaultValue, ...options }) : defaultValue
+);
+
+export const describeHorizonsFailure = (reason, t = null) => translated(
+    t,
+    `admin.ephemeris.failure.reasons.${reason || 'default'}`,
+    HORIZONS_FAILURES[reason] || 'NASA JPL Horizons could not complete the request.',
 );
 
 const asCount = (value) => {
@@ -39,7 +45,7 @@ const asCount = (value) => {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 };
 
-export const buildEphemerisSyncFailure = (result, fallbackMessage) => {
+export const buildEphemerisSyncFailure = (result, fallbackMessage, t = null) => {
     const response = result && typeof result === 'object' ? result : {};
     const errors = Array.isArray(response.errors) ? response.errors : [];
     const providerStatus = response.provider_status && typeof response.provider_status === 'object'
@@ -53,18 +59,35 @@ export const buildEphemerisSyncFailure = (result, fallbackMessage) => {
         || null;
     const hasCounts = total > 0 || refreshed > 0 || failed > 0;
 
-    let summary = fallbackMessage || 'The ephemeris synchronization could not be completed.';
+    let summary = fallbackMessage || translated(
+        t,
+        'admin.ephemeris.failure.default_summary',
+        'The ephemeris synchronization could not be completed.',
+    );
     if (hasCounts) {
-        summary = `${refreshed} of ${total || refreshed + failed} targets refreshed; ${failed} failed. `
-            + 'Existing cached snapshots were left available.';
+        summary = translated(
+            t,
+            'admin.ephemeris.failure.count_summary',
+            `${refreshed} of ${total || refreshed + failed} targets refreshed; ${failed} failed. `
+                + 'Existing cached snapshots were left available.',
+            { refreshed, total: total || refreshed + failed, failed },
+        );
     }
 
     return {
         title: CONNECTION_FAILURES.has(reason)
-            ? 'Could not reach NASA JPL Horizons'
-            : 'Ephemeris synchronization incomplete',
+            ? translated(
+                t,
+                'admin.ephemeris.failure.connection_title',
+                'Could not reach NASA JPL Horizons',
+            )
+            : translated(
+                t,
+                'admin.ephemeris.failure.incomplete_title',
+                'Ephemeris synchronization incomplete',
+            ),
         summary,
-        cause: reason ? describeHorizonsFailure(reason) : fallbackMessage,
+        cause: reason ? describeHorizonsFailure(reason, t) : fallbackMessage,
         reason,
         retryAtUtc: providerStatus.retry_at_utc || null,
         lastFailureAtUtc: providerStatus.last_failure_at_utc || null,
@@ -73,9 +96,19 @@ export const buildEphemerisSyncFailure = (result, fallbackMessage) => {
         total,
         errors: errors.map((entry) => ({
             targetKey: entry?.target_key || 'unknown',
-            targetName: entry?.target_name || entry?.target_key || 'Unknown target',
+            targetName: entry?.target_name || entry?.target_key || translated(
+                t,
+                'admin.common.unknown_target',
+                'Unknown target',
+            ),
             errorCode: entry?.error_code || null,
-            message: entry?.error || 'Unknown error',
+            message: entry?.error_code && typeof t === 'function'
+                ? describeHorizonsFailure(entry.error_code, t)
+                : entry?.error || translated(
+                    t,
+                    'admin.common.unknown_error',
+                    'Unknown error',
+                ),
         })),
     };
 };

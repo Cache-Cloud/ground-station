@@ -481,5 +481,42 @@
       "fallback": "月相",
       "description": "{{label}}，光照 {{percent}}%"
     }
+  },
+  "admin": {
+    "common": {
+      "no_backend_connection": "没有活动的后端连接。",
+      "unknown_error": "未知错误",
+      "unknown_target": "未知目标",
+      "not_available": "不适用",
+      "cancel": "取消",
+      "save": "保存"
+    },
+    "ephemeris": {
+      "title": "同步天体星历",
+      "subtitle": "从 {{provider}} 刷新天体矢量。",
+      "actions": { "synchronize_now": "立即同步" },
+      "labels": { "status": "状态", "last_update": "最后更新：{{value}}", "synchronization_progress": "同步进度", "cache_freshness": "缓存新鲜度", "preparing": "正在准备…", "output": "输出：" },
+      "status": { "running": "运行中", "completed": "已完成", "action_required": "需要处理", "idle": "空闲" }
+    },
+    "catalog": {
+      "columns": { "name": "名称", "type": "类型", "agency_parent": "机构 / 母体", "status": "状态", "identifier": "Horizons 命令 / ID" },
+      "actions": { "working": "处理中…", "monitor": "监测", "unmonitor": "停止监测" },
+      "filters": { "catalog": "目录", "all_entries": "全部条目", "solar_bodies": "太阳系天体", "spacecraft": "航天器", "status": "状态", "all_statuses": "全部状态", "search": "搜索目录" },
+      "empty": "没有符合筛选条件的目录条目。",
+      "info": { "title": "天体目录", "description": "浏览太阳系天体和航天器，并选择要监测的目标。" },
+      "confirm": { "title": "确认停止监测", "question": "停止监测 {{target}}？", "this_target": "此目标", "description": "该目标将不再显示在太阳系视图中，之后可以重新监测。" }
+    },
+    "targets": {
+      "columns": { "target": "目标", "type": "类型", "enabled": "已启用", "last_refresh": "最后刷新", "status": "状态" },
+      "status": { "refreshing": "刷新中", "refreshed": "已刷新", "refresh_failed": "刷新失败", "ready": "就绪", "not_fetched": "未获取" },
+      "actions": { "refresh": "刷新", "edit": "编辑", "delete": "删除", "refresh_selected": "刷新所选项", "enable": "启用", "disable": "禁用" },
+      "search": "搜索目标",
+      "empty": "未找到受监测目标。",
+      "selected_count_one": "已选择 {{count}} 项",
+      "selected_count_other": "已选择 {{count}} 项",
+      "info": { "title": "受监测天体目标", "description": "管理太阳系视图中使用的天体和航天器。" },
+      "edit": { "title": "编辑天体目标", "display_name": "显示名称", "body_id": "天体 ID", "horizons_command": "Horizons 命令", "color": "颜色", "pick_color": "选择目标颜色" },
+      "delete": { "title": "确认删除目标", "remove_count_one": "此目标将从监测列表中移除。", "remove_count_other": "{{count}} 个目标将从监测列表中移除。", "description": "已删除目标将不再显示在太阳系视图中。" }
+    }
   }
 }
