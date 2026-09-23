@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, distinct, func, select, text
@@ -105,6 +105,32 @@ def _normalize_snapshot_entry(row: Dict[str, Any]) -> Dict[str, Any]:
 
 def _is_missing_snapshot_lookup_constraint_error(exc: OperationalError) -> bool:
     return _SNAPSHOT_UPSERT_CONFLICT_MISSING_CONSTRAINT_ERROR in str(exc)
+
+
+def _serialize_utc_datetime(value: Any) -> Optional[str]:
+    """Serialize database timestamps consistently for API consumers."""
+    if not isinstance(value, datetime):
+        return str(value) if value else None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    formatted: str = value.astimezone(timezone.utc).isoformat()
+    return formatted
+
+
+def _parse_sample_time(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text_value = str(value or "").strip()
+        if not text_value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 async def _ensure_snapshot_lookup_unique_index(session: AsyncSession) -> None:
@@ -241,14 +267,6 @@ async def fetch_celestial_vector_snapshot_stats(
         result = await session.execute(stmt)
         row = result.mappings().one()
 
-        def serialize_datetime(value: Any) -> Optional[str]:
-            if not isinstance(value, datetime):
-                return str(value) if value else None
-            if value.tzinfo is None:
-                value = value.replace(tzinfo=timezone.utc)
-            formatted: str = value.astimezone(timezone.utc).isoformat()
-            return formatted
-
         return {
             "success": True,
             "data": {
@@ -257,14 +275,132 @@ async def fetch_celestial_vector_snapshot_stats(
                 "fresh_snapshots": int(row["fresh_snapshots"] or 0),
                 "expired_snapshots": int(row["expired_snapshots"] or 0),
                 "error_snapshots": int(row["error_snapshots"] or 0),
-                "oldest_fetch_at": serialize_datetime(row["oldest_fetch_at"]),
-                "newest_fetch_at": serialize_datetime(row["newest_fetch_at"]),
-                "next_expiry_at": serialize_datetime(row["next_expiry_at"]),
+                "oldest_fetch_at": _serialize_utc_datetime(row["oldest_fetch_at"]),
+                "newest_fetch_at": _serialize_utc_datetime(row["newest_fetch_at"]),
+                "next_expiry_at": _serialize_utc_datetime(row["next_expiry_at"]),
             },
             "error": None,
         }
     except Exception as e:
         logger.error(f"Error fetching celestial vector snapshot stats: {e}")
+        logger.error(traceback.format_exc())
+        return {"success": False, "error": str(e)}
+
+
+async def fetch_celestial_vector_snapshot_history(
+    session: AsyncSession,
+    target_id: str,
+    *,
+    as_of: Optional[datetime] = None,
+    limit: int = 24,
+) -> dict:
+    """Return compact cache and sample-coverage history for one canonical target."""
+    try:
+        target_key = normalize_target_key(target_id)
+        if not target_key:
+            return {"success": False, "error": "target_id is required"}
+
+        now_utc = as_of or datetime.now(timezone.utc)
+        if now_utc.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=timezone.utc)
+        now_utc = now_utc.astimezone(timezone.utc)
+        history_limit = max(1, min(int(limit), 100))
+
+        # Do not load position or velocity arrays. The timeline only needs the
+        # sample timestamps and cache metadata from each persisted snapshot.
+        stmt = (
+            select(
+                CelestialVectorSnapshots.id,
+                CelestialVectorSnapshots.epoch_bucket_utc,
+                CelestialVectorSnapshots.past_hours,
+                CelestialVectorSnapshots.future_hours,
+                CelestialVectorSnapshots.step_minutes,
+                CelestialVectorSnapshots.frame,
+                CelestialVectorSnapshots.center,
+                CelestialVectorSnapshots.orbit_sample_times_utc,
+                CelestialVectorSnapshots.source,
+                CelestialVectorSnapshots.error,
+                CelestialVectorSnapshots.fetched_at,
+                CelestialVectorSnapshots.expires_at,
+            )
+            .where(CelestialVectorSnapshots.target_id == target_key)
+            .order_by(
+                CelestialVectorSnapshots.fetched_at.desc(),
+                CelestialVectorSnapshots.epoch_bucket_utc.desc(),
+            )
+            .limit(history_limit)
+        )
+        result = await session.execute(stmt)
+        snapshots = []
+        for row in result.mappings().all():
+            parsed_times = sorted(
+                parsed
+                for parsed in (
+                    _parse_sample_time(value) for value in (row["orbit_sample_times_utc"] or [])
+                )
+                if parsed is not None
+            )
+            sample_start = parsed_times[0] if parsed_times else None
+            sample_end = parsed_times[-1] if parsed_times else None
+            epoch_bucket = row["epoch_bucket_utc"]
+            if isinstance(epoch_bucket, datetime) and epoch_bucket.tzinfo is None:
+                epoch_bucket = epoch_bucket.replace(tzinfo=timezone.utc)
+            # Compare every stored sample span with the window a calculation
+            # would request now. This exposes the common case where the cache
+            # has not expired yet but its future samples no longer reach far
+            # enough for the current projection.
+            requested_start = now_utc - timedelta(hours=int(row["past_hours"]))
+            requested_end = now_utc + timedelta(hours=int(row["future_hours"]))
+            expires_at = row["expires_at"]
+            if isinstance(expires_at, datetime) and expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+            cache_fresh = isinstance(expires_at, datetime) and expires_at > now_utc
+            covers_now = bool(sample_start and sample_end and sample_start <= now_utc <= sample_end)
+            covers_projection = bool(
+                sample_start
+                and sample_end
+                and requested_start
+                and requested_end
+                and sample_start <= requested_start
+                and sample_end >= requested_end
+            )
+            snapshots.append(
+                {
+                    "id": row["id"],
+                    "epoch_bucket_utc": _serialize_utc_datetime(epoch_bucket),
+                    "fetched_at": _serialize_utc_datetime(row["fetched_at"]),
+                    "expires_at": _serialize_utc_datetime(expires_at),
+                    "sample_start_utc": _serialize_utc_datetime(sample_start),
+                    "sample_end_utc": _serialize_utc_datetime(sample_end),
+                    "requested_start_utc": _serialize_utc_datetime(requested_start),
+                    "requested_end_utc": _serialize_utc_datetime(requested_end),
+                    "sample_count": len(parsed_times),
+                    "past_hours": int(row["past_hours"]),
+                    "future_hours": int(row["future_hours"]),
+                    "step_minutes": int(row["step_minutes"]),
+                    "frame": row["frame"],
+                    "center": row["center"],
+                    "source": row["source"],
+                    "error": row["error"],
+                    "cache_fresh": cache_fresh,
+                    "vector_available": bool(parsed_times and not row["error"]),
+                    "covers_now": covers_now,
+                    "covers_projection_window": covers_projection,
+                }
+            )
+
+        return {
+            "success": True,
+            "data": {
+                "target_key": target_key,
+                "now_utc": now_utc.isoformat(),
+                "snapshots": snapshots,
+            },
+            "error": None,
+        }
+    except Exception as e:
+        logger.error(f"Error fetching celestial vector snapshot history: {e}")
         logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 

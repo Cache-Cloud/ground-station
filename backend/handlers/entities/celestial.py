@@ -13,6 +13,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
+import crud.celestialvectors as crud_celestial_vectors
 import crud.locations as crud_locations
 import crud.monitoredcelestial as crud_monitored
 from celestial.bodycatalog import get_celestial_body, list_celestial_bodies
@@ -693,6 +694,39 @@ async def get_celestial_ephemeris_status(
     return response
 
 
+async def get_celestial_vector_snapshot_history(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Any]:
+    """Return compact persisted-vector history for one canonical target key."""
+    payload = data if isinstance(data, dict) else {}
+    requested_key = payload.get("target_key")
+    target_key = normalize_target_key(requested_key)
+    # API boundaries accept only the persisted identity. Quietly normalizing a
+    # legacy spelling here would make identity mistakes difficult to diagnose.
+    if not isinstance(requested_key, str) or requested_key != target_key:
+        return {
+            "success": False,
+            "data": None,
+            "error": "target_key must be a canonical mission: or body: key",
+        }
+
+    requested_limit = payload.get("limit", 24)
+    try:
+        limit = int(requested_limit)
+    except (TypeError, ValueError):
+        return {"success": False, "data": None, "error": "limit must be an integer"}
+
+    async with AsyncSessionLocal() as dbsession:
+        result: Dict[str, Any] = (
+            await crud_celestial_vectors.fetch_celestial_vector_snapshot_history(
+                dbsession,
+                target_key,
+                limit=limit,
+            )
+        )
+    return result
+
+
 async def refresh_celestial_cache_now(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Any]:
@@ -763,6 +797,10 @@ def register_handlers(registry):
             "get-celestial-body-catalog": (get_celestial_body_catalog, "api_call"),
             "get-celestial-ephemeris-status": (
                 get_celestial_ephemeris_status,
+                "api_call",
+            ),
+            "get-celestial-vector-snapshot-history": (
+                get_celestial_vector_snapshot_history,
                 "api_call",
             ),
             "refresh-celestial-cache-now": (

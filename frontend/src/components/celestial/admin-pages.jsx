@@ -50,6 +50,7 @@ import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import StorageIcon from '@mui/icons-material/Storage';
 import SyncIcon from '@mui/icons-material/Sync';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import PublicIcon from '@mui/icons-material/Public';
 import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined';
 import ToggleOffIcon from '@mui/icons-material/ToggleOff';
@@ -78,6 +79,7 @@ import {
 import { buildEphemerisSyncFailure, describeHorizonsFailure } from './ephemeris-errors.js';
 import { toRowSelectionModel, toSelectedIds } from '../../utils/datagrid-selection.js';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
+import VectorCoverageDialog from './vector-coverage-dialog.jsx';
 
 const PAGE_PAPER_SX = { padding: 2, marginTop: 0, borderRadius: 0 };
 const DATA_GRID_SX = {
@@ -989,6 +991,7 @@ export function CelestialTargetsPage() {
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState(null);
     const [rowRefreshStates, setRowRefreshStates] = useState({});
+    const [vectorTarget, setVectorTarget] = useState(null);
 
     const loadTargets = useCallback(() => {
         if (socket) dispatch(fetchMonitoredCelestial({ socket }));
@@ -1086,6 +1089,10 @@ export function CelestialTargetsPage() {
         }
     };
 
+    const refreshVectorTarget = async (id) => {
+        await runBulk('refresh', [id]);
+    };
+
     const rowSelectionModel = useMemo(() => toRowSelectionModel(selected), [selected]);
     const columns = [
         {
@@ -1176,7 +1183,7 @@ export function CelestialTargetsPage() {
         {
             field: 'row_actions',
             headerName: '',
-            width: 132,
+            width: 166,
             sortable: false,
             filterable: false,
             disableColumnMenu: true,
@@ -1184,6 +1191,7 @@ export function CelestialTargetsPage() {
             headerAlign: 'center',
             renderCell: (params) => (
                 <Stack direction="row" spacing={0.25}>
+                    <Tooltip title={t('admin.targets.actions.vector_details')}><span><IconButton aria-label={t('admin.targets.actions.vector_details')} size="small" disabled={!socket || !params.row.targetKey} onClick={(event) => { event.stopPropagation(); setVectorTarget(params.row); }}><TimelineIcon fontSize="small" /></IconButton></span></Tooltip>
                     <Tooltip title={t('admin.targets.actions.refresh')}><span><IconButton size="small" disabled={!socket || busy} onClick={(event) => { event.stopPropagation(); runBulk('refresh', [params.row.id]); }}>{rowRefreshStates[params.row.id]?.status === 'refreshing' ? <CircularProgress size={18} /> : <RefreshIcon fontSize="small" />}</IconButton></span></Tooltip>
                     <Tooltip title={t('admin.targets.actions.edit')}><span><IconButton size="small" disabled={!socket || busy} onClick={(event) => { event.stopPropagation(); setEditTarget({ ...params.row }); }}><EditIcon fontSize="small" /></IconButton></span></Tooltip>
                     <Tooltip title={t('admin.targets.actions.delete')}><span><IconButton size="small" color="error" disabled={!socket || busy} onClick={(event) => { event.stopPropagation(); setPendingDeleteIds([params.row.id]); }}><DeleteOutlineIcon fontSize="small" /></IconButton></span></Tooltip>
@@ -1220,6 +1228,16 @@ export function CelestialTargetsPage() {
                 <AlertTitle>{t('admin.targets.info.title')}</AlertTitle>
                 {t('admin.targets.info.description')}
             </Alert>
+
+            <VectorCoverageDialog
+                open={Boolean(vectorTarget)}
+                target={vectorTarget}
+                socket={socket}
+                timezone={timezone}
+                locale={locale}
+                onClose={() => setVectorTarget(null)}
+                onRefresh={refreshVectorTarget}
+            />
 
             <Dialog open={Boolean(editTarget)} onClose={() => setEditTarget(null)} maxWidth="sm" fullWidth>
                 <DialogTitle>{t('admin.targets.edit.title')}</DialogTitle>

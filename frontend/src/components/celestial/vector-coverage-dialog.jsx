@@ -1,0 +1,263 @@
+/**
+ * @license
+ * Copyright (c) 2026 Efstratios Goudelis
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
+    DialogContent, DialogTitle, Divider, Paper, Stack, Typography,
+} from '@mui/material';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import CachedIcon from '@mui/icons-material/Cached';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import TimelineIcon from '@mui/icons-material/Timeline';
+import { useTranslation } from 'react-i18next';
+
+const parseTime = (value) => {
+    const milliseconds = Date.parse(value || '');
+    return Number.isFinite(milliseconds) ? milliseconds : null;
+};
+
+const formatTime = (value, timezone, locale) => {
+    const milliseconds = parseTime(value);
+    if (milliseconds === null) return '—';
+    return new Intl.DateTimeFormat(locale, {
+        dateStyle: 'medium',
+        timeStyle: 'medium',
+        timeZone: timezone,
+    }).format(new Date(milliseconds));
+};
+
+function StatusCard({ icon, label, value, color = 'default', detail }) {
+    return (
+        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+                <Box sx={{ color: color === 'default' ? 'text.secondary' : `${color}.main`, display: 'flex' }}>{icon}</Box>
+                <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="caption" color="text.secondary" display="block">{label}</Typography>
+                    <Typography variant="body2" fontWeight={700}>{value}</Typography>
+                </Box>
+            </Stack>
+            {detail ? <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>{detail}</Typography> : null}
+        </Paper>
+    );
+}
+
+function VectorTimeline({ snapshots, nowUtc, timezone, locale, t }) {
+    const model = useMemo(() => {
+        const visibleSnapshots = snapshots.slice(0, 12);
+        const points = [parseTime(nowUtc)];
+        visibleSnapshots.forEach((snapshot) => {
+            [snapshot.sample_start_utc, snapshot.sample_end_utc, snapshot.requested_start_utc,
+                snapshot.requested_end_utc, snapshot.fetched_at, snapshot.expires_at]
+                .forEach((value) => points.push(parseTime(value)));
+        });
+        const validPoints = points.filter((value) => value !== null);
+        if (validPoints.length === 0) return null;
+        let start = Math.min(...validPoints);
+        let end = Math.max(...validPoints);
+        if (start === end) end = start + 60 * 60 * 1000;
+        const padding = Math.max((end - start) * 0.04, 15 * 60 * 1000);
+        return { snapshots: visibleSnapshots, start: start - padding, end: end + padding };
+    }, [nowUtc, snapshots]);
+
+    if (!model) return null;
+    const width = 940;
+    const left = 154;
+    const right = 22;
+    const top = 46;
+    const rowHeight = 60;
+    const bottom = 36;
+    const height = top + model.snapshots.length * rowHeight + bottom;
+    const plotWidth = width - left - right;
+    const x = (value) => {
+        const milliseconds = parseTime(value);
+        return milliseconds === null ? null : left + ((milliseconds - model.start) / (model.end - model.start)) * plotWidth;
+    };
+    const nowX = x(nowUtc);
+    const ticks = Array.from({ length: 5 }, (_, index) => model.start + ((model.end - model.start) * index) / 4);
+
+    return (
+        <Box sx={{ overflowX: 'auto', border: 1, borderColor: 'divider', borderRadius: 1.5 }}>
+            <Box component="svg" role="img" aria-label={t('admin.targets.vectors.timeline_aria')}
+                viewBox={`0 0 ${width} ${height}`}
+                sx={{ display: 'block', width: '100%', minWidth: 720, height: 'auto', bgcolor: 'background.default' }}>
+                <title>{t('admin.targets.vectors.timeline_aria')}</title>
+                {ticks.map((tick, index) => {
+                    const tickX = left + (plotWidth * index) / 4;
+                    return (
+                        <g key={tick}>
+                            <line x1={tickX} x2={tickX} y1={top - 10} y2={height - bottom + 3} stroke="currentColor" opacity="0.12" />
+                            <text x={tickX} y={height - 12} textAnchor={index === 0 ? 'start' : index === 4 ? 'end' : 'middle'} fill="currentColor" opacity="0.7" fontSize="11">
+                                {new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: timezone }).format(new Date(tick))}
+                            </text>
+                        </g>
+                    );
+                })}
+                {model.snapshots.map((snapshot, index) => {
+                    const y = top + index * rowHeight;
+                    const coverageStart = x(snapshot.sample_start_utc);
+                    const coverageEnd = x(snapshot.sample_end_utc);
+                    const requestedStart = x(snapshot.requested_start_utc);
+                    const requestedEnd = x(snapshot.requested_end_utc);
+                    const fetchedAt = x(snapshot.fetched_at);
+                    const expiresAt = x(snapshot.expires_at);
+                    return (
+                        <g key={snapshot.id}>
+                            <rect x="0" y={y - 17} width={width} height={rowHeight} fill="currentColor" opacity={index % 2 ? 0.025 : 0} />
+                            <text x="14" y={y + 1} fill="currentColor" fontSize="12" fontWeight="600">
+                                {index === 0 ? t('admin.targets.vectors.latest') : t('admin.targets.vectors.snapshot_number', { number: index + 1 })}
+                            </text>
+                            <text x="14" y={y + 18} fill="currentColor" opacity="0.65" fontSize="10">{snapshot.sample_count} {t('admin.targets.vectors.samples')}</text>
+                            <line x1={left} x2={width - right} y1={y} y2={y} stroke="currentColor" opacity="0.18" strokeWidth="2" />
+                            {requestedStart !== null && requestedEnd !== null ? <rect
+                                x={Math.min(requestedStart, requestedEnd)} y={y - 10}
+                                width={Math.max(Math.abs(requestedEnd - requestedStart), 2)} height="20" rx="3"
+                                fill="none" stroke="currentColor" opacity="0.5" strokeDasharray="5 4"
+                            /> : null}
+                            {coverageStart !== null && coverageEnd !== null ? <rect
+                                x={Math.min(coverageStart, coverageEnd)} y={y - 6}
+                                width={Math.max(Math.abs(coverageEnd - coverageStart), 3)} height="12" rx="6" fill="#1976d2"
+                            /> : null}
+                            {fetchedAt !== null && expiresAt !== null ? <line
+                                x1={fetchedAt} x2={expiresAt} y1={y + 14} y2={y + 14}
+                                stroke={snapshot.cache_fresh ? '#2e7d32' : '#ed6c02'} strokeWidth="5" strokeLinecap="round"
+                            /> : null}
+                            {fetchedAt !== null ? <circle cx={fetchedAt} cy={y + 14} r="4" fill="#7b1fa2"><title>{`${t('admin.targets.vectors.synced')}: ${formatTime(snapshot.fetched_at, timezone, locale)}`}</title></circle> : null}
+                            {expiresAt !== null ? <path d={`M ${expiresAt - 4} ${y + 10} L ${expiresAt + 4} ${y + 18} M ${expiresAt + 4} ${y + 10} L ${expiresAt - 4} ${y + 18}`} stroke="#d32f2f" strokeWidth="2"><title>{`${t('admin.targets.vectors.expired')}: ${formatTime(snapshot.expires_at, timezone, locale)}`}</title></path> : null}
+                        </g>
+                    );
+                })}
+                {nowX !== null ? <g>
+                    <line x1={nowX} x2={nowX} y1={20} y2={height - bottom + 3} stroke="#d32f2f" strokeWidth="2" />
+                    <rect x={nowX - 19} y="4" width="38" height="17" rx="8" fill="#d32f2f" />
+                    <text x={nowX} y="16" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="700">{t('admin.targets.vectors.now')}</text>
+                </g> : null}
+            </Box>
+        </Box>
+    );
+}
+
+export default function VectorCoverageDialog({ open, target, socket, timezone, locale, onClose, onRefresh }) {
+    const { t } = useTranslation('celestial');
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState('');
+    const requestIdRef = useRef(0);
+
+    const loadHistory = useCallback(() => {
+        if (!open || !socket || !target?.targetKey) return;
+        const requestId = requestIdRef.current + 1;
+        requestIdRef.current = requestId;
+        setLoading(true);
+        setError('');
+        socket.emit('api.call', {
+            cmd: 'get-celestial-vector-snapshot-history',
+            data: { target_key: target.targetKey, limit: 24 },
+        }, (response) => {
+            // A target can change while its Socket.IO acknowledgement is in
+            // flight. Ignore late data instead of showing it under a new name.
+            if (requestId !== requestIdRef.current) return;
+            if (response?.success) setData(response.data);
+            else setError(response?.error || t('admin.targets.vectors.load_failed'));
+            setLoading(false);
+        });
+    }, [open, socket, t, target?.targetKey]);
+
+    useEffect(() => {
+        if (open) {
+            setData(null);
+            loadHistory();
+        }
+        return () => {
+            requestIdRef.current += 1;
+        };
+    }, [loadHistory, open]);
+
+    const handleRefresh = async () => {
+        if (!onRefresh) return;
+        setRefreshing(true);
+        setError('');
+        try {
+            await onRefresh(target.id);
+            loadHistory();
+        } catch (refreshError) {
+            setError(String(refreshError?.message || refreshError));
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    const snapshots = data?.snapshots || [];
+    const latest = snapshots[0];
+    const identifier = target?.targetType === 'body' ? target?.bodyId : target?.command;
+    return (
+        <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+            <DialogTitle sx={{ pb: 1 }}><Stack direction="row" spacing={1.25} alignItems="center">
+                <TimelineIcon color="primary" />
+                <Box><Typography variant="h6" component="div">{t('admin.targets.vectors.title', { name: target?.displayName || '' })}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>{target?.targetKey || '—'}</Typography></Box>
+            </Stack></DialogTitle>
+            <DialogContent dividers><Stack spacing={2.5}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 1.5 }}>
+                    <Box><Typography variant="caption" color="text.secondary">{t('admin.targets.vectors.target_type')}</Typography><Typography variant="body2">{t(`common.${target?.targetType}`, { defaultValue: target?.targetType || '—' })}</Typography></Box>
+                    <Box><Typography variant="caption" color="text.secondary">{t('admin.targets.vectors.identifier')}</Typography><Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{identifier || '—'}</Typography></Box>
+                    <Box><Typography variant="caption" color="text.secondary">{t('admin.targets.vectors.server_time')}</Typography><Typography variant="body2">{formatTime(data?.now_utc, timezone, locale)}</Typography></Box>
+                </Box>
+                {loading ? <Stack alignItems="center" spacing={1} sx={{ py: 6 }}><CircularProgress size={32} /><Typography color="text.secondary">{t('common.loading')}</Typography></Stack> : null}
+                {error ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadHistory}>{t('admin.targets.vectors.retry')}</Button>}>{error}</Alert> : null}
+                {!loading && !error && snapshots.length === 0 ? <Alert severity="info">{t('admin.targets.vectors.empty')}</Alert> : null}
+                {!loading && latest ? <>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 1.25 }}>
+                        <StatusCard icon={latest.vector_available ? <CheckCircleOutlineIcon /> : <ErrorOutlineIcon />} color={latest.vector_available ? 'success' : 'error'} label={t('admin.targets.vectors.available')} value={latest.vector_available ? t('common.yes') : t('common.no')} detail={latest.error || undefined} />
+                        <StatusCard icon={<CachedIcon />} color={latest.cache_fresh ? 'success' : 'warning'} label={t('admin.targets.vectors.cache')} value={latest.cache_fresh ? t('admin.targets.vectors.fresh') : t('admin.targets.vectors.expired')} detail={formatTime(latest.expires_at, timezone, locale)} />
+                        <StatusCard icon={<AccessTimeIcon />} color={latest.covers_now ? 'success' : 'error'} label={t('admin.targets.vectors.current_time_covered')} value={latest.covers_now ? t('common.yes') : t('common.no')} />
+                        <StatusCard icon={<TimelineIcon />} color={latest.covers_projection_window ? 'success' : 'error'} label={t('admin.targets.vectors.requested_window_covered')} value={latest.covers_projection_window ? t('common.yes') : t('common.no')} detail={`-${latest.past_hours}h / +${latest.future_hours}h · ${latest.step_minutes} min`} />
+                    </Box>
+                    {!latest.covers_now ? <Alert severity="error">{t('admin.targets.vectors.diagnosis.current_missing')}</Alert>
+                        : !latest.covers_projection_window ? <Alert severity="warning">{t('admin.targets.vectors.diagnosis.window_short')}</Alert>
+                            : !latest.cache_fresh ? <Alert severity="warning">{t('admin.targets.vectors.diagnosis.cache_expired')}</Alert>
+                                : <Alert severity="success">{t('admin.targets.vectors.diagnosis.target_ready')}</Alert>}
+                    <Box><Typography variant="subtitle1" fontWeight={700} gutterBottom>{t('admin.targets.vectors.timeline')}</Typography>
+                        <VectorTimeline snapshots={snapshots} nowUtc={data.now_utc} timezone={timezone} locale={locale} t={t} />
+                        <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
+                            <Chip size="small" color="primary" variant="outlined" label={t('admin.targets.vectors.legend.samples')} />
+                            <Chip size="small" variant="outlined" label={t('admin.targets.vectors.legend.requested')} />
+                            <Chip size="small" color={latest.cache_fresh ? 'success' : 'warning'} variant="outlined" label={t('admin.targets.vectors.legend.cache')} />
+                            <Chip size="small" color="error" variant="outlined" label={t('admin.targets.vectors.legend.now_expiry')} />
+                        </Stack>
+                    </Box>
+                    <Divider />
+                    <Box><Typography variant="subtitle1" fontWeight={700} gutterBottom>{t('admin.targets.vectors.history', { count: snapshots.length })}</Typography>
+                        <Stack spacing={1}>{snapshots.map((snapshot, index) => <Paper key={snapshot.id} variant="outlined" sx={{ p: 1.5 }}>
+                            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} justifyContent="space-between">
+                                <Box><Typography variant="body2" fontWeight={700}>{index === 0 ? t('admin.targets.vectors.latest_snapshot') : formatTime(snapshot.epoch_bucket_utc, timezone, locale)}</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('admin.targets.vectors.coverage')}: {formatTime(snapshot.sample_start_utc, timezone, locale)} → {formatTime(snapshot.sample_end_utc, timezone, locale)}</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('admin.targets.vectors.required_window')}: {formatTime(snapshot.requested_start_utc, timezone, locale)} → {formatTime(snapshot.requested_end_utc, timezone, locale)}</Typography></Box>
+                                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+                                    <Chip size="small" label={`${snapshot.sample_count} ${t('admin.targets.vectors.samples')}`} />
+                                    <Chip size="small" color={snapshot.cache_fresh ? 'success' : 'warning'} label={snapshot.cache_fresh ? t('admin.targets.vectors.fresh') : t('admin.targets.vectors.expired')} />
+                                    <Typography variant="caption" color="text.secondary">{t('admin.targets.vectors.synced')}: {formatTime(snapshot.fetched_at, timezone, locale)}</Typography>
+                                    <Typography variant="caption" color="text.secondary">{t('admin.targets.vectors.cache_expiry')}: {formatTime(snapshot.expires_at, timezone, locale)}</Typography>
+                                </Stack>
+                            </Stack>
+                        </Paper>)}</Stack>
+                    </Box>
+                    <Alert severity="info">{t('admin.targets.vectors.observer_note')}</Alert>
+                </> : null}
+            </Stack></DialogContent>
+            <DialogActions><Button onClick={onClose}>{t('admin.targets.vectors.close')}</Button>
+                <Button variant="contained" startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />} disabled={!socket || refreshing} onClick={handleRefresh}>{t('admin.targets.actions.refresh')}</Button>
+            </DialogActions>
+        </Dialog>
+    );
+}
