@@ -6,6 +6,8 @@ import types
 
 import pytest
 
+from observations import events as observation_events
+from observations import helpers as observation_helpers
 from observations.bundle import create_observation_bundle
 from observations.constants import STATUS_FAILED
 
@@ -293,3 +295,46 @@ async def test_stop_observation_task_passes_tracker_context_and_clears_it(monkey
     assert captured_context["tracker_id"] == "target-5"
     assert captured_context["ephemeral"] is True
     assert "obs-1" not in executor._tracker_context_by_observation
+
+
+@pytest.mark.asyncio
+async def test_remove_scheduled_stop_job_uses_initialized_scheduler(monkeypatch):
+    removed_jobs = []
+    scheduler = types.SimpleNamespace(remove_job=removed_jobs.append)
+    monkeypatch.setattr(
+        observation_events,
+        "observation_sync",
+        types.SimpleNamespace(scheduler=scheduler),
+    )
+
+    await observation_helpers.remove_scheduled_stop_job("obs-1")
+
+    assert removed_jobs == ["obs_obs-1_stop"]
+
+
+@pytest.mark.asyncio
+async def test_stop_observation_does_not_overwrite_failed_status(monkeypatch):
+    executor_module = _load_executor_module(monkeypatch)
+    observation = _build_observation()
+    observation["status"] = STATUS_FAILED
+    status_updates = []
+
+    async def _fetch_observation(_session, _observation_id):
+        return {"success": True, "data": observation}
+
+    async def _update_status(_sio, _observation_id, status, *_args, **_kwargs):
+        status_updates.append(status)
+
+    async def _unexpected_stop(*_args, **_kwargs):
+        raise AssertionError("terminal observation must not be stopped again")
+
+    monkeypatch.setattr(executor_module, "AsyncSessionLocal", lambda: _DummyAsyncSessionContext())
+    monkeypatch.setattr(executor_module, "fetch_scheduled_observations", _fetch_observation)
+    monkeypatch.setattr(executor_module, "update_observation_status", _update_status)
+    executor = _new_executor(executor_module)
+    monkeypatch.setattr(executor, "_stop_observation_task", _unexpected_stop)
+
+    result = await executor.stop_observation("obs-1")
+
+    assert result == {"success": True, "skipped": True, "status": STATUS_FAILED}
+    assert status_updates == []

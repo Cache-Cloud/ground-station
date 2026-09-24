@@ -27,6 +27,7 @@ from crud import trackingstate
 from crud.hardware import fetch_sdr
 from crud.scheduledobservations import fetch_scheduled_observations
 from db import AsyncSessionLocal
+from observations import events as observation_events
 from observations.bundle import (
     add_bundle_session,
     create_observation_bundle,
@@ -40,7 +41,6 @@ from observations.constants import (
     STATUS_RUNNING,
     STATUS_SCHEDULED,
 )
-from observations.events import observation_sync
 from observations.helpers import (
     log_execution_event,
     remove_scheduled_stop_job,
@@ -481,6 +481,21 @@ class ObservationExecutor:
 
                 observation = result["data"]
 
+            current_status = str(observation.get("status") or "").lower()
+            if current_status in {STATUS_CANCELLED, STATUS_COMPLETED, STATUS_FAILED}:
+                # A delayed or duplicate LOS job must not turn a failed start
+                # into a successful observation after there is nothing to stop.
+                logger.info(
+                    "Skipping stop for terminal observation %s (status=%s)",
+                    observation_id,
+                    current_status,
+                )
+                return {
+                    "success": True,
+                    "skipped": True,
+                    "status": current_status,
+                }
+
             # 2. Stop observation task - collect errors but continue
             try:
                 await self._stop_observation_task(observation_id, observation)
@@ -575,8 +590,8 @@ class ObservationExecutor:
                 status = observation.get("status")
 
             # 2. Remove scheduled jobs from APScheduler
-            if observation_sync:
-                await observation_sync.remove_observation(observation_id)
+            if observation_events.observation_sync:
+                await observation_events.observation_sync.remove_observation(observation_id)
                 logger.info(f"Removed scheduled jobs for observation {observation_id}")
 
             # 3. If running, stop it

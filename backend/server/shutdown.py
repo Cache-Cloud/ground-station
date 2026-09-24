@@ -6,7 +6,7 @@ import tracker.runner
 from audio.audiobroadcaster import AudioBroadcaster
 from audio.audiostreamer import WebAudioStreamer
 from common.logger import logger
-from observations.events import observation_sync
+from observations import events as observation_events
 from server import runtimestate
 from session.service import active_sdr_clients, session_service
 
@@ -21,6 +21,7 @@ def cleanup_everything():
 
     # Stop all running observations first
     try:
+        observation_sync = observation_events.observation_sync
         if observation_sync and observation_sync.executor:
             logger.info("Stopping all running observations...")
             # Get all scheduled APScheduler jobs for observations

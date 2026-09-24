@@ -251,6 +251,22 @@ class OperationRegistry:
                     "Previous worker ended; outcome unconfirmed. Current hardware state restored",
                 )
 
+    def forget_tracker(self, tracker_id: str) -> None:
+        """Discard telemetry and release operations owned by a removed tracker."""
+        self.observed.pop(tracker_id, None)
+        for record in list(self.records.values()):
+            if (
+                record["tracker_id"] == tracker_id
+                and record["status"] in ACTIVE
+                and not record.get("reconciled")
+            ):
+                self.update(
+                    record["command_id"],
+                    "unknown",
+                    "Tracker removed; outcome unconfirmed",
+                    reconciled=True,
+                )
+
     def snapshot(self) -> dict:
         return copy.deepcopy(
             {

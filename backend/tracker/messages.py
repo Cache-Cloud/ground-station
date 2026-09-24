@@ -135,10 +135,16 @@ async def handle_tracker_messages(sockio):
                             )
                         continue
                     if event == "tracker-hardware-state":
-                        manager = get_existing_tracker_manager(tracker_id)
-                        if manager and manager.current_tracking_state:
-                            data["desired_state"] = dict(manager.current_tracking_state)
-                        operations.observe(data)
+                        async with operations.lock:
+                            manager = get_existing_tracker_manager(tracker_id)
+                            if manager is None:
+                                # A removed worker can leave telemetry in the shared queue.
+                                # Do not let that late snapshot reserve its former hardware.
+                                operations.forget_tracker(tracker_id)
+                                continue
+                            if manager.current_tracking_state:
+                                data["desired_state"] = dict(manager.current_tracking_state)
+                            operations.observe(data)
                     if event == SocketEvents.SATELLITE_TRACKING and not data.get("observer_bodies"):
                         # Satellites do not carry heliocentric Earth vectors in
                         # their worker payload, so attach the shared live Sun here.

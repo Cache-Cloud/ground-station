@@ -24,6 +24,7 @@ from crud import trackingstate as trackingstate_crud
 from db import AsyncSessionLocal
 from tracker.contracts import get_tracking_state_name
 from tracker.instances import emit_tracker_instances
+from tracker.operations import operations
 from tracker.runner import (
     create_observation_tracker_slot,
     get_assigned_tracker_for_rotator,
@@ -62,7 +63,12 @@ class TrackerHandler:
         Used for ephemeral tracker slots created for observations without rotator ownership.
         """
         try:
-            remove_result = await asyncio.to_thread(remove_tracker_instance, tracker_id)
+            # Keep command arbitration closed until the retired worker's last
+            # hardware snapshot has been removed from the operation registry.
+            async with operations.lock:
+                remove_result = await asyncio.to_thread(remove_tracker_instance, tracker_id)
+                if remove_result.get("success"):
+                    operations.forget_tracker(tracker_id)
             if not remove_result.get("success"):
                 logger.warning(
                     "Failed to remove observation tracker instance %s: %s",

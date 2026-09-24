@@ -781,10 +781,13 @@ async def delete_tracker_instance(
     # Stop/remove tracker runtime first so it cannot race DB writes during deletion.
     # Run in a worker thread to avoid blocking the event loop if teardown stalls.
     try:
-        remove_result = await asyncio.wait_for(
-            asyncio.to_thread(remove_tracker_instance, tracker_id),
-            timeout=6.0,
-        )
+        async with operations.lock:
+            remove_result = await asyncio.wait_for(
+                asyncio.to_thread(remove_tracker_instance, tracker_id),
+                timeout=6.0,
+            )
+            if remove_result.get("success"):
+                operations.forget_tracker(tracker_id)
     except TimeoutError:
         return {
             "success": False,

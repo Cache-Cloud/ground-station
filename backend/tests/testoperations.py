@@ -47,6 +47,60 @@ def test_independent_devices_keep_both_commands_and_reject_shared_device():
         request(registry, "another", tracker="target-2")
 
 
+def test_removed_tracker_telemetry_no_longer_reserves_its_device():
+    registry = OperationRegistry()
+    registry.observe(
+        {
+            "tracker_id": "obs-finished-pass",
+            "worker_started_at": 1,
+            "worker_generation": "finished-worker",
+            "sequence": 1,
+            "tracking_state": {"rotator_id": "mount"},
+            "rotator_data": {"connected": True},
+        }
+    )
+
+    with pytest.raises(ValueError, match="connected to another tracker"):
+        request(registry, "blocked", tracker="obs-next-pass")
+
+    registry.forget_tracker("obs-finished-pass")
+
+    accepted = request(registry, "accepted", tracker="obs-next-pass")
+    assert accepted["status"] == "submitted"
+    assert "obs-finished-pass" not in registry.observed
+
+
+@pytest.mark.asyncio
+async def test_late_hardware_snapshot_from_removed_tracker_is_dropped(monkeypatch):
+    registry = OperationRegistry()
+    incoming = queue.Queue()
+    incoming.put(
+        {
+            "event": "tracker-hardware-state",
+            "data": {
+                "tracker_id": "obs-finished-pass",
+                "worker_started_at": 1,
+                "worker_generation": "finished-worker",
+                "sequence": 1,
+                "tracking_state": {"rotator_id": "mount"},
+                "rotator_data": {"connected": True},
+            },
+        }
+    )
+    monkeypatch.setattr(messagemodule, "operations", registry)
+    monkeypatch.setattr(messagemodule, "queue_from_tracker", incoming)
+    monkeypatch.setattr(messagemodule, "get_existing_tracker_manager", lambda _id: None)
+
+    async def stop_after_message(_delay):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(messagemodule.asyncio, "sleep", stop_after_message)
+    with pytest.raises(asyncio.CancelledError):
+        await messagemodule.handle_tracker_messages(SimpleNamespace(emit=AsyncMock()))
+
+    assert registry.observed == {}
+
+
 def test_stop_cancels_pending_move_and_fences_a_late_request():
     registry = OperationRegistry()
     request(registry)
