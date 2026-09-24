@@ -174,6 +174,10 @@ class ProcessManager:
 
     # ==================== Process Lifecycle Methods ====================
 
+    def set_sdr_failure_handler(self, handler):
+        """Forward unexpected SDR worker failures to the observation lifecycle."""
+        self.lifecycle_manager.set_sdr_failure_handler(handler)
+
     async def get_center_frequency(self, sdr_id):
         """
         Get the current center frequency of an SDR worker process

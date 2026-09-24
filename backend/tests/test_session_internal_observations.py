@@ -228,3 +228,39 @@ class TestInternalSessionIsolation:
         # The actual snapshot test would require more setup
         assert session_tracker.is_internal_session(internal_session_id) is True
         assert session_tracker.is_internal_session(user_session_id) is False
+
+
+@pytest.mark.asyncio
+async def test_internal_observation_start_failure_cleans_partial_session(monkeypatch):
+    from session import service as service_module
+
+    observation_id = "test-obs-start-failure"
+    session_key = "sdr-unhealthy"
+    session_id = VFOManager.make_internal_session_id(observation_id, session_key)
+    stopped_sessions = []
+
+    class _FailingProcessManager:
+        async def start_sdr_process(self, *_args, **_kwargs):
+            raise RuntimeError("device open failed")
+
+        async def stop_sdr_process(self, sdr_id, client_id=None):
+            stopped_sessions.append((sdr_id, client_id))
+
+        transcription_manager = None
+
+    monkeypatch.setattr(service_module, "_get_process_manager", lambda: _FailingProcessManager())
+
+    with pytest.raises(RuntimeError, match="device open failed"):
+        await service_module.SessionService().register_internal_observation(
+            observation_id=observation_id,
+            sdr_device={"id": "sdr-unhealthy", "type": "uhd"},
+            sdr_config={"sdr_id": "sdr-unhealthy"},
+            vfo_number=1,
+            metadata={"observation_id": observation_id},
+            session_key=session_key,
+        )
+
+    assert service_module.active_sdr_clients.get(session_id) is None
+    assert session_tracker.get_session_sdr(session_id) is None
+    assert session_id not in session_tracker.get_all_internal_sessions()
+    assert stopped_sessions == [("sdr-unhealthy", session_id)]

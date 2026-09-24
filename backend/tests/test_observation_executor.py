@@ -268,6 +268,53 @@ async def test_start_observation_cleans_up_tracker_when_session_start_raises(mon
 
 
 @pytest.mark.asyncio
+async def test_sdr_failure_during_start_rolls_back_without_marking_running(monkeypatch, tmp_path):
+    executor_module = _load_executor_module(monkeypatch)
+    observation = _build_observation()
+    _patch_common_start_dependencies(monkeypatch, executor_module, observation, tmp_path)
+
+    executor = _new_executor(executor_module)
+    status_updates = []
+    stopped_sessions = []
+
+    async def _mock_start_tracker(*_args, **_kwargs):
+        return {"success": True, "tracker_id": "target-9", "ephemeral": True}
+
+    async def _mock_execute_session(*_args, **_kwargs):
+        await executor.handle_sdr_failure(
+            "sdr-1", {"internal:obs-1:sdr-1"}, "device stopped responding"
+        )
+
+    async def _mock_stop_session(_observation_id, session_key, *_args, **_kwargs):
+        stopped_sessions.append(session_key)
+
+    async def _mock_stop_tracker(*_args, **_kwargs):
+        return True
+
+    async def _mock_update_status(_sio, _observation_id, status, *_args, **_kwargs):
+        status_updates.append(status)
+
+    monkeypatch.setattr(executor.tracker_handler, "start_tracker_task", _mock_start_tracker)
+    monkeypatch.setattr(executor.tracker_handler, "stop_tracker_task", _mock_stop_tracker)
+    monkeypatch.setattr(executor, "_execute_observation_session", _mock_execute_session)
+    monkeypatch.setattr(executor, "_stop_observation_session", _mock_stop_session)
+    monkeypatch.setattr(executor_module, "update_observation_status", _mock_update_status)
+    monkeypatch.setattr(
+        executor_module.session_tracker,
+        "get_session_metadata",
+        lambda _session_id: {"observation_id": "obs-1"},
+    )
+
+    result = await executor.start_observation("obs-1")
+
+    assert result["success"] is False
+    assert STATUS_FAILED in status_updates
+    assert "running" not in status_updates
+    assert stopped_sessions == ["sdr-1"]
+    assert "obs-1" not in executor._starting_observations
+
+
+@pytest.mark.asyncio
 async def test_stop_observation_task_passes_tracker_context_and_clears_it(monkeypatch):
     executor_module = _load_executor_module(monkeypatch)
     executor = _new_executor(executor_module)
@@ -338,3 +385,52 @@ async def test_stop_observation_does_not_overwrite_failed_status(monkeypatch):
 
     assert result == {"success": True, "skipped": True, "status": STATUS_FAILED}
     assert status_updates == []
+
+
+@pytest.mark.asyncio
+async def test_sdr_runtime_failure_marks_observation_failed_and_cleans_up(monkeypatch):
+    executor_module = _load_executor_module(monkeypatch)
+    observation = _build_observation()
+    observation["status"] = "running"
+    status_updates = []
+    execution_events = []
+    removed_jobs = []
+    stopped_observations = []
+
+    async def _fetch_observation(_session, _observation_id):
+        return {"success": True, "data": observation}
+
+    async def _update_status(_sio, _observation_id, status, error=None):
+        status_updates.append((status, error))
+
+    async def _log_event(_observation_id, event, level):
+        execution_events.append((level, event))
+
+    async def _remove_job(observation_id):
+        removed_jobs.append(observation_id)
+
+    async def _stop_task(observation_id, _observation):
+        stopped_observations.append(observation_id)
+
+    monkeypatch.setattr(executor_module, "AsyncSessionLocal", lambda: _DummyAsyncSessionContext())
+    monkeypatch.setattr(executor_module, "fetch_scheduled_observations", _fetch_observation)
+    monkeypatch.setattr(executor_module, "update_observation_status", _update_status)
+    monkeypatch.setattr(executor_module, "log_execution_event", _log_event)
+    monkeypatch.setattr(executor_module, "remove_scheduled_stop_job", _remove_job)
+    monkeypatch.setattr(
+        executor_module.session_tracker,
+        "get_session_metadata",
+        lambda _session_id: {"observation_id": "obs-1"},
+    )
+
+    executor = _new_executor(executor_module)
+    executor._running_observations.add("obs-1")
+    monkeypatch.setattr(executor, "_stop_observation_task", _stop_task)
+
+    await executor.handle_sdr_failure("sdr-1", {"internal:obs-1:sdr-1"}, "USB transfer failed")
+
+    assert status_updates == [(STATUS_FAILED, "SDR sdr-1 failed: USB transfer failed")]
+    assert execution_events == [("error", "SDR sdr-1 failed: USB transfer failed")]
+    assert removed_jobs == ["obs-1"]
+    assert stopped_observations == ["obs-1"]
+    assert "obs-1" not in executor._running_observations

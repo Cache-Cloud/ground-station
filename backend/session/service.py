@@ -91,25 +91,33 @@ class SessionService:
         if sdr_id:
             session_tracker.register_session_streaming(session_id, sdr_id)
 
-    async def start_streaming(self, session_id: str, sdr_device: Dict[str, Any]) -> Optional[str]:
+    async def start_streaming(self, session_id: str, sdr_device: Dict[str, Any]) -> str:
         """Start or join the SDR worker process for the configured session."""
         cfg = self.get_session_config(session_id)
         if not cfg:
-            return None
+            raise RuntimeError(f"No SDR configuration exists for session {session_id}")
         sdr_id = cfg.get("sdr_id")
         process_manager = _get_process_manager()
         if not process_manager:
-            logger.error("ProcessManager not initialized; cannot start streaming")
-            return None
+            raise RuntimeError("ProcessManager not initialized; cannot start streaming")
 
         # ProcessManager API may be untyped; cast result to Optional[str]
-        started_id = cast(
-            Optional[str], await process_manager.start_sdr_process(sdr_device, cfg, session_id)
-        )
+        try:
+            started_id = cast(
+                Optional[str], await process_manager.start_sdr_process(sdr_device, cfg, session_id)
+            )
+        except Exception:
+            # Configuration may remain for a connected UI session, but a failed
+            # worker must not remain advertised as an active SDR relationship.
+            session_tracker.unregister_session_streaming(session_id)
+            raise
+        if not started_id:
+            session_tracker.unregister_session_streaming(session_id)
+            raise RuntimeError(f"SDR {sdr_id or 'unknown'} did not start streaming")
         # Ensure tracker binding is set
         if sdr_id:
             session_tracker.register_session_streaming(session_id, sdr_id)
-        return started_id
+        return str(started_id)
 
     async def stop_streaming(self, session_id: str, sdr_id: Optional[str]) -> None:
         """Stop/leave the SDR worker process for the session (if any)."""
@@ -188,11 +196,19 @@ class SessionService:
             observation_id, sdr_config["sdr_id"], vfo_number, metadata, session_key=session_key
         )
 
-        # Configure SDR
-        await self.configure_sdr(session_id, sdr_device, sdr_config)
-
-        # Start streaming
-        await self.start_streaming(session_id, sdr_device)
+        try:
+            # Configure SDR, then wait until its worker proves that samples are flowing.
+            await self.configure_sdr(session_id, sdr_device, sdr_config)
+            started_id = await self.start_streaming(session_id, sdr_device)
+            if started_id != str(sdr_config["sdr_id"]):
+                raise RuntimeError(
+                    f"SDR startup returned {started_id}, expected {sdr_config['sdr_id']}"
+                )
+        except Exception:
+            # The executor only records sessions after this method returns. Clean
+            # this partial session here so a failed start cannot leave stale SDR ownership.
+            await self.cleanup_internal_observation(observation_id, session_key=session_key)
+            raise
 
         return str(session_id)
 

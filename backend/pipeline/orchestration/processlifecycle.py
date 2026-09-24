@@ -18,7 +18,7 @@ import asyncio
 import logging
 import multiprocessing
 import os
-from typing import Dict, Tuple
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -129,6 +129,98 @@ class ProcessLifecycleManager:
         # Track last known fix state per GNSS stream so backend can mark fix acquire/loss transitions.
         self._gnss_fix_status_by_stream: Dict[Tuple[str, str], str] = {}
         self.gnsssatelliteresolver = GnssSatelliteResolver(logger=self.logger)
+        # Observations register a callback here so a worker failure after startup
+        # can move the owning observation out of RUNNING immediately.
+        self._sdr_failure_handler: Optional[Callable[[str, set[str], str], Awaitable[None]]] = None
+        self.sdr_ready_timeout_seconds = 10.0
+
+    def set_sdr_failure_handler(
+        self, handler: Optional[Callable[[str, set[str], str], Awaitable[None]]]
+    ) -> None:
+        """Register the async handler for unexpected failures of active SDR workers."""
+        self._sdr_failure_handler = handler
+
+    @staticmethod
+    def _sample_count(process_info: Dict[str, Any]) -> int:
+        stats = process_info.get("worker_stats") or {}
+        try:
+            return int(stats.get("samples_read") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _create_ready_waiter(self, process_info: Dict[str, Any]) -> asyncio.Future:
+        """Wait for sample activity newer than the state visible to the caller."""
+        future = asyncio.get_running_loop().create_future()
+        process_info.setdefault("ready_waiters", []).append(
+            {
+                "future": future,
+                "baseline_samples": self._sample_count(process_info),
+            }
+        )
+        return future
+
+    def _resolve_ready_waiters(self, process_info: Dict[str, Any]) -> None:
+        """Resolve startup waiters only after activation and real IQ delivery."""
+        if not process_info.get("streaming_started"):
+            return
+
+        sample_count = self._sample_count(process_info)
+        remaining = []
+        for waiter in process_info.get("ready_waiters", []):
+            future = waiter["future"]
+            if future.done():
+                continue
+            if sample_count > waiter["baseline_samples"]:
+                future.set_result({"success": True})
+            else:
+                remaining.append(waiter)
+        process_info["ready_waiters"] = remaining
+        if sample_count > 0:
+            process_info["startup_ready"] = True
+
+    @staticmethod
+    def _fail_ready_waiters(process_info: Dict[str, Any], message: str) -> None:
+        for waiter in process_info.get("ready_waiters", []):
+            future = waiter["future"]
+            if not future.done():
+                future.set_result({"success": False, "error": message})
+        process_info["ready_waiters"] = []
+
+    async def _wait_until_sdr_ready(
+        self,
+        sdr_id: str,
+        process_info: Dict[str, Any],
+        future: asyncio.Future,
+    ) -> None:
+        try:
+            result = await asyncio.wait_for(future, timeout=self.sdr_ready_timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError(
+                f"SDR {sdr_id} did not deliver samples within "
+                f"{self.sdr_ready_timeout_seconds:g} seconds"
+            ) from exc
+        finally:
+            process_info["ready_waiters"] = [
+                waiter
+                for waiter in process_info.get("ready_waiters", [])
+                if waiter["future"] is not future
+            ]
+
+        if not result.get("success"):
+            raise RuntimeError(result.get("error") or f"SDR {sdr_id} failed to start")
+
+    async def _notify_sdr_failure(self, sdr_id: str, client_ids: set[str], message: str) -> None:
+        if not self._sdr_failure_handler:
+            return
+        internal_clients = {
+            client_id for client_id in client_ids if VFOManager.is_internal_session(client_id)
+        }
+        if not internal_clients:
+            return
+        try:
+            await self._sdr_failure_handler(sdr_id, internal_clients, message)
+        except Exception as exc:
+            self.logger.exception("Failed to propagate SDR %s failure: %s", sdr_id, exc)
 
     async def _enrich_gnss_output(self, data):
         """
@@ -327,16 +419,19 @@ class ProcessLifecycleManager:
 
         # Check if a process for this device already exists
         if sdr_id in self.processes and self.processes[sdr_id]["process"].is_alive():
+            process_info = self.processes[sdr_id]
             self.logger.info(
                 f"SDR process for device {sdr_id} already running, adding client {client_id} to room"
             )
 
             # Add the client to the existing process
-            self.processes[sdr_id]["clients"].add(client_id)
+            process_info["clients"].add(client_id)
 
-            self.logger.info(
-                f"Active clients for SDR {sdr_id}: {self.processes[sdr_id]['clients']}"
-            )
+            self.logger.info(f"Active clients for SDR {sdr_id}: {process_info['clients']}")
+
+            # A running process is not enough: the new configuration must be
+            # followed by fresh IQ samples before the caller may start consumers.
+            ready_future = self._create_ready_waiter(process_info)
 
             # Update the configuration if needed
             config = {"client_id": client_id}
@@ -366,10 +461,10 @@ class ProcessLifecycleManager:
                     config[param] = sdr_config[param]
 
             # Send configuration to the process
-            self.processes[sdr_id]["config_queue"].put(config)
+            process_info["config_queue"].put(config)
 
             # Notify all other clients about the configuration change
-            other_clients = [c for c in self.processes[sdr_id]["clients"] if c != client_id]
+            other_clients = [c for c in process_info["clients"] if c != client_id]
             if other_clients:
                 # Build the full config dict to send to clients
                 notification_config = {
@@ -395,10 +490,17 @@ class ProcessLifecycleManager:
                     f"Notified {len(other_clients)} client(s) about SDR config change for {sdr_id}"
                 )
 
+            try:
+                await self._wait_until_sdr_ready(sdr_id, process_info, ready_future)
+            except Exception:
+                # Detach only this caller. Existing clients may continue using a
+                # healthy process if the requested reconfiguration was rejected.
+                await self.stop_sdr_process(sdr_id, client_id)
+                raise
+
             # Add this client to the room (skip for internal observation sessions)
             if not VFOManager.is_internal_session(client_id):
                 await self.sio.enter_room(client_id, sdr_id)
-                # Send a message to the UI of the specific client that streaming started
                 await self.sio.emit(SocketEvents.SDR_STATUS, {"streaming": True}, room=client_id)
 
             return sdr_id
@@ -507,7 +609,18 @@ class ProcessLifecycleManager:
                 "device": sdr_device,  # Store device info for runtime snapshots
                 # Keep full applied SDR config for change detection in update_configuration().
                 "config": dict(config),
+                # Startup succeeds only after STREAMING_START and a worker stats
+                # update proving that at least one IQ sample was read.
+                "streaming_started": False,
+                "startup_ready": False,
+                "ready_waiters": [],
+                "worker_stats": {},
+                "last_worker_error": None,
+                "failure_reported": False,
             }
+
+            process_info = self.processes[sdr_id]
+            ready_future = self._create_ready_waiter(process_info)
 
             # Send initial configuration
             config_queue.put(config)
@@ -518,6 +631,14 @@ class ProcessLifecycleManager:
 
             # Start async task to monitor the data queue
             asyncio.create_task(self._monitor_data_queue(sdr_id, process.pid))
+
+            try:
+                await self._wait_until_sdr_ready(sdr_id, process_info, ready_future)
+            except Exception:
+                # This is the only client of a newly created process, so detaching
+                # it also tears down the worker, FFT process, and broadcaster.
+                await self.stop_sdr_process(sdr_id, client_id)
+                raise
 
             return sdr_id
 
@@ -575,6 +696,15 @@ class ProcessLifecycleManager:
             # If there are still other clients, don't stop the process
             if process_info["clients"]:
                 return
+
+        # The queue monitor and a startup caller can discover termination at the
+        # same time. Let the first cleanup own the process and make the other
+        # caller wait until the shared entry is gone.
+        if process_info.get("stopping"):
+            while self.processes.get(sdr_id) is process_info:
+                await asyncio.sleep(0.05)
+            return
+        process_info["stopping"] = True
 
         # Stop the broadcaster first
         if "iq_broadcaster" in process_info:
@@ -930,6 +1060,7 @@ class ProcessLifecycleManager:
         self.logger.info(
             f"Started monitoring data queue for device {sdr_id} (pid={expected_process_pid})"
         )
+        runtime_failure: Optional[tuple[set[str], str]] = None
 
         try:
             while True:
@@ -950,8 +1081,6 @@ class ProcessLifecycleManager:
                     return
 
                 process_info = current_info
-                if not process_info["process"].is_alive():
-                    break
 
                 # Check if data is available
                 if not data_queue.empty():
@@ -992,37 +1121,70 @@ class ProcessLifecycleManager:
                             if "sdr_id" in data:
                                 # Worker process stats
                                 process_info["worker_stats"] = data.get("stats", {})
+                                self._resolve_ready_waiters(process_info)
                             else:
                                 # FFT processor stats
                                 process_info["fft_stats"] = data.get("stats", {})
 
                         elif data_type == QueueMessageTypes.STREAMING_START:
+                            process_info["streaming_started"] = True
+                            self._resolve_ready_waiters(process_info)
                             # Send streaming status to all clients connected to this SDR
                             await self.sio.emit(
                                 SocketEvents.SDR_STATUS, {"streaming": True}, room=sdr_id
                             )
 
                         elif data_type == QueueMessageTypes.CONFIG_ERROR:
+                            error_message = str(
+                                data.get(DictKeys.MESSAGE) or "SDR configuration failed"
+                            )
+                            process_info["last_worker_error"] = error_message
+                            self._fail_ready_waiters(process_info, error_message)
                             # Send config error to all clients connected to this SDR
                             await self.sio.emit(
                                 SocketEvents.SDR_CONFIG_ERROR,
-                                {DictKeys.MESSAGE: f"SDR error: {data[DictKeys.MESSAGE]}"},
+                                {DictKeys.MESSAGE: f"SDR error: {error_message}"},
                                 room=sdr_id,
                             )
-                            self.logger.error(
-                                f"Config error from SDR process: {data[DictKeys.MESSAGE]}"
-                            )
+                            self.logger.error(f"Config error from SDR process: {error_message}")
+                            if process_info.get("startup_ready") and not process_info.get(
+                                "failure_reported"
+                            ):
+                                process_info["failure_reported"] = True
+                                asyncio.create_task(
+                                    self._notify_sdr_failure(
+                                        sdr_id, set(process_info["clients"]), error_message
+                                    )
+                                )
 
                         elif data_type == QueueMessageTypes.ERROR:
+                            error_message = str(data.get(DictKeys.MESSAGE) or "SDR worker failed")
+                            process_info["last_worker_error"] = error_message
+                            self._fail_ready_waiters(process_info, error_message)
                             # Send error to all clients connected to this SDR
                             await self.sio.emit(
                                 SocketEvents.SDR_ERROR,
-                                {DictKeys.MESSAGE: f"SDR error: {data[DictKeys.MESSAGE]}"},
+                                {DictKeys.MESSAGE: f"SDR error: {error_message}"},
                                 room=sdr_id,
                             )
-                            self.logger.error(f"Error from SDR process: {data[DictKeys.MESSAGE]}")
+                            self.logger.error(f"Error from SDR process: {error_message}")
+                            if process_info.get("startup_ready") and not process_info.get(
+                                "failure_reported"
+                            ):
+                                process_info["failure_reported"] = True
+                                asyncio.create_task(
+                                    self._notify_sdr_failure(
+                                        sdr_id, set(process_info["clients"]), error_message
+                                    )
+                                )
 
                         elif data_type == QueueMessageTypes.TERMINATED:
+                            error_message = str(
+                                data.get(DictKeys.MESSAGE)
+                                or process_info.get("last_worker_error")
+                                or f"SDR {sdr_id} worker terminated unexpectedly"
+                            )
+                            self._fail_ready_waiters(process_info, error_message)
                             # Process has terminated
                             self.logger.info(f"SDR process for device {sdr_id} has terminated")
 
@@ -1037,6 +1199,13 @@ class ProcessLifecycleManager:
                             # Process info will be deleted in stop_sdr_process() after proper cleanup
 
                             # Exit the loop
+                            if (
+                                process_info.get("startup_ready")
+                                and not process_info["stop_event"].is_set()
+                                and not process_info.get("failure_reported")
+                            ):
+                                process_info["failure_reported"] = True
+                                runtime_failure = (set(process_info["clients"]), error_message)
                             break
 
                         elif data_type == "decoder-restart-request":
@@ -1154,6 +1323,20 @@ class ProcessLifecycleManager:
                         self.logger.error(f"Error processing data from SDR process: {str(e)}")
                         self.logger.exception(e)
                 else:
+                    if not process_info["process"].is_alive():
+                        error_message = str(
+                            process_info.get("last_worker_error")
+                            or f"SDR {sdr_id} worker exited before delivering samples"
+                        )
+                        self._fail_ready_waiters(process_info, error_message)
+                        if (
+                            process_info.get("startup_ready")
+                            and not process_info["stop_event"].is_set()
+                            and not process_info.get("failure_reported")
+                        ):
+                            process_info["failure_reported"] = True
+                            runtime_failure = (set(process_info["clients"]), error_message)
+                        break
                     # Short sleep to avoid CPU hogging
                     await asyncio.sleep(0.05)
 
@@ -1176,3 +1359,7 @@ class ProcessLifecycleManager:
                     expected_process_pid,
                     current_info["process"].pid,
                 )
+
+            if runtime_failure:
+                client_ids, error_message = runtime_failure
+                await self._notify_sdr_failure(sdr_id, client_ids, error_message)
