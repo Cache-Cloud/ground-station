@@ -2,6 +2,7 @@
 
 import pytest
 
+from observations.tasks import trackerhandler as trackerhandler_module
 from observations.tasks.trackerhandler import TrackerHandler
 
 
@@ -11,6 +12,43 @@ class _DummyTrackerManager:
 
     async def get_tracking_state(self):
         return dict(self.tracking_state)
+
+
+class _SessionContext:
+    async def __aenter__(self):
+        return object()
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_observation_tracker_removal_keeps_operations_lock_free(monkeypatch):
+    lock_states = []
+
+    def _remove_tracker(_tracker_id):
+        lock_states.append(trackerhandler_module.operations.lock.locked())
+        return {"success": True}
+
+    async def _delete_tracking_state(_session, _state_name):
+        return {"success": True, "deleted": True}
+
+    monkeypatch.setattr(
+        trackerhandler_module,
+        "remove_tracker_instance",
+        _remove_tracker,
+    )
+    monkeypatch.setattr(trackerhandler_module, "AsyncSessionLocal", _SessionContext)
+    monkeypatch.setattr(
+        trackerhandler_module.trackingstate_crud,
+        "delete_tracking_state",
+        _delete_tracking_state,
+    )
+
+    removed = await TrackerHandler()._remove_observation_tracker_instance("obs-1")
+
+    assert removed is True
+    assert lock_states == [False]
 
 
 @pytest.mark.asyncio

@@ -43,6 +43,7 @@ class TrackerRuntime:
 
 class TrackerSupervisor:
     TARGET_TRACKER_ID_PATTERN = re.compile(r"^target-(\d+)$")
+    OUTPUT_QUEUE_LOCK_TIMEOUT_SECONDS = 2.0
 
     def __init__(self):
         self.output_queue: Queue = multiprocessing.Queue()
@@ -228,49 +229,97 @@ class TrackerSupervisor:
 
         return runtime
 
-    def stop_tracker(self, tracker_id: str, timeout: float = 3.0) -> None:
+    def _force_stop_tracker(self, runtime: TrackerRuntime) -> bool:
+        """Stop a worker only while no process can be writing to the shared output pipe."""
+        write_lock = getattr(self.output_queue, "_wlock", None)
+        if write_lock is None:
+            logger.error(
+                "Tracker process '%s' cannot be stopped safely: output queue has no writer lock",
+                runtime.tracker_id,
+            )
+            return False
+
+        try:
+            lock_acquired = write_lock.acquire(timeout=self.OUTPUT_QUEUE_LOCK_TIMEOUT_SECONDS)
+        except Exception:
+            logger.exception(
+                "Failed acquiring the tracker output queue lock for '%s'",
+                runtime.tracker_id,
+            )
+            return False
+
+        if not lock_acquired:
+            # A Queue message spans multiple pipe writes when its payload is large. Killing
+            # its producer while the writer lock is held can strand an incomplete message;
+            # the next reader then blocks the main event loop waiting for bytes that will
+            # never arrive. Leaving one stopping worker alive is safer than corrupting the
+            # output channel shared by every tracker.
+            logger.error(
+                "Tracker process '%s' still owns the output queue writer; deferring forced stop",
+                runtime.tracker_id,
+            )
+            return False
+
+        try:
+            if not runtime.process.is_alive():
+                return True
+
+            try:
+                runtime.process.terminate()
+            except Exception:
+                logger.exception("Failed terminating tracker process '%s'", runtime.tracker_id)
+            runtime.process.join(timeout=0.3)
+
+            if runtime.process.is_alive():
+                try:
+                    runtime.process.kill()
+                except Exception:
+                    logger.exception("Failed killing tracker process '%s'", runtime.tracker_id)
+                runtime.process.join(timeout=0.3)
+
+            if runtime.process.is_alive():
+                logger.error(
+                    "Tracker process '%s' is still alive after kill; deferring cleanup",
+                    runtime.tracker_id,
+                )
+                return False
+            return True
+        finally:
+            write_lock.release()
+
+    def stop_tracker(self, tracker_id: str, timeout: float = 3.0) -> bool:
         normalized_id = require_tracker_id(tracker_id)
         runtime = self.runtimes.get(normalized_id)
         if not runtime:
             # Keep ownership maps consistent even when runtime is already gone.
             self._release_rotator_ownership(normalized_id)
-            return
+            return True
 
+        stopped = not runtime.process.is_alive()
+        if not stopped:
+            runtime.stop_event.set()
+            runtime.process.join(timeout=timeout)
+            stopped = not runtime.process.is_alive()
+            if not stopped:
+                logger.warning(
+                    "Tracker process '%s' did not exit within %.1fs; requesting forced stop",
+                    normalized_id,
+                    timeout,
+                )
+                stopped = self._force_stop_tracker(runtime)
+
+        if not stopped:
+            return False
+
+        # Avoid queue finalizer hangs during teardown.
         try:
-            if runtime.process and runtime.process.is_alive():
-                runtime.stop_event.set()
-                runtime.process.join(timeout=timeout)
-                if runtime.process.is_alive():
-                    logger.warning(
-                        "Tracker process '%s' did not exit within %.1fs; killing process",
-                        normalized_id,
-                        timeout,
-                    )
-                    try:
-                        runtime.process.terminate()
-                    except Exception:
-                        pass
-                    runtime.process.join(timeout=0.3)
-                if runtime.process.is_alive():
-                    try:
-                        runtime.process.kill()
-                    except Exception:
-                        pass
-                    runtime.process.join(timeout=0.3)
-                    if runtime.process.is_alive():
-                        logger.error(
-                            "Tracker process '%s' is still alive after kill; continuing cleanup",
-                            normalized_id,
-                        )
-            # Avoid queue finalizer hangs during teardown.
-            try:
-                runtime.queue_to_tracker.cancel_join_thread()
-                runtime.queue_to_tracker.close()
-            except Exception:
-                pass
-        finally:
-            self.runtimes.pop(normalized_id, None)
-            self._release_rotator_ownership(normalized_id)
+            runtime.queue_to_tracker.cancel_join_thread()
+            runtime.queue_to_tracker.close()
+        except Exception:
+            pass
+        self.runtimes.pop(normalized_id, None)
+        self._release_rotator_ownership(normalized_id)
+        return True
 
     def stop_all(self, timeout: float = 3.0) -> None:
         for tracker_id in list(self.runtimes.keys()):
@@ -278,7 +327,13 @@ class TrackerSupervisor:
 
     def remove_tracker(self, tracker_id: str, timeout: float = 3.0) -> Dict[str, Any]:
         normalized_id = require_tracker_id(tracker_id)
-        self.stop_tracker(normalized_id, timeout=timeout)
+        if not self.stop_tracker(normalized_id, timeout=timeout):
+            return {
+                "success": False,
+                "error": "tracker_stop_deferred",
+                "message": (f"Tracker '{normalized_id}' is still stopping; retry removal shortly"),
+                "tracker_id": normalized_id,
+            }
         self.managers.pop(normalized_id, None)
         # Repeat the repair after manager removal so partially inconsistent maps
         # cannot leave hardware reserved by a tracker that no longer exists.
@@ -520,8 +575,8 @@ def start_tracker_process(tracker_id: str):
     return runtime.process, runtime.queue_to_tracker, queue_from_tracker, runtime.stop_event
 
 
-def stop_tracker_process(tracker_id: str, timeout: float = 3.0) -> None:
-    _tracker_supervisor.stop_tracker(tracker_id, timeout=timeout)
+def stop_tracker_process(tracker_id: str, timeout: float = 3.0) -> bool:
+    return _tracker_supervisor.stop_tracker(tracker_id, timeout=timeout)
 
 
 def stop_all_tracker_processes(timeout: float = 3.0) -> None:

@@ -778,15 +778,16 @@ async def delete_tracker_instance(
             "message": f"Tracker '{tracker_id}' does not exist",
         }
 
-    # Stop/remove tracker runtime first so it cannot race DB writes during deletion.
-    # Run in a worker thread to avoid blocking the event loop if teardown stalls.
+    # Stop/remove the runtime without holding the operations lock. The tracker output
+    # consumer needs that lock to drain hardware snapshots while the worker flushes its
+    # multiprocessing queue during shutdown.
     try:
-        async with operations.lock:
-            remove_result = await asyncio.wait_for(
-                asyncio.to_thread(remove_tracker_instance, tracker_id),
-                timeout=6.0,
-            )
-            if remove_result.get("success"):
+        remove_result = await asyncio.wait_for(
+            asyncio.to_thread(remove_tracker_instance, tracker_id),
+            timeout=6.0,
+        )
+        if remove_result.get("success"):
+            async with operations.lock:
                 operations.forget_tracker(tracker_id)
     except TimeoutError:
         return {

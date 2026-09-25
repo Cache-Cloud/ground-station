@@ -63,11 +63,11 @@ class TrackerHandler:
         Used for ephemeral tracker slots created for observations without rotator ownership.
         """
         try:
-            # Keep command arbitration closed until the retired worker's last
-            # hardware snapshot has been removed from the operation registry.
-            async with operations.lock:
-                remove_result = await asyncio.to_thread(remove_tracker_instance, tracker_id)
-                if remove_result.get("success"):
+            # Keep the lock free while the process flushes its output queue. The queue
+            # consumer may need the same lock to process its final hardware snapshot.
+            remove_result = await asyncio.to_thread(remove_tracker_instance, tracker_id)
+            if remove_result.get("success"):
+                async with operations.lock:
                     operations.forget_tracker(tracker_id)
             if not remove_result.get("success"):
                 logger.warning(

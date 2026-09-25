@@ -1,5 +1,7 @@
 # Copyright (c) 2026 Efstratios Goudelis
 
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -10,8 +12,104 @@ from tracker.contracts import get_tracking_state_name
 from tracker.runner import TrackerSupervisor
 
 
+class _QueueStub:
+    def cancel_join_thread(self):
+        return None
+
+    def close(self):
+        return None
+
+
+class _EventStub:
+    def __init__(self):
+        self.was_set = False
+
+    def set(self):
+        self.was_set = True
+
+
+class _WriteLockStub:
+    def __init__(self, acquired=True):
+        self.acquired = acquired
+        self.held = False
+
+    def acquire(self, timeout):
+        self.timeout = timeout
+        self.held = self.acquired
+        return self.acquired
+
+    def release(self):
+        self.held = False
+
+
+class _ProcessStub:
+    def __init__(self, write_lock):
+        self.write_lock = write_lock
+        self.alive = True
+        self.terminated_with_lock = False
+        self.killed_with_lock = False
+
+    def is_alive(self):
+        return self.alive
+
+    def join(self, timeout):
+        return None
+
+    def terminate(self):
+        self.terminated_with_lock = self.write_lock.held
+
+    def kill(self):
+        self.killed_with_lock = self.write_lock.held
+        self.alive = False
+
+
 def _set_target_limit(monkeypatch, limit: int) -> None:
     monkeypatch.setattr("tracker.runner.arguments.max_tracker_targets", limit, raising=False)
+
+
+def test_forced_stop_holds_output_queue_writer_lock():
+    supervisor = TrackerSupervisor()
+    write_lock = _WriteLockStub()
+    process = _ProcessStub(write_lock)
+    stop_event = _EventStub()
+    supervisor.output_queue = SimpleNamespace(_wlock=write_lock)
+    supervisor.runtimes["target-1"] = SimpleNamespace(
+        tracker_id="target-1",
+        process=process,
+        queue_to_tracker=_QueueStub(),
+        stop_event=stop_event,
+    )
+
+    stopped = supervisor.stop_tracker("target-1", timeout=0)
+
+    assert stopped is True
+    assert stop_event.was_set is True
+    assert process.terminated_with_lock is True
+    assert process.killed_with_lock is True
+    assert write_lock.held is False
+    assert "target-1" not in supervisor.runtimes
+
+
+def test_forced_stop_is_deferred_when_output_queue_writer_is_busy():
+    supervisor = TrackerSupervisor()
+    write_lock = _WriteLockStub(acquired=False)
+    process = _ProcessStub(write_lock)
+    stop_event = _EventStub()
+    supervisor.output_queue = SimpleNamespace(_wlock=write_lock)
+    supervisor.runtimes["target-1"] = SimpleNamespace(
+        tracker_id="target-1",
+        process=process,
+        queue_to_tracker=_QueueStub(),
+        stop_event=stop_event,
+    )
+
+    stopped = supervisor.stop_tracker("target-1", timeout=0)
+
+    assert stopped is False
+    assert stop_event.was_set is True
+    assert process.terminated_with_lock is False
+    assert process.killed_with_lock is False
+    assert supervisor.runtimes["target-1"].process is process
 
 
 def test_target_slot_allocator_reuses_lowest_free_slot(monkeypatch):
