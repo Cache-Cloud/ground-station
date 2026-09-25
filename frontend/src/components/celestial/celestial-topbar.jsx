@@ -1196,20 +1196,14 @@ const CelestialTopBar = ({
                 <DialogTitle sx={DIALOG_TITLE_SX}>{tCelestial('topbar.dialogs.edit_title')}</DialogTitle>
                 <DialogContent sx={DIALOG_CONTENT_SX}>
                     <Stack spacing={2} sx={{ pt: 3 }}>
+                        {/* Target type owns the key namespace and is immutable after creation. */}
                         <FormControl size="small" fullWidth>
                             <InputLabel id="edit-target-type-label">{tCelestial('topbar.fields.target_type')}</InputLabel>
                             <Select
                                 labelId="edit-target-type-label"
                                 label={tCelestial('topbar.fields.target_type')}
                                 value={editForm.targetType || 'mission'}
-                                onChange={(event) =>
-                                    setEditForm((prev) => ({
-                                        ...prev,
-                                        targetType: event.target.value,
-                                        command: event.target.value === 'mission' ? prev.command : '',
-                                        bodyId: event.target.value === 'body' ? prev.bodyId : '',
-                                    }))
-                                }
+                                disabled
                             >
                                 <MenuItem value="mission">{tCelestial('topbar.fields.mission_spacecraft')}</MenuItem>
                                 <MenuItem value="body">{tCelestial('topbar.fields.solar_body')}</MenuItem>

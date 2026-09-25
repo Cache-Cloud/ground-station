@@ -63,6 +63,7 @@ import {
     pruneElevationHistory,
     updateElevationHistory,
 } from '../../utils/elevationtrend.js';
+import { replaceCelestialTargetKey } from '../target/celestial-target-utils.js';
 
 const getPassBackgroundColor = (color, theme, coefficient) => ({
     backgroundColor: darken(color, coefficient),
@@ -983,7 +984,7 @@ const CelestialPasses = ({
                 dispatch(setTrackerId(trackerId));
                 dispatch(setRotator({ value: nextRotatorId, trackerId }));
 
-                const targetPatch = targetType === 'body'
+                const targetPatch = replaceCelestialTargetKey(targetType === 'body'
                     ? {
                         target_type: 'body',
                         target_name: row.name || bodyId,
@@ -997,7 +998,7 @@ const CelestialPasses = ({
                         mission_id: missionId || null,
                         command: missionCommand,
                         body_id: null,
-                    };
+                    }, row.targetKey);
 
                 const newTrackingState = isCreateNewSlot
                     ? {

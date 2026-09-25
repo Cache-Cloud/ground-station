@@ -33,7 +33,10 @@ import {
 import { toRowSelectionModel, toSelectedIds } from '../../utils/datagrid-selection.js';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
 import TargetNumberIcon from '../common/target-number-icon.jsx';
-import { buildTargetKeyFromCelestialRow } from '../target/celestial-target-utils.js';
+import {
+    buildTargetKeyFromCelestialRow,
+    replaceCelestialTargetKey,
+} from '../target/celestial-target-utils.js';
 import CelestialContextMenu from '../target/celestialcontextmenu.jsx';
 import { useSocket } from '../common/socket.jsx';
 import { useTargetRotatorSelectionDialog } from '../target/use-target-rotator-selection-dialog.jsx';
@@ -724,7 +727,7 @@ const MonitoredCelestialGridIsland = ({
                 dispatch(setTrackerId(trackerId));
                 dispatch(setRotator({ value: nextRotatorId, trackerId }));
 
-                const targetPatch = targetType === 'body'
+                const targetPatch = replaceCelestialTargetKey(targetType === 'body'
                     ? {
                         target_type: 'body',
                         target_name: row.displayName || bodyId,
@@ -738,7 +741,7 @@ const MonitoredCelestialGridIsland = ({
                         mission_id: missionId || null,
                         command: missionCommand,
                         body_id: null,
-                    };
+                    }, row.targetKey);
 
                 const newTrackingState = isCreateNewSlot
                     ? {

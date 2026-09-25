@@ -628,8 +628,20 @@ async def get_spacecraft_index_entries(
             requested_limit = data.get("limit")
             if isinstance(requested_limit, int) and requested_limit > 0:
                 limit = min(requested_limit, 1000)
-        entries = get_spacecraft_index()[:limit]
-        return {"success": True, "data": entries, "error": None}
+        rows = []
+        for entry in get_spacecraft_index()[:limit]:
+            command = str(entry.get("command") or "").strip()
+            target_key = build_target_key(target_type="mission", command=command)
+            if not target_key:
+                continue
+            rows.append(
+                {
+                    **entry,
+                    "target_type": "mission",
+                    "target_key": target_key,
+                }
+            )
+        return {"success": True, "data": rows, "error": None}
     except Exception as exc:
         logger.error(f"Failed loading spacecraft index: {exc}")
         return {"success": False, "error": str(exc), "data": []}

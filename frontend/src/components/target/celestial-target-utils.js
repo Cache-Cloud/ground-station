@@ -18,6 +18,13 @@ const normalizeBodyId = (value) => normalizeText(value).toLowerCase();
 
 const normalizeMissionId = (value) => normalizeText(value);
 
+export const replaceCelestialTargetKey = (targetPatch = {}, targetKey = '') => ({
+    ...targetPatch,
+    // Always write the field, including an empty value, so spreading this patch
+    // over an existing tracker cannot retain the previous celestial identity.
+    target_key: normalizeText(targetKey),
+});
+
 export const parseTargetSlotNumber = (trackerId = '') => {
     const match = String(trackerId || '').trim().match(TARGET_SLOT_ID_PATTERN);
     if (!match) return null;

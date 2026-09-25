@@ -621,7 +621,9 @@ export function CelestialCatalogPage() {
     const [statusFilter, setStatusFilter] = useState('all');
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
-    const [busyKey, setBusyKey] = useState('');
+    // `null` is the idle sentinel; an empty target key can arrive from an older
+    // backend and must never make that row look permanently busy.
+    const [busyCatalogId, setBusyCatalogId] = useState(null);
     const catalogActionInProgressRef = useRef(false);
     const [message, setMessage] = useState(null);
     const [monitorError, setMonitorError] = useState('');
@@ -658,28 +660,39 @@ export function CelestialCatalogPage() {
     ), [monitored]);
 
     const rows = useMemo(() => {
-        const bodyRows = bodies.map((body) => ({
-            key: String(body.target_key || '').trim(),
-            kind: 'body',
-            name: t(`admin.catalog.bodies.${body.body_id}`, { defaultValue: body.name }),
-            identifier: body.body_id,
-            type: body.body_type,
-            parent: body.parent_body_id
-                ? t(`admin.catalog.bodies.${body.parent_body_id}`, { defaultValue: body.parent_body_id })
-                : t('admin.catalog.parent_sun'),
-            status: 'available',
-            raw: body,
-        }));
-        const missionRows = missions.map((mission) => ({
-            key: String(mission.target_key || '').trim(),
-            kind: 'mission',
-            name: mission.display_name,
-            identifier: mission.command,
-            type: 'spacecraft',
-            parent: mission.agency || t('admin.catalog.unknown_agency'),
-            status: mission.mission_status || 'unknown',
-            raw: mission,
-        }));
+        const bodyRows = bodies.map((body) => {
+            const targetKey = String(body.target_key || '').trim();
+            return {
+                // Keep grid identity independent from backend target identity so
+                // one malformed catalog row cannot corrupt virtualized pages.
+                catalogId: targetKey || `catalog:body:${String(body.body_id || '').trim()}`,
+                key: targetKey,
+                kind: 'body',
+                name: t(`admin.catalog.bodies.${body.body_id}`, { defaultValue: body.name }),
+                identifier: body.body_id,
+                type: body.body_type,
+                parent: body.parent_body_id
+                    ? t(`admin.catalog.bodies.${body.parent_body_id}`, { defaultValue: body.parent_body_id })
+                    : t('admin.catalog.parent_sun'),
+                status: 'available',
+                raw: body,
+            };
+        });
+        const missionRows = missions.map((mission) => {
+            const targetKey = String(mission.target_key || '').trim();
+            const catalogIdentifier = String(mission.id || mission.command || '').trim();
+            return {
+                catalogId: targetKey || `catalog:mission:${catalogIdentifier}`,
+                key: targetKey,
+                kind: 'mission',
+                name: mission.display_name,
+                identifier: mission.command,
+                type: 'spacecraft',
+                parent: mission.agency || t('admin.catalog.unknown_agency'),
+                status: mission.mission_status || 'unknown',
+                raw: mission,
+            };
+        });
         const needle = search.trim().toLowerCase();
         return [...bodyRows, ...missionRows].filter((row) => {
             if (kind !== 'all' && row.kind !== kind) return false;
@@ -696,7 +709,7 @@ export function CelestialCatalogPage() {
         // Guard synchronously so a rapid second click cannot start another create/refresh chain.
         if (catalogActionInProgressRef.current) return;
         catalogActionInProgressRef.current = true;
-        setBusyKey(row.key);
+        setBusyCatalogId(row.catalogId);
         setMessage(null);
         setMonitorError('');
         try {
@@ -728,7 +741,7 @@ export function CelestialCatalogPage() {
             }));
         } finally {
             catalogActionInProgressRef.current = false;
-            setBusyKey('');
+            setBusyCatalogId(null);
         }
     };
 
@@ -738,7 +751,7 @@ export function CelestialCatalogPage() {
         if (!row || !existing || catalogActionInProgressRef.current) return;
 
         catalogActionInProgressRef.current = true;
-        setBusyKey(row.key);
+        setBusyCatalogId(row.catalogId);
         setUnmonitorError('');
         try {
             await dispatch(deleteMonitoredCelestial({ socket, ids: [existing.id] })).unwrap();
@@ -747,7 +760,7 @@ export function CelestialCatalogPage() {
             setUnmonitorError(String(error?.message || error));
         } finally {
             catalogActionInProgressRef.current = false;
-            setBusyKey('');
+            setBusyCatalogId(null);
         }
     };
 
@@ -820,7 +833,7 @@ export function CelestialCatalogPage() {
                         size="small"
                         variant={isMonitored ? 'outlined' : 'contained'}
                         color={isMonitored ? 'error' : 'primary'}
-                        disabled={!socket || Boolean(busyKey)}
+                        disabled={!socket || Boolean(busyCatalogId)}
                         onClick={(event) => {
                             event.stopPropagation();
                             if (isMonitored) {
@@ -836,7 +849,7 @@ export function CelestialCatalogPage() {
                                 ? <DeleteOutlineIcon fontSize="small" sx={{ display: 'block' }} />
                                 : <AddIcon fontSize="small" sx={{ display: 'block' }} />}
                             <Box component="span" sx={{ lineHeight: 1 }}>
-                                {busyKey === params.row.key
+                                {busyCatalogId === params.row.catalogId
                                     ? t('admin.catalog.actions.working')
                                     : isMonitored
                                         ? t('admin.catalog.actions.unmonitor')
@@ -881,7 +894,7 @@ export function CelestialCatalogPage() {
                 loading={loading}
                 rows={rows}
                 columns={columns}
-                getRowId={(row) => row.key}
+                getRowId={(row) => row.catalogId}
                 pageSizeOptions={[5, 10, 25, 50, 100]}
                 initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
                 disableRowSelectionOnClick
@@ -902,7 +915,7 @@ export function CelestialCatalogPage() {
 
             <Dialog
                 open={Boolean(pendingUnmonitor)}
-                onClose={() => !busyKey && setPendingUnmonitor(null)}
+                onClose={() => !busyCatalogId && setPendingUnmonitor(null)}
                 maxWidth="sm"
                 fullWidth
                 PaperProps={{ sx: { bgcolor: 'background.paper', borderRadius: 2 } }}
@@ -959,14 +972,14 @@ export function CelestialCatalogPage() {
                         gap: 1,
                     }}
                 >
-                    <Button variant="outlined" onClick={() => setPendingUnmonitor(null)} disabled={Boolean(busyKey)}>
+                    <Button variant="outlined" onClick={() => setPendingUnmonitor(null)} disabled={Boolean(busyCatalogId)}>
                         {t('admin.common.cancel')}
                     </Button>
                     <Button
                         variant="contained"
                         color="error"
                         startIcon={<DeleteOutlineIcon />}
-                        disabled={!pendingUnmonitor || Boolean(busyKey)}
+                        disabled={!pendingUnmonitor || Boolean(busyCatalogId)}
                         onClick={handleConfirmUnmonitor}
                     >
                         {t('admin.catalog.actions.unmonitor')}

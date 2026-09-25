@@ -4,6 +4,7 @@ import {
   buildTargetSceneRequestKey,
   buildTargetSlotNumberByTargetKey,
   parseTargetSlotNumber,
+  replaceCelestialTargetKey,
 } from '../celestial-target-utils';
 
 describe('parseTargetSlotNumber', () => {
@@ -30,6 +31,25 @@ describe('buildTargetKeyFromCelestialRow', () => {
     expect(buildTargetKeyFromCelestialRow({ target_type: 'mission', command: 'Voyager 1' })).toBe('');
     expect(buildTargetKeyFromCelestialRow({ targetType: 'body', bodyId: 'Rhea' })).toBe('');
     expect(buildTargetKeyFromCelestialRow({ command: 'Cassini' })).toBe('');
+  });
+});
+
+describe('replaceCelestialTargetKey', () => {
+  it('replaces a tracker patch identity instead of retaining the previous target key', () => {
+    expect(replaceCelestialTargetKey({
+      target_type: 'mission',
+      target_key: 'mission:old_target',
+      command: 'Dawn',
+    }, ' mission:dawn ')).toEqual({
+      target_type: 'mission',
+      target_key: 'mission:dawn',
+      command: 'Dawn',
+    });
+  });
+
+  it('writes an empty identity so the backend can derive it from the new metadata', () => {
+    expect(replaceCelestialTargetKey({ target_type: 'body', body_id: 'mars' }))
+      .toEqual({ target_type: 'body', body_id: 'mars', target_key: '' });
   });
 });
 

@@ -15,7 +15,10 @@ import { setRotator, setTrackerId, setTrackingStateInBackend } from '../target/t
 import { useTargetRotatorSelectionDialog } from '../target/use-target-rotator-selection-dialog.jsx';
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import TargetIcon from './target-icon.jsx';
-import { resolveTargetDisplayName } from '../target/celestial-target-utils.js';
+import {
+    replaceCelestialTargetKey,
+    resolveTargetDisplayName,
+} from '../target/celestial-target-utils.js';
 import TransmittersDialog from '../satellites/transmitters-dialog.jsx';
 
 const AU_IN_KM = 149597870.7;
@@ -284,7 +287,7 @@ const CelestialInfoIsland = ({
         dispatch(setTrackerId(trackerId));
         dispatch(setRotator({ value: nextRotatorId, trackerId }));
 
-        const targetPatch = targetType === 'body'
+        const targetPatch = replaceCelestialTargetKey(targetType === 'body'
             ? {
                 target_type: 'body',
                 target_name: targetName || bodyTargetId,
@@ -296,7 +299,7 @@ const CelestialInfoIsland = ({
                 target_name: targetName || missionCommand,
                 command: missionCommand,
                 body_id: null,
-            };
+            }, normalizedTargetKey);
 
         const newTrackingState = isCreateNewSlot
             ? {

@@ -21,6 +21,7 @@ import monitoredReducer from '../monitored-slice.jsx';
 const socketState = vi.hoisted(() => ({
     createAcknowledge: null,
     created: false,
+    missions: [],
     refreshResponse: { success: true, data: { celestial: [] } },
     socket: { emit: vi.fn() },
 }));
@@ -33,12 +34,15 @@ vi.mock('@mui/x-data-grid', async () => {
     const ReactModule = await import('react');
     return {
         gridClasses: { cell: 'MuiDataGrid-cell', columnHeader: 'MuiDataGrid-columnHeader' },
-        DataGrid: ({ rows = [], columns = [] }) => ReactModule.createElement(
+        DataGrid: ({ rows = [], columns = [], getRowId }) => ReactModule.createElement(
             'div',
-            null,
+            {
+                'data-testid': 'catalog-grid',
+                'data-row-ids': rows.map((row) => getRowId?.(row) ?? row.key).join('|'),
+            },
             rows.map((row) => ReactModule.createElement(
                 'div',
-                { key: row.key },
+                { key: getRowId?.(row) ?? row.key },
                 columns
                     .filter((column) => column.field === 'row_actions')
                     .map((column) => ReactModule.createElement(
@@ -55,6 +59,7 @@ describe('CelestialCatalogPage monitor actions', () => {
     beforeEach(() => {
         socketState.createAcknowledge = null;
         socketState.created = false;
+        socketState.missions = [];
         socketState.refreshResponse = { success: true, data: { celestial: [] } };
         socketState.socket.emit.mockReset();
         socketState.socket.emit.mockImplementation((_event, request, acknowledge) => {
@@ -72,7 +77,7 @@ describe('CelestialCatalogPage monitor actions', () => {
                 return;
             }
             if (request.cmd === 'get-spacecraft-index') {
-                acknowledge({ success: true, data: [] });
+                acknowledge({ success: true, data: socketState.missions });
                 return;
             }
             if (request.cmd === 'get-monitored-celestial') {
@@ -99,6 +104,38 @@ describe('CelestialCatalogPage monitor actions', () => {
                 acknowledge(socketState.refreshResponse);
             }
         });
+    });
+
+    it('uses stable unique grid IDs when catalog target identity is missing', async () => {
+        const store = configureStore({
+            reducer: {
+                celestial: celestialReducer,
+                celestialMonitored: monitoredReducer,
+            },
+        });
+        socketState.missions = [
+            { id: 'voyager1', display_name: 'Voyager 1', command: 'Voyager 1' },
+            { id: 'dawn', display_name: 'Dawn', command: 'Dawn' },
+        ];
+
+        render(
+            <Provider store={store}>
+                <CelestialCatalogPage />
+            </Provider>,
+        );
+
+        const grid = await screen.findByTestId('catalog-grid');
+        await waitFor(() => {
+            const rowIds = String(grid.getAttribute('data-row-ids') || '').split('|');
+            expect(rowIds).toEqual([
+                'body:sun',
+                'catalog:mission:voyager1',
+                'catalog:mission:dawn',
+            ]);
+            expect(new Set(rowIds).size).toBe(rowIds.length);
+        });
+        expect(screen.getAllByRole('button', { name: /^monitor$/i })).toHaveLength(3);
+        expect(screen.queryByText(/^working$/i)).not.toBeInTheDocument();
     });
 
     it('starts only one create and first-refresh chain after rapid repeated clicks', async () => {
