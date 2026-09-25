@@ -49,7 +49,7 @@ import {
 export const gridLayoutStoreName = 'celestial-layouts';
 const LAYOUT_SCHEMA_VERSION = 7;
 const SHARED_RESIZE_HANDLES = ['s', 'sw', 'w', 'se', 'nw', 'ne', 'e'];
-const DEFAULT_PAST_HOURS = 1;
+const DEFAULT_PAST_HOURS = 6;
 const DEFAULT_FUTURE_HOURS = 24;
 const DEFAULT_STEP_MINUTES = 60;
 const MAX_PAST_PROJECTION_HOURS = 168;
