@@ -25,6 +25,8 @@ const historyResponse = (sampleCount = 49) => ({
     data: {
         target_key: 'mission:-61',
         now_utc: '2026-09-23T03:30:00+00:00',
+        snapshot_count: 1,
+        expired_snapshot_count: 0,
         snapshots: [{
             id: 'snapshot-1',
             epoch_bucket_utc: '2026-09-23T03:00:00+00:00',
@@ -92,6 +94,11 @@ describe('Celestial target vector coverage dialog', () => {
             }
             if (request.cmd === 'get-celestial-vector-snapshot-history') {
                 acknowledge(historyResponse());
+                return;
+            }
+            if (request.cmd === 'delete-celestial-vector-snapshot'
+                || request.cmd === 'clear-celestial-vector-snapshots') {
+                acknowledge({ success: true, data: { deleted_count: 1 } });
             }
         });
     });
@@ -112,6 +119,7 @@ describe('Celestial target vector coverage dialog', () => {
         expect(screen.getByText('Vector data available')).toBeInTheDocument();
         expect(screen.getAllByText('49 samples')).toHaveLength(2);
         expect(screen.getByRole('img', { name: /timeline of vector sample coverage/i })).toBeInTheDocument();
+        expect(screen.queryByText(/Observer AZ\/EL also requires/i)).not.toBeInTheDocument();
         await waitFor(() => expect(socket.emit).toHaveBeenCalledWith(
             'api.call',
             {
@@ -160,5 +168,78 @@ describe('Celestial target vector coverage dialog', () => {
 
         act(() => finishHistoryRefresh());
         expect(await screen.findAllByText('50 samples')).toHaveLength(2);
+    });
+
+    it('confirms and deletes an individual target-scoped snapshot', async () => {
+        render(<VectorCoverageDialog
+            open
+            target={{
+                id: 'monitored-juno',
+                targetKey: 'mission:-61',
+                targetType: 'mission',
+                displayName: 'Juno',
+                command: '-61',
+            }}
+            socket={socket}
+            timezone="UTC"
+            locale="en-US"
+            onClose={vi.fn()}
+            onRefresh={vi.fn()}
+        />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Delete snapshot' }));
+        expect(await screen.findByText('Delete snapshot?')).toBeInTheDocument();
+        fireEvent.click(screen.getAllByRole('button', { name: 'Delete snapshot' }).at(-1));
+
+        await waitFor(() => expect(socket.emit).toHaveBeenCalledWith(
+            'api.call',
+            {
+                cmd: 'delete-celestial-vector-snapshot',
+                data: {
+                    target_key: 'mission:-61',
+                    snapshot_id: 'snapshot-1',
+                },
+            },
+            expect.any(Function),
+        ));
+        await waitFor(() => expect(
+            socket.emit.mock.calls.filter(([, request]) => (
+                request.cmd === 'get-celestial-vector-snapshot-history'
+            )),
+        ).toHaveLength(2));
+    });
+
+    it('confirms clearing every snapshot for only the selected target', async () => {
+        render(<VectorCoverageDialog
+            open
+            target={{
+                id: 'monitored-juno',
+                targetKey: 'mission:-61',
+                targetType: 'mission',
+                displayName: 'Juno',
+                command: '-61',
+            }}
+            socket={socket}
+            timezone="UTC"
+            locale="en-US"
+            onClose={vi.fn()}
+            onRefresh={vi.fn()}
+        />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Clear all snapshots' }));
+        expect(await screen.findByText('Clear all snapshots?')).toBeInTheDocument();
+        fireEvent.click(screen.getAllByRole('button', { name: 'Clear all snapshots' }).at(-1));
+
+        await waitFor(() => expect(socket.emit).toHaveBeenCalledWith(
+            'api.call',
+            {
+                cmd: 'clear-celestial-vector-snapshots',
+                data: {
+                    target_key: 'mission:-61',
+                    expired_only: false,
+                },
+            },
+            expect.any(Function),
+        ));
     });
 });

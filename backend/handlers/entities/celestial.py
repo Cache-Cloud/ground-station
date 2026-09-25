@@ -739,6 +739,64 @@ async def get_celestial_vector_snapshot_history(
     return result
 
 
+async def delete_celestial_vector_snapshot(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Any]:
+    """Delete one persisted vector snapshot belonging to a canonical target."""
+    payload = data if isinstance(data, dict) else {}
+    requested_key = payload.get("target_key")
+    target_key = normalize_target_key(requested_key)
+    if not isinstance(requested_key, str) or requested_key != target_key:
+        return {
+            "success": False,
+            "data": None,
+            "error": "target_key must be a canonical mission: or body: key",
+        }
+
+    snapshot_id = payload.get("snapshot_id")
+    if not isinstance(snapshot_id, str) or not snapshot_id.strip():
+        return {"success": False, "data": None, "error": "snapshot_id is required"}
+
+    async with AsyncSessionLocal() as dbsession:
+        return cast(
+            Dict[str, Any],
+            await crud_celestial_vectors.delete_celestial_vector_snapshots(
+                dbsession,
+                target_key,
+                snapshot_id=snapshot_id,
+            ),
+        )
+
+
+async def clear_celestial_vector_snapshots(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Any]:
+    """Clear expired or all persisted vector snapshots for one target."""
+    payload = data if isinstance(data, dict) else {}
+    requested_key = payload.get("target_key")
+    target_key = normalize_target_key(requested_key)
+    if not isinstance(requested_key, str) or requested_key != target_key:
+        return {
+            "success": False,
+            "data": None,
+            "error": "target_key must be a canonical mission: or body: key",
+        }
+
+    expired_only = payload.get("expired_only", False)
+    if not isinstance(expired_only, bool):
+        return {"success": False, "data": None, "error": "expired_only must be a boolean"}
+
+    async with AsyncSessionLocal() as dbsession:
+        return cast(
+            Dict[str, Any],
+            await crud_celestial_vectors.delete_celestial_vector_snapshots(
+                dbsession,
+                target_key,
+                expired_only=expired_only,
+            ),
+        )
+
+
 async def refresh_celestial_cache_now(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Any]:
@@ -813,6 +871,14 @@ def register_handlers(registry):
             ),
             "get-celestial-vector-snapshot-history": (
                 get_celestial_vector_snapshot_history,
+                "api_call",
+            ),
+            "delete-celestial-vector-snapshot": (
+                delete_celestial_vector_snapshot,
+                "api_call",
+            ),
+            "clear-celestial-vector-snapshots": (
+                clear_celestial_vector_snapshots,
                 "api_call",
             ),
             "refresh-celestial-cache-now": (

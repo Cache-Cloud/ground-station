@@ -12,7 +12,7 @@ const WaterfallErrorDialog = ({ open, message, onClose }) => {
                 <ErrorIcon color="error" />
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>{t('error_dialog.title')}</Typography>
             </DialogTitle>
-            <DialogContent>
+            <DialogContent sx={{ pt: '12px !important' }}>
                 <DialogContentText id="error-dialog-description" sx={{ whiteSpace: 'pre-wrap' }}>
                     {message}
                 </DialogContentText>

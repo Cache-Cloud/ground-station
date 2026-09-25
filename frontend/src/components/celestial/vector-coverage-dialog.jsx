@@ -11,12 +11,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
-    DialogContent, DialogTitle, Divider, Paper, Stack, Typography,
+    DialogContent, DialogContentText, DialogTitle, Divider, IconButton,
+    Paper, Stack, Tooltip, Typography,
 } from '@mui/material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CachedIcon from '@mui/icons-material/Cached';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import { useTranslation } from 'react-i18next';
@@ -43,10 +46,21 @@ function StatusCard({ icon, label, value, color = 'default', detail }) {
                 <Box sx={{ color: color === 'default' ? 'text.secondary' : `${color}.main`, display: 'flex' }}>{icon}</Box>
                 <Box sx={{ minWidth: 0 }}>
                     <Typography variant="caption" color="text.secondary" display="block">{label}</Typography>
-                    <Typography variant="body2" fontWeight={700}>{value}</Typography>
+                    <Stack direction="row" spacing={0.75} alignItems="baseline" sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={700} sx={{ flexShrink: 0 }}>{value}</Typography>
+                        {detail ? (
+                            <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                title={detail}
+                                sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            >
+                                {detail}
+                            </Typography>
+                        ) : null}
+                    </Stack>
                 </Box>
             </Stack>
-            {detail ? <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>{detail}</Typography> : null}
         </Paper>
     );
 }
@@ -217,6 +231,8 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [pendingDelete, setPendingDelete] = useState(null);
     const [error, setError] = useState('');
     const requestIdRef = useRef(0);
 
@@ -270,10 +286,74 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
         }
     };
 
+    const handleDelete = async () => {
+        if (!socket || !pendingDelete || !target?.targetKey) return;
+        setDeleting(true);
+        setError('');
+        try {
+            await new Promise((resolve, reject) => {
+                const isSingleSnapshot = pendingDelete.kind === 'single';
+                socket.emit('api.call', {
+                    cmd: isSingleSnapshot
+                        ? 'delete-celestial-vector-snapshot'
+                        : 'clear-celestial-vector-snapshots',
+                    data: isSingleSnapshot
+                        ? {
+                            target_key: target.targetKey,
+                            snapshot_id: pendingDelete.snapshot.id,
+                        }
+                        : {
+                            target_key: target.targetKey,
+                            expired_only: pendingDelete.kind === 'expired',
+                        },
+                }, (response) => {
+                    if (response?.success) resolve(response.data);
+                    else reject(new Error(response?.error || t('admin.targets.vectors.delete_failed')));
+                });
+            });
+            setPendingDelete(null);
+            await loadHistory({ background: true });
+        } catch (deleteError) {
+            setPendingDelete(null);
+            setError(String(deleteError?.message || deleteError));
+        } finally {
+            setDeleting(false);
+        }
+    };
+
     const snapshots = data?.snapshots || [];
     const latest = snapshots[0];
+    const snapshotCount = Number(data?.snapshot_count ?? snapshots.length);
+    const expiredSnapshotCount = Number(
+        data?.expired_snapshot_count
+        ?? snapshots.filter((snapshot) => !snapshot.cache_fresh).length,
+    );
     const identifier = target?.targetType === 'body' ? target?.bodyId : target?.command;
+    const confirmationTitle = pendingDelete?.kind === 'single'
+        ? t('admin.targets.vectors.confirm_delete_title')
+        : pendingDelete?.kind === 'expired'
+            ? t('admin.targets.vectors.confirm_clear_expired_title')
+            : t('admin.targets.vectors.confirm_clear_all_title');
+    const confirmationMessage = pendingDelete?.kind === 'single'
+        ? t('admin.targets.vectors.confirm_delete_message', {
+            time: formatTime(pendingDelete.snapshot.fetched_at, timezone, locale),
+        })
+        : pendingDelete?.kind === 'expired'
+            ? t('admin.targets.vectors.confirm_clear_expired_message', {
+                count: expiredSnapshotCount,
+                name: target?.displayName || target?.targetKey || '',
+            })
+            : t('admin.targets.vectors.confirm_clear_all_message', {
+                count: snapshotCount,
+                name: target?.displayName || target?.targetKey || '',
+            });
+    const confirmationAction = pendingDelete?.kind === 'single'
+        ? t('admin.targets.vectors.delete_snapshot')
+        : pendingDelete?.kind === 'expired'
+            ? t('admin.targets.vectors.clear_expired')
+            : t('admin.targets.vectors.clear_all');
     return (
+        <>
         <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
             <DialogTitle sx={{ pb: 1 }}><Stack direction="row" spacing={1.25} alignItems="center">
                 <TimelineIcon color="primary" />
@@ -304,7 +384,30 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
                         <VectorTimeline snapshots={snapshots} nowUtc={data.now_utc} timezone={timezone} locale={locale} t={t} />
                     </Box>
                     <Divider />
-                    <Box><Typography variant="subtitle1" fontWeight={700} gutterBottom>{t('admin.targets.vectors.history', { count: snapshots.length })}</Typography>
+                    <Box><Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ mb: 1 }}>
+                        <Typography variant="subtitle1" fontWeight={700}>{t('admin.targets.vectors.history', { count: snapshotCount })}</Typography>
+                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<DeleteSweepIcon />}
+                                disabled={deleting || expiredSnapshotCount === 0}
+                                onClick={() => setPendingDelete({ kind: 'expired' })}
+                            >
+                                {t('admin.targets.vectors.clear_expired')}
+                            </Button>
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                color="error"
+                                startIcon={<DeleteOutlineIcon />}
+                                disabled={deleting || snapshotCount === 0}
+                                onClick={() => setPendingDelete({ kind: 'all' })}
+                            >
+                                {t('admin.targets.vectors.clear_all')}
+                            </Button>
+                        </Stack>
+                    </Stack>
                         <Stack spacing={1}>{snapshots.map((snapshot, index) => <Paper key={snapshot.id} variant="outlined" sx={{ p: 1.5 }}>
                             <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} justifyContent="space-between">
                                 <Box><Typography variant="body2" fontWeight={700}>{index === 0 ? t('admin.targets.vectors.latest_snapshot') : formatTime(snapshot.epoch_bucket_utc, timezone, locale)}</Typography>
@@ -315,16 +418,47 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
                                     <Chip size="small" color={snapshot.cache_fresh ? 'success' : 'warning'} label={snapshot.cache_fresh ? t('admin.targets.vectors.fresh') : t('admin.targets.vectors.expired')} />
                                     <Typography variant="caption" color="text.secondary">{t('admin.targets.vectors.synced')}: {formatTime(snapshot.fetched_at, timezone, locale)}</Typography>
                                     <Typography variant="caption" color="text.secondary">{t('admin.targets.vectors.cache_expiry')}: {formatTime(snapshot.expires_at, timezone, locale)}</Typography>
+                                    <Tooltip title={t('admin.targets.vectors.delete_snapshot')}>
+                                        <span>
+                                            <IconButton
+                                                size="small"
+                                                color="error"
+                                                aria-label={t('admin.targets.vectors.delete_snapshot')}
+                                                disabled={deleting}
+                                                onClick={() => setPendingDelete({ kind: 'single', snapshot })}
+                                            >
+                                                <DeleteOutlineIcon fontSize="small" />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
                                 </Stack>
                             </Stack>
                         </Paper>)}</Stack>
                     </Box>
-                    <Alert severity="info">{t('admin.targets.vectors.observer_note')}</Alert>
                 </> : null}
             </Stack></DialogContent>
             <DialogActions><Button onClick={onClose}>{t('admin.targets.vectors.close')}</Button>
-                <Button variant="contained" startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />} disabled={!socket || refreshing} onClick={handleRefresh}>{t('admin.targets.actions.refresh')}</Button>
+                <Button variant="contained" startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />} disabled={!socket || refreshing || deleting} onClick={handleRefresh}>{t('admin.targets.actions.refresh')}</Button>
             </DialogActions>
         </Dialog>
+        <Dialog open={Boolean(pendingDelete)} onClose={deleting ? undefined : () => setPendingDelete(null)} maxWidth="sm" fullWidth>
+            <DialogTitle>{confirmationTitle}</DialogTitle>
+            <DialogContent sx={{ pt: '12px !important' }}>
+                <DialogContentText>{confirmationMessage}</DialogContentText>
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={() => setPendingDelete(null)} disabled={deleting}>{t('admin.common.cancel')}</Button>
+                <Button
+                    variant="contained"
+                    color="error"
+                    startIcon={deleting ? <CircularProgress size={16} color="inherit" /> : <DeleteOutlineIcon />}
+                    disabled={deleting}
+                    onClick={() => void handleDelete()}
+                >
+                    {confirmationAction}
+                </Button>
+            </DialogActions>
+        </Dialog>
+        </>
     );
 }

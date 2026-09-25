@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import case, distinct, func, select, text
+from sqlalchemy import case, delete, distinct, func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -306,6 +306,16 @@ async def fetch_celestial_vector_snapshot_history(
         now_utc = now_utc.astimezone(timezone.utc)
         history_limit = max(1, min(int(limit), 100))
 
+        count_result = await session.execute(
+            select(
+                func.count(CelestialVectorSnapshots.id).label("snapshot_count"),
+                func.sum(case((CelestialVectorSnapshots.expires_at <= now_utc, 1), else_=0)).label(
+                    "expired_snapshot_count"
+                ),
+            ).where(CelestialVectorSnapshots.target_id == target_key)
+        )
+        counts = count_result.mappings().one()
+
         # Do not load position or velocity arrays. The timeline only needs the
         # sample timestamps and cache metadata from each persisted snapshot.
         stmt = (
@@ -395,12 +405,67 @@ async def fetch_celestial_vector_snapshot_history(
             "data": {
                 "target_key": target_key,
                 "now_utc": now_utc.isoformat(),
+                "snapshot_count": int(counts["snapshot_count"] or 0),
+                "expired_snapshot_count": int(counts["expired_snapshot_count"] or 0),
                 "snapshots": snapshots,
             },
             "error": None,
         }
     except Exception as e:
         logger.error(f"Error fetching celestial vector snapshot history: {e}")
+        logger.error(traceback.format_exc())
+        return {"success": False, "error": str(e)}
+
+
+async def delete_celestial_vector_snapshots(
+    session: AsyncSession,
+    target_id: str,
+    *,
+    snapshot_id: Optional[str] = None,
+    expired_only: bool = False,
+    as_of: Optional[datetime] = None,
+) -> dict:
+    """Delete one snapshot or a target-scoped set of persisted vectors."""
+    try:
+        target_key = normalize_target_key(target_id)
+        if not target_key:
+            return {"success": False, "error": "target_id is required"}
+
+        normalized_snapshot_id = None
+        if snapshot_id is not None:
+            normalized_snapshot_id = str(snapshot_id).strip()
+            if not normalized_snapshot_id:
+                return {"success": False, "error": "snapshot_id is required"}
+
+        stmt = delete(CelestialVectorSnapshots).where(
+            CelestialVectorSnapshots.target_id == target_key
+        )
+        if normalized_snapshot_id is not None:
+            # Snapshot IDs are still constrained by target so a stale dialog
+            # cannot remove a row belonging to another body or mission.
+            stmt = stmt.where(CelestialVectorSnapshots.id == normalized_snapshot_id)
+        elif expired_only:
+            cutoff = as_of or datetime.now(timezone.utc)
+            if cutoff.tzinfo is None:
+                cutoff = cutoff.replace(tzinfo=timezone.utc)
+            cutoff = cutoff.astimezone(timezone.utc)
+            stmt = stmt.where(CelestialVectorSnapshots.expires_at <= cutoff)
+
+        result = await session.execute(stmt)
+        await session.commit()
+        return {
+            "success": True,
+            "data": {
+                "target_key": target_key,
+                "snapshot_id": normalized_snapshot_id,
+                "expired_only": bool(expired_only and normalized_snapshot_id is None),
+                "deleted_count": int(result.rowcount or 0),
+            },
+            "error": None,
+        }
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Error deleting celestial vector snapshots: {e}")
         logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 
