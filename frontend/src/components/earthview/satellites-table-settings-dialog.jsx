@@ -38,6 +38,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import {
+    EARTHVIEW_SATELLITES_DEFAULT_COLUMN_VISIBILITY,
     resetSatellitesTableSettings,
     setSatellitesTableColumnVisibility,
     setSatellitesTablePageSize,
@@ -89,9 +90,12 @@ const SatellitesTableSettingsDialog = ({ open, onClose }) => {
     const rowsPerPageOptions = [5, 10, 15, 20, 50];
 
     const handleColumnToggle = (columnName) => {
+        const isVisible = columnVisibility[columnName]
+            ?? EARTHVIEW_SATELLITES_DEFAULT_COLUMN_VISIBILITY[columnName]
+            ?? true;
         dispatch(setSatellitesTableColumnVisibility({
             ...columnVisibility,
-            [columnName]: !columnVisibility[columnName]
+            [columnName]: !isVisible
         }));
     };
 
@@ -108,6 +112,7 @@ const SatellitesTableSettingsDialog = ({ open, onClose }) => {
         { name: 'alternative_names', label: t('satellites_table.alternative_names'), category: 'names' },
         { name: 'norad_id', label: t('satellites_table.norad'), category: 'basic', alwaysVisible: true },
         { name: 'elevation', label: t('satellites_table.elevation'), category: 'basic', alwaysVisible: true },
+        { name: 'azimuth', label: t('satellites_table.azimuth'), category: 'basic' },
         { name: 'visibility', label: t('satellites_table.visibility', { defaultValue: 'Visibility' }), category: 'basic', alwaysVisible: true },
         { name: 'status', label: t('satellites_table.status'), category: 'basic' },
         { name: 'transmitters', label: t('satellites_table.transmitters'), category: 'basic' },
@@ -170,7 +175,11 @@ const SatellitesTableSettingsDialog = ({ open, onClose }) => {
                                     key={column.name}
                                     control={
                                         <Checkbox
-                                            checked={column.alwaysVisible || columnVisibility[column.name] !== false}
+                                            checked={column.alwaysVisible || (
+                                                columnVisibility[column.name]
+                                                ?? EARTHVIEW_SATELLITES_DEFAULT_COLUMN_VISIBILITY[column.name]
+                                                ?? true
+                                            )}
                                             onChange={() => handleColumnToggle(column.name)}
                                             disabled={column.alwaysVisible}
                                         />

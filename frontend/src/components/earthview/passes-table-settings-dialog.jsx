@@ -38,6 +38,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import {
+    EARTHVIEW_PASSES_DEFAULT_COLUMN_VISIBILITY,
     resetPassesTableSettings,
     setPassesTableColumnVisibility,
     setPassesTablePageSize,
@@ -89,9 +90,12 @@ const PassesTableSettingsDialog = ({ open, onClose }) => {
     const rowsPerPageOptions = [5, 10, 15, 20];
 
     const handleColumnToggle = (columnName) => {
+        const isVisible = columnVisibility[columnName]
+            ?? EARTHVIEW_PASSES_DEFAULT_COLUMN_VISIBILITY[columnName]
+            ?? true;
         dispatch(setPassesTableColumnVisibility({
             ...columnVisibility,
-            [columnName]: !columnVisibility[columnName]
+            [columnName]: !isVisible
         }));
     };
 
@@ -109,6 +113,7 @@ const PassesTableSettingsDialog = ({ open, onClose }) => {
         { name: 'alternative_names', label: t('satellites_table.alternative_names'), category: 'names' },
         { name: 'peak_altitude', label: t('passes_table.peak_elevation'), category: 'basic' },
         { name: 'elevation', label: t('passes_table.current_elevation'), category: 'basic' },
+        { name: 'azimuth', label: t('passes_table.current_azimuth'), category: 'basic' },
         { name: 'pass_tags', label: t('passes_table.pass_types', { defaultValue: 'Pass Types' }), category: 'basic' },
         { name: 'progress', label: t('passes_table.progress'), category: 'basic', alwaysVisible: true },
         { name: 'duration', label: t('passes_table.duration'), category: 'basic' },
@@ -177,7 +182,11 @@ const PassesTableSettingsDialog = ({ open, onClose }) => {
                                     key={column.name}
                                     control={
                                         <Checkbox
-                                            checked={column.alwaysVisible || columnVisibility[column.name] !== false}
+                                            checked={column.alwaysVisible || (
+                                                columnVisibility[column.name]
+                                                ?? EARTHVIEW_PASSES_DEFAULT_COLUMN_VISIBILITY[column.name]
+                                                ?? true
+                                            )}
                                             onChange={() => handleColumnToggle(column.name)}
                                             disabled={column.alwaysVisible}
                                         />

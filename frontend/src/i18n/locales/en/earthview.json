@@ -9,6 +9,7 @@
     "alternative_names": "Alternative names",
     "norad": "NORAD",
     "elevation": "Elevation",
+    "azimuth": "Azimuth",
     "status": "Status",
     "transmitters": "Transmitters",
     "countries": "Countries",
@@ -52,6 +53,7 @@
     "name_other": "Other Name",
     "peak_elevation": "Peak elevation",
     "current_elevation": "Current Elevation",
+    "current_azimuth": "Current Azimuth",
     "direction": "Direction",
     "direction_values": {
       "cw": "CW",

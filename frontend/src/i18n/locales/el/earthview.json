@@ -9,6 +9,7 @@
     "alternative_names": "Εναλλακτικα ονόματα",
     "norad": "NORAD",
     "elevation": "Υψωση",
+    "azimuth": "Αζιμουθιο",
     "status": "Κατασταση",
     "transmitters": "Πομποδεκτες",
     "countries": "Χωρες",
@@ -43,6 +44,7 @@
     "name": "Ονομα",
     "peak_elevation": "Μεγιστη ύψωση",
     "current_elevation": "Τρεχουσα Υψωση",
+    "current_azimuth": "Τρεχον Αζιμουθιο",
     "direction": "Κατευθυνση",
     "direction_values": {
       "cw": "Δεξιοστροφα",

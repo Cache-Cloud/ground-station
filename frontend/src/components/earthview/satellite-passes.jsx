@@ -764,15 +764,10 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             flex: 1,
             sortable: false,
             renderCell: (params) => {
-                const now = new Date(nowMsRef.current);
-                const isActive = new Date(params.row.event_start) < now && new Date(params.row.event_end) > now;
-
-                if (!isActive) {
-                    return <span>-</span>;
-                }
-
+                // Keep the live value visible outside the pass window so below-horizon
+                // elevation remains useful for upcoming and recently completed passes.
                 const selectedSatellitePositions = selectedSatellitePositionsRef.current();
-                const noradId = params.row.id.split("_")[1];
+                const noradId = params.row.norad_id;
                 const position = selectedSatellitePositions?.[noradId];
 
                 return (
@@ -781,8 +776,24 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
                         trend={position?.trend}
                         timeToMaxEl={position?.timeToMaxEl}
                         elRate={position?.elRate}
+                        showNegative
                     />
                 );
+            }
+        },
+        {
+            field: 'azimuth',
+            minWidth: 90,
+            headerName: t('passes_table.current_azimuth'),
+            align: 'center',
+            headerAlign: 'center',
+            flex: 1,
+            sortable: false,
+            renderCell: (params) => {
+                const selectedSatellitePositions = selectedSatellitePositionsRef.current();
+                const noradId = params.row.norad_id;
+                const azimuth = selectedSatellitePositions?.[noradId]?.az;
+                return <span>{Number.isFinite(azimuth) ? `${azimuth.toFixed(1)}°` : '-'}</span>;
             }
         },
         {
@@ -902,6 +913,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
     const effectiveColumnVisibility = useMemo(() => {
         const base = {
             status: true,
+            azimuth: false,
             ...columnVisibility,
         };
         if (!isCompactView) {
@@ -911,6 +923,7 @@ const MemoizedStyledDataGrid = React.memo(function MemoizedStyledDataGrid({
             ...base,
             alternative_names: false,
             elevation: false,
+            azimuth: false,
             pass_tags: false,
             duration: false,
             transmitters: false,

@@ -192,6 +192,7 @@ const MemoizedStyledDataGrid = React.memo(({
         return (satellites || []).map((satellite) => ({
             ...satellite,
             elevation: positions?.[satellite.norad_id]?.el ?? null,
+            azimuth: positions?.[satellite.norad_id]?.az ?? null,
             trend: positions?.[satellite.norad_id]?.trend ?? null,
             visibility: getVisibilityState(positions?.[satellite.norad_id]?.el ?? null),
             active_tx_count: (satellite.transmitters || []).filter((tx) => tx.alive).length,
@@ -288,9 +289,19 @@ const MemoizedStyledDataGrid = React.memo(({
                         trend={position?.trend}
                         timeToMaxEl={position?.timeToMaxEl}
                         elRate={position?.elRate}
+                        showNegative
                     />
                 );
             }
+        },
+        {
+            field: 'azimuth',
+            minWidth: 70,
+            headerName: t('satellites_table.azimuth'),
+            align: 'center',
+            headerAlign: 'center',
+            flex: 1,
+            valueFormatter: (value) => Number.isFinite(value) ? `${value.toFixed(1)}°` : '-',
         },
         {
             field: 'visibility',
@@ -463,6 +474,7 @@ const MemoizedStyledDataGrid = React.memo(({
         const base = {
             visibility: true,
             active_tx_count: false,
+            azimuth: false,
             ...columnVisibility,
         };
         if (!isCompactView) return base;
