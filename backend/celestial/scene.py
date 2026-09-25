@@ -2161,6 +2161,9 @@ async def _fetch_celestial_with_cache(
             f"{target_key or _target_key_from_parts('mission', command=command)}|{epoch_cache_key}"
             f"|p{past_hours}|f{future_hours}|s{step_minutes}"
             f"|obs:{observer_cache_key}"
+            # A cache-only lookup can contain an expired projection. Do not let
+            # it suppress a later request that is allowed to refresh Horizons.
+            f"|network:{int(bool(allow_network_fetch))}"
         )
 
         use_cached = False

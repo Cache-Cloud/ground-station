@@ -183,6 +183,10 @@ export const buildTargetCelestialPayload = ({
         past_hours: 0,
         future_hours: futureHours,
         step_minutes: 60,
+        // A selected target may not be monitored by the celestial scheduler.
+        // Let the backend fill its projection instead of returning an expired
+        // cache entry with no usable pass samples.
+        allow_network_fetch: true,
     };
 
     if (targetType === 'mission') {

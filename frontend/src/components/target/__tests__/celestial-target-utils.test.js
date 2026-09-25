@@ -10,27 +10,35 @@ import {
 
 describe('buildTargetCelestialPayload', () => {
   it('preserves backend-owned mission and body target keys', () => {
-    expect(buildTargetCelestialPayload({
+    const missionPayload = buildTargetCelestialPayload({
       trackingState: {
         target_type: 'mission',
         target_key: 'mission:catalog:42',
         command: 'Juno',
       },
       targetName: 'Juno',
-    }).celestial[0]).toEqual(expect.objectContaining({
+    });
+    expect(missionPayload).toEqual(expect.objectContaining({
+      allow_network_fetch: true,
+    }));
+    expect(missionPayload.celestial[0]).toEqual(expect.objectContaining({
       target_type: 'mission',
       target_key: 'mission:catalog:42',
       command: 'Juno',
     }));
 
-    expect(buildTargetCelestialPayload({
+    const bodyPayload = buildTargetCelestialPayload({
       trackingState: {
         target_type: 'body',
         target_key: 'body:catalog:venus',
         body_id: 'Venus',
       },
       targetName: 'Venus',
-    }).celestial[0]).toEqual(expect.objectContaining({
+    });
+    expect(bodyPayload).toEqual(expect.objectContaining({
+      allow_network_fetch: true,
+    }));
+    expect(bodyPayload.celestial[0]).toEqual(expect.objectContaining({
       target_type: 'body',
       target_key: 'body:catalog:venus',
       body_id: 'venus',

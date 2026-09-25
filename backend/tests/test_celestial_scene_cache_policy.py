@@ -434,6 +434,77 @@ async def test_cache_only_stale_snapshot_keeps_current_pointing_capability(monke
     assert result["payload"]["position_xyz_au"] == [2.0, 0.0, 0.0]
 
 
+@pytest.mark.asyncio
+async def test_network_request_does_not_reuse_cache_only_computed_result(monkeypatch):
+    epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    calls = []
+
+    async def _snapshot(*_args, **kwargs):
+        network_enabled = bool(kwargs["allow_network_fetch"])
+        calls.append(network_enabled)
+        return {
+            "payload": {
+                "command": "Voyager 1",
+                "position_xyz_au": [1.0, 0.0, 0.0],
+                "orbit_samples_xyz_au": [[1.0, 0.0, 0.0], [1.0, 0.1, 0.0]],
+                "orbit_sample_times_utc": [
+                    (epoch - timedelta(hours=1)).isoformat(),
+                    (epoch + timedelta(hours=24)).isoformat(),
+                ],
+            },
+            "cache": "db-miss" if network_enabled else "db-stale-hit",
+            "stale": not network_enabled,
+            "current_position_usable": network_enabled,
+            "calculation_usable": network_enabled,
+        }
+
+    monkeypatch.setattr(scene, "_get_vectors_snapshot", _snapshot)
+    target = {
+        "target_type": "mission",
+        "target_key": "mission:voyager_1",
+        "command": "Voyager 1",
+        "name": "Voyager 1",
+    }
+
+    with scene._computed_cache_lock:
+        scene._computed_cache.clear()
+    try:
+        cache_only_rows = await scene._fetch_celestial_with_cache(
+            targets=[target],
+            epoch=epoch,
+            past_hours=1,
+            future_hours=24,
+            step_minutes=60,
+            observer_location=None,
+            earth_position_xyz_au=None,
+            body_snapshot_by_id={},
+            force_refresh=False,
+            allow_network_fetch=False,
+            logger=_DummyLogger(),
+        )
+        network_rows = await scene._fetch_celestial_with_cache(
+            targets=[target],
+            epoch=epoch,
+            past_hours=1,
+            future_hours=24,
+            step_minutes=60,
+            observer_location=None,
+            earth_position_xyz_au=None,
+            body_snapshot_by_id={},
+            force_refresh=False,
+            allow_network_fetch=True,
+            logger=_DummyLogger(),
+        )
+    finally:
+        with scene._computed_cache_lock:
+            scene._computed_cache.clear()
+
+    assert calls == [False, True]
+    assert cache_only_rows[0]["calculation_usable"] is False
+    assert network_rows[0]["calculation_usable"] is True
+    assert network_rows[0]["cache"] == "db-miss"
+
+
 def test_current_pointing_survives_incomplete_projection_window():
     epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     row = {
