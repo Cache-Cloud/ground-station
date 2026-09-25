@@ -15,21 +15,14 @@
 
 """Conflict detection helpers for observation generation."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import ScheduledObservations
-from observations.constants import (
-    PASS_OVERLAP_TOLERANCE_MINUTES,
-    STATUS_CANCELLED,
-    STATUS_COMPLETED,
-    STATUS_FAILED,
-    STATUS_RUNNING,
-    STATUS_SCHEDULED,
-)
+from observations.constants import PASS_OVERLAP_TOLERANCE_MINUTES, STATUS_RUNNING, STATUS_SCHEDULED
 
 
 async def find_overlapping_observation(
@@ -73,25 +66,11 @@ async def find_overlapping_observation(
 
 
 def should_update_observation(existing_obs: ScheduledObservations) -> bool:
-    """
-    Determine if an existing observation should be updated/replaced.
-
-    Args:
-        existing_obs: Existing observation record
-
-    Returns:
-        True if the observation should be updated, False if it should be left alone
-    """
-    # Update failed or cancelled observations
-    if existing_obs.status in [STATUS_CANCELLED, STATUS_FAILED]:
-        return True
-
-    # Skip scheduled, running, or completed observations
-    if existing_obs.status in [STATUS_SCHEDULED, STATUS_RUNNING, STATUS_COMPLETED]:
-        return False
-
-    # Default: don't update
-    return False
+    """Return whether generation may refresh an existing observation."""
+    status = getattr(existing_obs.status, "value", existing_obs.status)
+    return bool(
+        status == STATUS_SCHEDULED and existing_obs.event_start > datetime.now(timezone.utc)
+    )
 
 
 async def find_any_time_conflict(

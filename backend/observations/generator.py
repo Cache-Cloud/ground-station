@@ -36,7 +36,11 @@ from crud.scheduledobservations import (
     edit_scheduled_observation,
 )
 from db.models import ScheduledObservations
-from observations.conflicts import find_any_time_conflict, find_overlapping_observation
+from observations.conflicts import (
+    find_any_time_conflict,
+    find_overlapping_observation,
+    should_update_observation,
+)
 from observations.constants import (
     CONFLICT_STRATEGY_FORCE,
     CONFLICT_STRATEGY_PRIORITY,
@@ -416,11 +420,13 @@ async def _generate_observations_for_satellite(
             )
 
             if existing:
-                # Always update auto-generated observations from monitored satellites
-                # This ensures they get the latest tasks, SDR config, etc.
-                if not dry_run:
-                    await _update_observation(session, existing, monitored_sat, pass_data)
-                stats["updated"] += 1
+                # Preserve observations that have started or reached a terminal state.
+                if should_update_observation(existing):
+                    if not dry_run:
+                        await _update_observation(session, existing, monitored_sat, pass_data)
+                    stats["updated"] += 1
+                else:
+                    stats["skipped"] += 1
             else:
                 # Calculate task times for this pass to use in conflict detection
                 task_start_elevation = monitored_sat.get("task_start_elevation", 10)
@@ -768,7 +774,7 @@ async def _update_observation(
         "id": existing_obs.id,
         "name": obs_name,
         "enabled": True,
-        "status": STATUS_SCHEDULED,  # Reset status to scheduled
+        "status": existing_obs.status,
         "satellite": satellite,
         "pass": {
             "event_start": pass_data["event_start"],
