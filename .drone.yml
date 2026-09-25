@@ -67,7 +67,7 @@ steps:
       - docker tag ground-station:$FULL_VERSION sgoudelis/ground-station:$ENV_TYPE-latest
 
       # Give FastAPI time to fail and clean up any running observation.
-      - docker stop --time 15 ground-station-prod || true
+      - docker stop --timeout 15 ground-station-prod || true
       - docker rm ground-station-prod || true
 
       # Run the new container with the versioned image (using host networking for mDNS discovery)
@@ -128,7 +128,7 @@ steps:
       - docker tag ground-station:$FULL_VERSION sgoudelis/ground-station:$ENV_TYPE-latest-arm64
 
       # Give FastAPI time to fail and clean up any running observation.
-      - docker stop --time 15 ground-station-prod || true
+      - docker stop --timeout 15 ground-station-prod || true
       - docker rm ground-station-prod || true
 
       # Run the new container with the versioned image (use local image, not registry, with host networking for mDNS discovery)
