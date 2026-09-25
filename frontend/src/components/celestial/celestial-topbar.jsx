@@ -52,28 +52,15 @@ import {
     updateMonitoredCelestial,
 } from './monitored-slice.jsx';
 import { refreshMonitoredCelestialNow } from './celestial-slice.jsx';
+import ProjectionSelector, {
+    FUTURE_HOUR_OPTIONS,
+    PAST_HOUR_OPTIONS,
+} from './projectionselector.jsx';
 
 const STALE_MS = 5 * 60 * 1000;
 const HEX_COLOR_PATTERN = /^#[0-9A-F]{6}$/;
 const MAX_PAST_PROJECTION_HOURS = 168;
 const MAX_FUTURE_PROJECTION_HOURS = 720;
-const PAST_HOUR_OPTIONS = [
-    { value: 1, label: '1h' },
-    { value: 6, label: '6h' },
-    { value: 12, label: '12h' },
-    { value: 24, label: '1d' },
-    { value: 72, label: '3d' },
-    { value: 168, label: '7d' },
-];
-const FUTURE_HOUR_OPTIONS = [
-    { value: 6, label: '6h' },
-    { value: 12, label: '12h' },
-    { value: 24, label: '1d' },
-    { value: 72, label: '3d' },
-    { value: 168, label: '7d' },
-    { value: 336, label: '14d' },
-    { value: 720, label: '30d' },
-];
 const coercePastHours = (value) => {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed < 1) return 1;
@@ -603,60 +590,73 @@ const CelestialTopBar = ({
                     minHeight: '64px',
                 }}
             >
-                <Stack direction="row" spacing={1} alignItems="center">
-                    <Stack direction="row" spacing={0.5} alignItems="center">
-                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                            {tCelestial('topbar.projection.past')}
-                        </Typography>
-                        <FormControl size="small" sx={{ minWidth: 72 }}>
-                            <Select
-                                size="small"
-                                value={projectionPastHours}
-                                onChange={(event) => onProjectionPastHoursChange?.(Number(event.target.value))}
-                                disabled={!socket || celestialLoading}
-                                sx={{
-                                    '& .MuiSelect-select': {
-                                        py: 0.5,
-                                        pl: 1,
-                                        pr: 3,
-                                    },
-                                }}
-                            >
-                                {PAST_HOUR_OPTIONS.map((option) => (
-                                    <MenuItem key={`past-${option.value}`} value={option.value}>
-                                        {option.label}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
+                {compactActionButtons ? (
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                                {tCelestial('topbar.projection.past')}
+                            </Typography>
+                            <FormControl size="small" sx={{ minWidth: 72 }}>
+                                <Select
+                                    size="small"
+                                    value={projectionPastHours}
+                                    onChange={(event) => onProjectionPastHoursChange?.(Number(event.target.value))}
+                                    disabled={!socket || celestialLoading}
+                                    sx={{
+                                        '& .MuiSelect-select': {
+                                            py: 0.5,
+                                            pl: 1,
+                                            pr: 3,
+                                        },
+                                    }}
+                                >
+                                    {PAST_HOUR_OPTIONS.map((option) => (
+                                        <MenuItem key={`past-${option.value}`} value={option.value}>
+                                            {option.label}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Stack>
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                                {tCelestial('topbar.projection.future')}
+                            </Typography>
+                            <FormControl size="small" sx={{ minWidth: 72 }}>
+                                <Select
+                                    size="small"
+                                    value={projectionFutureHours}
+                                    onChange={(event) => onProjectionFutureHoursChange?.(Number(event.target.value))}
+                                    disabled={!socket || celestialLoading}
+                                    sx={{
+                                        '& .MuiSelect-select': {
+                                            py: 0.5,
+                                            pl: 1,
+                                            pr: 3,
+                                        },
+                                    }}
+                                >
+                                    {FUTURE_HOUR_OPTIONS.map((option) => (
+                                        <MenuItem key={`future-${option.value}`} value={option.value}>
+                                            {option.label}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Stack>
                     </Stack>
-                    <Stack direction="row" spacing={0.5} alignItems="center">
-                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                            {tCelestial('topbar.projection.future')}
-                        </Typography>
-                        <FormControl size="small" sx={{ minWidth: 72 }}>
-                            <Select
-                                size="small"
-                                value={projectionFutureHours}
-                                onChange={(event) => onProjectionFutureHoursChange?.(Number(event.target.value))}
-                                disabled={!socket || celestialLoading}
-                                sx={{
-                                    '& .MuiSelect-select': {
-                                        py: 0.5,
-                                        pl: 1,
-                                        pr: 3,
-                                    },
-                                }}
-                            >
-                                {FUTURE_HOUR_OPTIONS.map((option) => (
-                                    <MenuItem key={`future-${option.value}`} value={option.value}>
-                                        {option.label}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                    </Stack>
-                </Stack>
+                ) : (
+                    <ProjectionSelector
+                        pastHours={projectionPastHours}
+                        futureHours={projectionFutureHours}
+                        pastLabel={tCelestial('topbar.projection.past')}
+                        futureLabel={tCelestial('topbar.projection.future')}
+                        nowLabel={tCelestial('topbar.projection.now')}
+                        disabled={!socket || celestialLoading}
+                        onPastHoursChange={onProjectionPastHoursChange}
+                        onFutureHoursChange={onProjectionFutureHoursChange}
+                    />
+                )}
 
                 <Stack direction="row" spacing={0.5} sx={{ ml: 'auto' }}>
                     <Tooltip title={tCommon('add')}>

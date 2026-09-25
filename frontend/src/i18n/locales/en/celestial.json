@@ -225,7 +225,8 @@
   "topbar": {
     "projection": {
       "past": "Past",
-      "future": "Future"
+      "future": "Future",
+      "now": "Now"
     },
     "actions": {
       "manage": "Manage",

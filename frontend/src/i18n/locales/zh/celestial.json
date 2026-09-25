@@ -197,7 +197,8 @@
   "topbar": {
     "projection": {
       "past": "过去",
-      "future": "未来"
+      "future": "未来",
+      "now": "现在"
     },
     "actions": {
       "manage": "管理",

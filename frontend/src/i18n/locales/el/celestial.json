@@ -197,7 +197,8 @@
   "topbar": {
     "projection": {
       "past": "Το παρελθόν",
-      "future": "Μελλοντικος"
+      "future": "Μελλοντικος",
+      "now": "Τώρα"
     },
     "actions": {
       "manage": "Διαχειριζομαι",

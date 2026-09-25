@@ -197,7 +197,8 @@
   "topbar": {
     "projection": {
       "past": "Verleden",
-      "future": "Toekomst"
+      "future": "Toekomst",
+      "now": "Nu"
     },
     "actions": {
       "manage": "Beheren",

@@ -197,7 +197,8 @@
   "topbar": {
     "projection": {
       "past": "Pasado",
-      "future": "Futuro"
+      "future": "Futuro",
+      "now": "Ahora"
     },
     "actions": {
       "manage": "Administrar",
