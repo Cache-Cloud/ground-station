@@ -20,6 +20,21 @@ class _DummyLogger:
         return None
 
 
+def test_projection_options_use_operational_defaults_and_limits():
+    assert scene._parse_projection_options(None) == (1, 24, 60)
+
+    past_hours, future_hours, _step_minutes = scene._parse_projection_options(
+        {
+            "past_hours": 4320,
+            "future_hours": 4320,
+            "step_minutes": 60,
+        }
+    )
+
+    assert past_hours == 168
+    assert future_hours == 720
+
+
 @pytest.mark.asyncio
 async def test_earth_cannot_be_created_as_a_monitored_target():
     result = await celestial_handlers._validate_monitored_target_payload(
@@ -375,6 +390,69 @@ async def test_get_vectors_snapshot_uses_expired_snapshot_after_fetch_error(monk
     assert result["cache"] == "db-stale-fallback"
     assert result["stale"] is True
     assert result["payload"]["position_xyz_au"] == [1.0, 2.0, 3.0]
+
+
+@pytest.mark.asyncio
+async def test_cache_only_stale_snapshot_keeps_current_pointing_capability(monkeypatch):
+    epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    stale_payload = {
+        "position_xyz_au": [0.0, 0.0, 0.0],
+        "velocity_xyz_au_per_day": [0.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [[1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=1)).isoformat(),
+            (epoch + timedelta(hours=1)).isoformat(),
+        ],
+    }
+
+    async def _no_cache(*_args, **_kwargs):
+        return None
+
+    async def _latest_projection_cache(*_args, **kwargs):
+        return {"payload": stale_payload} if kwargs.get("valid_only") is False else None
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_cache)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _latest_projection_cache)
+    monkeypatch.setattr(scene, "_load_latest_vectors_for_target_from_db", _no_cache)
+
+    result = await scene._get_vectors_snapshot(
+        command="Voyager 1",
+        epoch=epoch,
+        past_hours=24,
+        future_hours=24,
+        step_minutes=60,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        force_refresh=False,
+        logger=_DummyLogger(),
+        allow_network_fetch=False,
+    )
+
+    assert result["cache"] == "db-stale-hit"
+    assert result["stale"] is True
+    assert result["current_position_usable"] is True
+    assert result["calculation_usable"] is False
+    assert result["payload"]["position_xyz_au"] == [2.0, 0.0, 0.0]
+
+
+def test_current_pointing_survives_incomplete_projection_window():
+    epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    row = {
+        "position_xyz_au": [2.0, 1.0, 0.25],
+        "calculation_usable": False,
+        "current_position_usable": True,
+    }
+
+    scene._attach_observer_view_local(
+        row=row,
+        epoch=epoch,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        earth_position_xyz_au=[1.0, 0.0, 0.0],
+        logger=_DummyLogger(),
+    )
+
+    assert isinstance(row["sky_position"], dict)
+    assert isinstance(row["sky_position"]["az_deg"], float)
+    assert isinstance(row["sky_position"]["el_deg"], float)
 
 
 @pytest.mark.asyncio

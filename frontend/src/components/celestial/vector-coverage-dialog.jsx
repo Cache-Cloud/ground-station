@@ -51,7 +51,17 @@ function StatusCard({ icon, label, value, color = 'default', detail }) {
     );
 }
 
+function TimelineLegendItem({ offsetX, offsetY, label, children }) {
+    return (
+        <g transform={`translate(${offsetX} ${offsetY})`}>
+            {children}
+            <text x="38" y="4" fill="currentColor" opacity="0.78" fontSize="11">{label}</text>
+        </g>
+    );
+}
+
 function VectorTimeline({ snapshots, nowUtc, timezone, locale, t }) {
+    const [hoverIndicator, setHoverIndicator] = useState(null);
     const model = useMemo(() => {
         const visibleSnapshots = snapshots.slice(0, 12);
         const points = [parseTime(nowUtc)];
@@ -75,8 +85,10 @@ function VectorTimeline({ snapshots, nowUtc, timezone, locale, t }) {
     const right = 22;
     const top = 46;
     const rowHeight = 60;
-    const bottom = 36;
-    const height = top + model.snapshots.length * rowHeight + bottom;
+    const plotBottom = top + model.snapshots.length * rowHeight;
+    const axisLabelY = plotBottom + 24;
+    const legendTop = plotBottom + 57;
+    const height = plotBottom + 102;
     const plotWidth = width - left - right;
     const x = (value) => {
         const milliseconds = parseTime(value);
@@ -84,19 +96,42 @@ function VectorTimeline({ snapshots, nowUtc, timezone, locale, t }) {
     };
     const nowX = x(nowUtc);
     const ticks = Array.from({ length: 5 }, (_, index) => model.start + ((model.end - model.start) * index) / 4);
+    const handlePointerMove = (event) => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) return;
+        const pointerX = ((event.clientX - bounds.left) / bounds.width) * width;
+        const pointerY = ((event.clientY - bounds.top) / bounds.height) * height;
+        if (pointerX < left || pointerX > width - right || pointerY < 20 || pointerY > plotBottom + 3) {
+            setHoverIndicator(null);
+            return;
+        }
+        const timestamp = model.start + ((pointerX - left) / plotWidth) * (model.end - model.start);
+        setHoverIndicator({ x: pointerX, timestamp });
+    };
+    const hoverDate = hoverIndicator ? new Intl.DateTimeFormat(locale, {
+        year: 'numeric', month: 'short', day: 'numeric', timeZone: timezone,
+    }).format(new Date(hoverIndicator.timestamp)) : '';
+    const hoverTime = hoverIndicator ? new Intl.DateTimeFormat(locale, {
+        hour: '2-digit', minute: '2-digit', timeZone: timezone, timeZoneName: 'short',
+    }).format(new Date(hoverIndicator.timestamp)) : '';
+    const hoverLabelWidth = 174;
+    const hoverLabelX = hoverIndicator
+        ? Math.max(4, Math.min(hoverIndicator.x - hoverLabelWidth / 2, width - hoverLabelWidth - 4))
+        : 0;
 
     return (
         <Box sx={{ overflowX: 'auto', border: 1, borderColor: 'divider', borderRadius: 1.5 }}>
             <Box component="svg" role="img" aria-label={t('admin.targets.vectors.timeline_aria')}
                 viewBox={`0 0 ${width} ${height}`}
+                onPointerMove={handlePointerMove}
+                onPointerLeave={() => setHoverIndicator(null)}
                 sx={{ display: 'block', width: '100%', minWidth: 720, height: 'auto', bgcolor: 'background.default' }}>
-                <title>{t('admin.targets.vectors.timeline_aria')}</title>
                 {ticks.map((tick, index) => {
                     const tickX = left + (plotWidth * index) / 4;
                     return (
                         <g key={tick}>
-                            <line x1={tickX} x2={tickX} y1={top - 10} y2={height - bottom + 3} stroke="currentColor" opacity="0.12" />
-                            <text x={tickX} y={height - 12} textAnchor={index === 0 ? 'start' : index === 4 ? 'end' : 'middle'} fill="currentColor" opacity="0.7" fontSize="11">
+                            <line x1={tickX} x2={tickX} y1={top - 10} y2={plotBottom + 3} stroke="currentColor" opacity="0.12" />
+                            <text x={tickX} y={axisLabelY} textAnchor={index === 0 ? 'start' : index === 4 ? 'end' : 'middle'} fill="currentColor" opacity="0.7" fontSize="11">
                                 {new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: timezone }).format(new Date(tick))}
                             </text>
                         </g>
@@ -137,9 +172,40 @@ function VectorTimeline({ snapshots, nowUtc, timezone, locale, t }) {
                     );
                 })}
                 {nowX !== null ? <g>
-                    <line x1={nowX} x2={nowX} y1={20} y2={height - bottom + 3} stroke="#d32f2f" strokeWidth="2" />
+                    <line x1={nowX} x2={nowX} y1={20} y2={plotBottom + 3} stroke="#d32f2f" strokeWidth="2" />
                     <rect x={nowX - 19} y="4" width="38" height="17" rx="8" fill="#d32f2f" />
                     <text x={nowX} y="16" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="700">{t('admin.targets.vectors.now')}</text>
+                </g> : null}
+                <line x1="14" x2={width - 14} y1={plotBottom + 39} y2={plotBottom + 39} stroke="currentColor" opacity="0.12" />
+                <TimelineLegendItem offsetX={20} offsetY={legendTop} label={t('admin.targets.vectors.legend.samples')}>
+                    <rect x="0" y="-6" width="28" height="12" rx="6" fill="#1976d2" />
+                </TimelineLegendItem>
+                <TimelineLegendItem offsetX={252} offsetY={legendTop} label={t('admin.targets.vectors.legend.requested')}>
+                    <rect x="0" y="-10" width="28" height="20" rx="3" fill="none" stroke="currentColor" opacity="0.5" strokeDasharray="5 4" />
+                </TimelineLegendItem>
+                <TimelineLegendItem offsetX={510} offsetY={legendTop} label={t('admin.targets.vectors.legend.fresh_cache')}>
+                    <line x1="1" x2="27" y1="0" y2="0" stroke="#2e7d32" strokeWidth="5" strokeLinecap="round" />
+                </TimelineLegendItem>
+                <TimelineLegendItem offsetX={738} offsetY={legendTop} label={t('admin.targets.vectors.legend.expired_cache')}>
+                    <line x1="1" x2="27" y1="0" y2="0" stroke="#ed6c02" strokeWidth="5" strokeLinecap="round" />
+                </TimelineLegendItem>
+                <TimelineLegendItem offsetX={20} offsetY={legendTop + 27} label={t('admin.targets.vectors.legend.synchronized')}>
+                    <circle cx="14" cy="0" r="4" fill="#7b1fa2" />
+                </TimelineLegendItem>
+                <TimelineLegendItem offsetX={252} offsetY={legendTop + 27} label={t('admin.targets.vectors.legend.current_time')}>
+                    <line x1="14" x2="14" y1="-10" y2="10" stroke="#d32f2f" strokeWidth="2" />
+                </TimelineLegendItem>
+                <TimelineLegendItem offsetX={510} offsetY={legendTop + 27} label={t('admin.targets.vectors.legend.expiry')}>
+                    <path d="M 10 -4 L 18 4 M 18 -4 L 10 4" stroke="#d32f2f" strokeWidth="2" />
+                </TimelineLegendItem>
+                {hoverIndicator ? <g pointerEvents="none">
+                    <line
+                        x1={hoverIndicator.x} x2={hoverIndicator.x} y1="20" y2={plotBottom + 3}
+                        stroke="#0288d1" strokeWidth="1.5" strokeDasharray="4 3"
+                    />
+                    <rect x={hoverLabelX} y="2" width={hoverLabelWidth} height="38" rx="5" fill="#0288d1" />
+                    <text x={hoverLabelX + hoverLabelWidth / 2} y="16" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="700">{hoverDate}</text>
+                    <text x={hoverLabelX + hoverLabelWidth / 2} y="31" textAnchor="middle" fill="#fff" fontSize="10">{hoverTime}</text>
                 </g> : null}
             </Box>
         </Box>
@@ -154,11 +220,14 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
     const [error, setError] = useState('');
     const requestIdRef = useRef(0);
 
-    const loadHistory = useCallback(() => {
-        if (!open || !socket || !target?.targetKey) return;
+    const loadHistory = useCallback(({ background = false } = {}) => new Promise((resolve) => {
+        if (!open || !socket || !target?.targetKey) {
+            resolve(false);
+            return;
+        }
         const requestId = requestIdRef.current + 1;
         requestIdRef.current = requestId;
-        setLoading(true);
+        if (!background) setLoading(true);
         setError('');
         socket.emit('api.call', {
             cmd: 'get-celestial-vector-snapshot-history',
@@ -166,17 +235,21 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
         }, (response) => {
             // A target can change while its Socket.IO acknowledgement is in
             // flight. Ignore late data instead of showing it under a new name.
-            if (requestId !== requestIdRef.current) return;
+            if (requestId !== requestIdRef.current) {
+                resolve(false);
+                return;
+            }
             if (response?.success) setData(response.data);
             else setError(response?.error || t('admin.targets.vectors.load_failed'));
-            setLoading(false);
+            if (!background) setLoading(false);
+            resolve(Boolean(response?.success));
         });
-    }, [open, socket, t, target?.targetKey]);
+    }), [open, socket, t, target?.targetKey]);
 
     useEffect(() => {
         if (open) {
             setData(null);
-            loadHistory();
+            void loadHistory();
         }
         return () => {
             requestIdRef.current += 1;
@@ -189,7 +262,7 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
         setError('');
         try {
             await onRefresh(target.id);
-            loadHistory();
+            await loadHistory({ background: true });
         } catch (refreshError) {
             setError(String(refreshError?.message || refreshError));
         } finally {
@@ -214,7 +287,7 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
                     <Box><Typography variant="caption" color="text.secondary">{t('admin.targets.vectors.server_time')}</Typography><Typography variant="body2">{formatTime(data?.now_utc, timezone, locale)}</Typography></Box>
                 </Box>
                 {loading ? <Stack alignItems="center" spacing={1} sx={{ py: 6 }}><CircularProgress size={32} /><Typography color="text.secondary">{t('common.loading')}</Typography></Stack> : null}
-                {error ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadHistory}>{t('admin.targets.vectors.retry')}</Button>}>{error}</Alert> : null}
+                {error ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => void loadHistory()}>{t('admin.targets.vectors.retry')}</Button>}>{error}</Alert> : null}
                 {!loading && !error && snapshots.length === 0 ? <Alert severity="info">{t('admin.targets.vectors.empty')}</Alert> : null}
                 {!loading && latest ? <>
                     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 1.25 }}>
@@ -229,12 +302,6 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
                                 : <Alert severity="success">{t('admin.targets.vectors.diagnosis.target_ready')}</Alert>}
                     <Box><Typography variant="subtitle1" fontWeight={700} gutterBottom>{t('admin.targets.vectors.timeline')}</Typography>
                         <VectorTimeline snapshots={snapshots} nowUtc={data.now_utc} timezone={timezone} locale={locale} t={t} />
-                        <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
-                            <Chip size="small" color="primary" variant="outlined" label={t('admin.targets.vectors.legend.samples')} />
-                            <Chip size="small" variant="outlined" label={t('admin.targets.vectors.legend.requested')} />
-                            <Chip size="small" color={latest.cache_fresh ? 'success' : 'warning'} variant="outlined" label={t('admin.targets.vectors.legend.cache')} />
-                            <Chip size="small" color="error" variant="outlined" label={t('admin.targets.vectors.legend.now_expiry')} />
-                        </Stack>
                     </Box>
                     <Divider />
                     <Box><Typography variant="subtitle1" fontWeight={700} gutterBottom>{t('admin.targets.vectors.history', { count: snapshots.length })}</Typography>

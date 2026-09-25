@@ -55,28 +55,34 @@ import { refreshMonitoredCelestialNow } from './celestial-slice.jsx';
 
 const STALE_MS = 5 * 60 * 1000;
 const HEX_COLOR_PATTERN = /^#[0-9A-F]{6}$/;
-const MAX_PROJECTION_HOURS = 4320;
-const HOUR_OPTIONS = [
+const MAX_PAST_PROJECTION_HOURS = 168;
+const MAX_FUTURE_PROJECTION_HOURS = 720;
+const PAST_HOUR_OPTIONS = [
+    { value: 1, label: '1h' },
+    { value: 6, label: '6h' },
+    { value: 12, label: '12h' },
+    { value: 24, label: '1d' },
+    { value: 72, label: '3d' },
+    { value: 168, label: '7d' },
+];
+const FUTURE_HOUR_OPTIONS = [
     { value: 6, label: '6h' },
     { value: 12, label: '12h' },
     { value: 24, label: '1d' },
     { value: 72, label: '3d' },
     { value: 168, label: '7d' },
     { value: 336, label: '14d' },
-    { value: 720, label: '1mo' },
-    { value: 2160, label: '3mo' },
-    { value: 4320, label: '6mo' },
+    { value: 720, label: '30d' },
 ];
-const PAST_HOUR_OPTIONS = [{ value: 0, label: '0h' }, ...HOUR_OPTIONS];
 const coercePastHours = (value) => {
     const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed < 0) return 0;
-    return Math.min(parsed, MAX_PROJECTION_HOURS);
+    if (!Number.isFinite(parsed) || parsed < 1) return 1;
+    return Math.min(parsed, MAX_PAST_PROJECTION_HOURS);
 };
 const coerceFutureHours = (value) => {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) return 24;
-    return Math.min(parsed, MAX_PROJECTION_HOURS);
+    return Math.min(parsed, MAX_FUTURE_PROJECTION_HOURS);
 };
 const DIALOG_PAPER_SX = {
     bgcolor: 'background.paper',
@@ -642,7 +648,7 @@ const CelestialTopBar = ({
                                     },
                                 }}
                             >
-                                {HOUR_OPTIONS.map((option) => (
+                                {FUTURE_HOUR_OPTIONS.map((option) => (
                                     <MenuItem key={`future-${option.value}`} value={option.value}>
                                         {option.label}
                                     </MenuItem>

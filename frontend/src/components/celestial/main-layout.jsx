@@ -49,24 +49,29 @@ import {
 export const gridLayoutStoreName = 'celestial-layouts';
 const LAYOUT_SCHEMA_VERSION = 7;
 const SHARED_RESIZE_HANDLES = ['s', 'sw', 'w', 'se', 'nw', 'ne', 'e'];
-const DEFAULT_PAST_HOURS = 0;
+const DEFAULT_PAST_HOURS = 1;
 const DEFAULT_FUTURE_HOURS = 24;
 const DEFAULT_STEP_MINUTES = 60;
-const MAX_PROJECTION_HOURS = 4320;
+const MAX_PAST_PROJECTION_HOURS = 168;
+const MAX_FUTURE_PROJECTION_HOURS = 720;
 const VIEW_MODE_SOLAR_SYSTEM = 'solar-system';
 const VIEW_MODE_PLANETARIUM = 'planetarium';
 const normalizeViewMode = (value) => (
     value === VIEW_MODE_PLANETARIUM ? VIEW_MODE_PLANETARIUM : VIEW_MODE_SOLAR_SYSTEM
 );
-const parseNonNegativeNumber = (value, fallback) => {
+const parsePastProjectionHours = (value, fallback) => {
     const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed < 0) return fallback;
-    return Math.min(parsed, MAX_PROJECTION_HOURS);
+    if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+    return Math.min(parsed, MAX_PAST_PROJECTION_HOURS);
+};
+const parseFutureProjectionHours = (value, fallback) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.min(parsed, MAX_FUTURE_PROJECTION_HOURS);
 };
 const parsePositiveNumber = (value, fallback) => {
     const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-    return Math.min(parsed, MAX_PROJECTION_HOURS);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 const hasFiniteXYZ = (position) => (
     Array.isArray(position)
@@ -308,8 +313,8 @@ const CelestialMainLayout = () => {
     const projectionSettings = React.useMemo(() => {
         const mapSettings = celestialState.mapSettings || {};
         return {
-            past_hours: parseNonNegativeNumber(mapSettings.pastHours, DEFAULT_PAST_HOURS),
-            future_hours: parsePositiveNumber(mapSettings.futureHours, DEFAULT_FUTURE_HOURS),
+            past_hours: parsePastProjectionHours(mapSettings.pastHours, DEFAULT_PAST_HOURS),
+            future_hours: parseFutureProjectionHours(mapSettings.futureHours, DEFAULT_FUTURE_HOURS),
             step_minutes: parsePositiveNumber(mapSettings.stepMinutes, DEFAULT_STEP_MINUTES),
         };
     }, [celestialState.mapSettings]);
@@ -475,7 +480,7 @@ const CelestialMainLayout = () => {
         // than the currently saved UI preference. Use the payload's projection for
         // the timeline so the axis does not extend beyond the curve data.
         const sceneProjection = combinedScene?.meta?.projection || {};
-        return parsePositiveNumber(sceneProjection.future_hours, projectionSettings.future_hours);
+        return parseFutureProjectionHours(sceneProjection.future_hours, projectionSettings.future_hours);
     }, [combinedScene?.meta?.projection, projectionSettings.future_hours]);
 
     const solarBodies = Array.isArray(combinedScene?.planets) ? combinedScene.planets : [];
@@ -679,8 +684,8 @@ const CelestialMainLayout = () => {
             fetchSolarSystemScene({
                 socket,
                 payload: {
-                    past_hours: parseNonNegativeNumber(nextSettings.pastHours, DEFAULT_PAST_HOURS),
-                    future_hours: parsePositiveNumber(nextSettings.futureHours, DEFAULT_FUTURE_HOURS),
+                    past_hours: parsePastProjectionHours(nextSettings.pastHours, DEFAULT_PAST_HOURS),
+                    future_hours: parseFutureProjectionHours(nextSettings.futureHours, DEFAULT_FUTURE_HOURS),
                     step_minutes: parsePositiveNumber(nextSettings.stepMinutes, DEFAULT_STEP_MINUTES),
                     allow_network_fetch: true,
                 },
@@ -690,8 +695,8 @@ const CelestialMainLayout = () => {
             refreshMonitoredCelestialNow({
                 socket,
                 payload: {
-                    past_hours: parseNonNegativeNumber(nextSettings.pastHours, DEFAULT_PAST_HOURS),
-                    future_hours: parsePositiveNumber(nextSettings.futureHours, DEFAULT_FUTURE_HOURS),
+                    past_hours: parsePastProjectionHours(nextSettings.pastHours, DEFAULT_PAST_HOURS),
+                    future_hours: parseFutureProjectionHours(nextSettings.futureHours, DEFAULT_FUTURE_HOURS),
                     step_minutes: parsePositiveNumber(nextSettings.stepMinutes, DEFAULT_STEP_MINUTES),
                 },
             }),

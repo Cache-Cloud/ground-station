@@ -9,7 +9,7 @@
  */
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,8 +17,36 @@ import '../../../i18n/config.js';
 import { CelestialTargetsPage } from '../admin-pages.jsx';
 import celestialReducer from '../celestial-slice.jsx';
 import monitoredReducer from '../monitored-slice.jsx';
+import VectorCoverageDialog from '../vector-coverage-dialog.jsx';
 
 const socket = vi.hoisted(() => ({ emit: vi.fn() }));
+const historyResponse = (sampleCount = 49) => ({
+    success: true,
+    data: {
+        target_key: 'mission:-61',
+        now_utc: '2026-09-23T03:30:00+00:00',
+        snapshots: [{
+            id: 'snapshot-1',
+            epoch_bucket_utc: '2026-09-23T03:00:00+00:00',
+            fetched_at: '2026-09-23T03:00:00+00:00',
+            expires_at: '2026-09-23T05:00:00+00:00',
+            sample_start_utc: '2026-09-22T03:00:00+00:00',
+            sample_end_utc: '2026-09-24T03:00:00+00:00',
+            requested_start_utc: '2026-09-22T03:00:00+00:00',
+            requested_end_utc: '2026-09-24T03:00:00+00:00',
+            sample_count: sampleCount,
+            past_hours: 24,
+            future_hours: 24,
+            step_minutes: 60,
+            cache_fresh: true,
+            covers_now: true,
+            covers_projection_window: true,
+            vector_available: true,
+            source: 'horizons',
+            error: null,
+        }],
+    },
+});
 
 vi.mock('../../common/socket.jsx', () => ({
     useSocket: () => ({ socket }),
@@ -63,33 +91,7 @@ describe('Celestial target vector coverage dialog', () => {
                 return;
             }
             if (request.cmd === 'get-celestial-vector-snapshot-history') {
-                acknowledge({
-                    success: true,
-                    data: {
-                        target_key: 'mission:-61',
-                        now_utc: '2026-09-23T03:30:00+00:00',
-                        snapshots: [{
-                            id: 'snapshot-1',
-                            epoch_bucket_utc: '2026-09-23T03:00:00+00:00',
-                            fetched_at: '2026-09-23T03:00:00+00:00',
-                            expires_at: '2026-09-23T05:00:00+00:00',
-                            sample_start_utc: '2026-09-22T03:00:00+00:00',
-                            sample_end_utc: '2026-09-24T03:00:00+00:00',
-                            requested_start_utc: '2026-09-22T03:00:00+00:00',
-                            requested_end_utc: '2026-09-24T03:00:00+00:00',
-                            sample_count: 49,
-                            past_hours: 24,
-                            future_hours: 24,
-                            step_minutes: 60,
-                            cache_fresh: true,
-                            covers_now: true,
-                            covers_projection_window: true,
-                            vector_available: true,
-                            source: 'horizons',
-                            error: null,
-                        }],
-                    },
-                });
+                acknowledge(historyResponse());
             }
         });
     });
@@ -118,5 +120,45 @@ describe('Celestial target vector coverage dialog', () => {
             },
             expect.any(Function),
         ));
+    });
+
+    it('keeps the existing timeline visible while refreshed history is loading', async () => {
+        let historyRequestCount = 0;
+        let finishHistoryRefresh;
+        socket.emit.mockImplementation((_event, request, acknowledge) => {
+            if (request.cmd !== 'get-celestial-vector-snapshot-history') return;
+            historyRequestCount += 1;
+            if (historyRequestCount === 1) {
+                acknowledge(historyResponse());
+                return;
+            }
+            finishHistoryRefresh = () => acknowledge(historyResponse(50));
+        });
+
+        render(<VectorCoverageDialog
+            open
+            target={{
+                id: 'monitored-juno',
+                targetKey: 'mission:-61',
+                targetType: 'mission',
+                displayName: 'Juno',
+                command: '-61',
+            }}
+            socket={socket}
+            timezone="UTC"
+            locale="en-US"
+            onClose={vi.fn()}
+            onRefresh={vi.fn().mockResolvedValue(undefined)}
+        />);
+
+        expect(await screen.findAllByText('49 samples')).toHaveLength(2);
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+
+        await waitFor(() => expect(historyRequestCount).toBe(2));
+        expect(screen.getAllByText('49 samples')).toHaveLength(2);
+        expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+
+        act(() => finishHistoryRefresh());
+        expect(await screen.findAllByText('50 samples')).toHaveLength(2);
     });
 });

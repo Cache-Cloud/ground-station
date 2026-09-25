@@ -761,8 +761,11 @@
         "legend": {
           "samples": "Horizons sample coverage",
           "requested": "Required projection window",
-          "cache": "Cache lifetime",
-          "now_expiry": "Current time / expiry"
+          "fresh_cache": "Fresh cache lifetime",
+          "expired_cache": "Expired cache lifetime",
+          "synchronized": "Synchronization time",
+          "current_time": "Current server time",
+          "expiry": "Cache expiry"
         }
       },
       "search": "Search targets",

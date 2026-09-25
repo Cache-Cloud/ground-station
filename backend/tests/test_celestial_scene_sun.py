@@ -68,6 +68,43 @@ async def test_load_earth_observer_vectors_interpolates_to_scene_epoch(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_load_earth_observer_vectors_allows_current_stale_samples(monkeypatch):
+    epoch = datetime(2026, 6, 21, 10, 30, tzinfo=timezone.utc)
+    sample_start = epoch - timedelta(hours=1)
+    sample_end = epoch + timedelta(hours=1)
+
+    async def _stub_vectors_snapshot(**_kwargs):
+        return {
+            "payload": {
+                "position_xyz_au": [0.0, 0.0, 0.0],
+                "orbit_samples_xyz_au": [[0.0, 0.0, 0.0], [2.0, 4.0, 6.0]],
+                "orbit_sample_times_utc": [sample_start.isoformat(), sample_end.isoformat()],
+            },
+            "cache": "db-stale-hit",
+            "stale": True,
+            "calculation_usable": False,
+            "current_position_usable": True,
+            "error": None,
+        }
+
+    monkeypatch.setattr(scene, "_get_vectors_snapshot", _stub_vectors_snapshot)
+
+    position, samples = await scene._load_earth_observer_vectors(
+        epoch=epoch,
+        past_hours=24,
+        future_hours=24,
+        step_minutes=60,
+        observer_location=None,
+        force_refresh=False,
+        allow_network_fetch=False,
+        logger=_DummyLogger(),
+    )
+
+    assert position == [1.0, 2.0, 3.0]
+    assert len(samples) == 2
+
+
+@pytest.mark.asyncio
 async def test_build_celestial_tracks_supports_sun_body_target(monkeypatch):
     async def _stub_observer_location():
         return {

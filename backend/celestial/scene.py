@@ -53,11 +53,12 @@ CACHE_TTL_SECONDS = 120
 VECTOR_DB_TTL_SECONDS = 2 * 60 * 60
 VECTOR_EPOCH_BUCKET_MINUTES = 60
 COMPUTED_EPOCH_BUCKET_SECONDS = 60
-SCHEDULED_SYNC_PAST_HOURS = _config_int("celestial_sync_past_hours", 1, 0)
+SCHEDULED_SYNC_PAST_HOURS = _config_int("celestial_sync_past_hours", 1, 1)
 SCHEDULED_SYNC_FUTURE_HOURS = 24
 SCHEDULED_SYNC_STEP_MINUTES = 60
 CELESTIAL_MAP_SETTINGS_NAME = "celestial-map-settings"
-MAX_CELESTIAL_PROJECTION_HOURS = 4320
+MAX_CELESTIAL_PAST_HOURS = 168
+MAX_CELESTIAL_FUTURE_HOURS = 720
 MAX_SAMPLES_PER_TARGET = 1500
 DEFAULT_CELESTIAL_TARGETS: List[Dict[str, str]] = []
 CELESTIAL_PASS_HORIZON_DEG = 0.0
@@ -342,7 +343,7 @@ async def _ensure_scene_targets_registered(
 
 def _parse_projection_options(data: Optional[Dict[str, Any]]) -> Tuple[int, int, int]:
     if not data:
-        return 24, 24, 60
+        return 1, 24, 60
 
     def parse_int(name: str, default: int, low: int, high: int) -> int:
         try:
@@ -351,8 +352,8 @@ def _parse_projection_options(data: Optional[Dict[str, Any]]) -> Tuple[int, int,
             return default
         return max(low, min(high, value))
 
-    past_hours = parse_int("past_hours", 24, 1, 24 * 365)
-    future_hours = parse_int("future_hours", 24, 1, 24 * 365)
+    past_hours = parse_int("past_hours", 1, 1, MAX_CELESTIAL_PAST_HOURS)
+    future_hours = parse_int("future_hours", 24, 1, MAX_CELESTIAL_FUTURE_HOURS)
     step_minutes = parse_int("step_minutes", 60, 5, 24 * 60)
     adaptive_step_minutes = _compute_adaptive_step_minutes(
         past_hours=past_hours,
@@ -377,14 +378,14 @@ def _projection_payload_from_map_settings(settings: Dict[str, Any]) -> Dict[str,
         "past_hours": _coerce_projection_setting(
             settings.get("pastHours", settings.get("past_hours")),
             SCHEDULED_SYNC_PAST_HOURS,
-            0,
-            MAX_CELESTIAL_PROJECTION_HOURS,
+            1,
+            MAX_CELESTIAL_PAST_HOURS,
         ),
         "future_hours": _coerce_projection_setting(
             settings.get("futureHours", settings.get("future_hours")),
             SCHEDULED_SYNC_FUTURE_HOURS,
             1,
-            MAX_CELESTIAL_PROJECTION_HOURS,
+            MAX_CELESTIAL_FUTURE_HOURS,
         ),
         "step_minutes": _coerce_projection_setting(
             settings.get("stepMinutes", settings.get("step_minutes")),
@@ -721,6 +722,18 @@ def _payload_covers_projection_window(
     return valid_times[0] <= window_start and valid_times[-1] >= window_end
 
 
+def _payload_covers_current_epoch(payload: Dict[str, Any], *, epoch: datetime) -> bool:
+    """Return whether explicit Horizons samples bracket the current scene epoch."""
+    raw_times = payload.get("orbit_sample_times_utc")
+    if not isinstance(raw_times, list) or len(raw_times) < 2:
+        return False
+    parsed_times = [_parse_iso_utc(value) for value in raw_times]
+    valid_times = sorted(value for value in parsed_times if value is not None)
+    if len(valid_times) < 2:
+        return False
+    return valid_times[0] <= epoch <= valid_times[-1]
+
+
 def _extract_earth_position_xyz_au(planets: List[Dict[str, Any]]) -> Optional[List[float]]:
     for body in planets:
         if str(body.get("id") or "").lower() == "earth":
@@ -728,7 +741,8 @@ def _extract_earth_position_xyz_au(planets: List[Dict[str, Any]]) -> Optional[Li
             # silently become the precision source for passes or tracking.
             if (
                 str(body.get("source") or "") != "horizons"
-                or body.get("calculation_usable") is False
+                or body.get("current_position_usable", body.get("calculation_usable", True))
+                is False
             ):
                 return None
             position = body.get("position_xyz_au")
@@ -798,7 +812,14 @@ async def _load_earth_observer_vectors(
     )
     payload = earth_snapshot.get("payload")
     if isinstance(payload, dict):
-        if earth_snapshot.get("calculation_usable") is False:
+        # Current pointing only needs samples around this epoch. A stale snapshot
+        # can remain valid here even when it no longer spans the full pass window.
+        if (
+            earth_snapshot.get(
+                "current_position_usable", earth_snapshot.get("calculation_usable", True)
+            )
+            is False
+        ):
             return None, []
         earth_samples = _extract_orbit_samples(
             payload,
@@ -974,6 +995,7 @@ async def _build_horizons_solar_system_bodies(
             "cache": snapshot.get("cache"),
             "stale": bool(snapshot.get("stale")),
             "calculation_usable": snapshot.get("calculation_usable", True),
+            "current_position_usable": snapshot.get("current_position_usable", True),
             "phase": None,
         }
         if snapshot.get("error"):
@@ -1043,7 +1065,12 @@ def _attach_observer_view_local(
     logger: Any,
 ) -> None:
     """Attach observer-centric sky position and visibility metadata using local math."""
-    if row.get("calculation_usable") is False or not observer_location or not earth_position_xyz_au:
+    # Paths and passes require the complete projection window, while current
+    # AZ/EL only requires a target vector that is valid at this scene epoch.
+    current_position_usable = row.get(
+        "current_position_usable", row.get("calculation_usable", True)
+    )
+    if current_position_usable is False or not observer_location or not earth_position_xyz_au:
         row["sky_position"] = None
         row["visibility"] = {
             "above_horizon": None,
@@ -1855,6 +1882,10 @@ async def _get_vectors_snapshot(
                 "cache": "db-stale-hit",
                 "stale": True,
                 "error": None,
+                "current_position_usable": _payload_covers_current_epoch(
+                    payload,
+                    epoch=epoch,
+                ),
                 "calculation_usable": _payload_covers_projection_window(
                     payload,
                     epoch=epoch,
@@ -1908,6 +1939,10 @@ async def _get_vectors_snapshot(
                 "stale": True,
                 "error": str(exc),
                 "error_code": error_code,
+                "current_position_usable": _payload_covers_current_epoch(
+                    payload,
+                    epoch=epoch,
+                ),
                 "calculation_usable": _payload_covers_projection_window(
                     payload,
                     epoch=epoch,
@@ -2059,6 +2094,9 @@ async def _fetch_celestial_with_cache(
                 row_payload["parent_body_id"] = target.get("parent_body_id")
                 row_payload["stale"] = bool(snapshot.get("stale"))
                 row_payload["calculation_usable"] = snapshot.get("calculation_usable", True)
+                row_payload["current_position_usable"] = snapshot.get(
+                    "current_position_usable", True
+                )
                 row_payload["cache"] = snapshot.get("cache")
                 if snapshot.get("error"):
                     row_payload["error"] = snapshot.get("error")
@@ -2178,6 +2216,7 @@ async def _fetch_celestial_with_cache(
             row_payload["color"] = color
             row_payload["stale"] = bool(snapshot.get("stale"))
             row_payload["calculation_usable"] = snapshot.get("calculation_usable", True)
+            row_payload["current_position_usable"] = snapshot.get("current_position_usable", True)
             row_payload["cache"] = snapshot.get("cache")
             if snapshot.get("error"):
                 row_payload["error"] = snapshot.get("error")

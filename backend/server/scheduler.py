@@ -11,6 +11,8 @@ import crud.monitoredcelestial as crud_monitored
 import crud.preferences as crud_preferences
 import observations.events as obs_events
 from celestial.scene import (
+    MAX_CELESTIAL_FUTURE_HOURS,
+    MAX_CELESTIAL_PAST_HOURS,
     SCHEDULED_SYNC_FUTURE_HOURS,
     SCHEDULED_SYNC_PAST_HOURS,
     SCHEDULED_SYNC_STEP_MINUTES,
@@ -36,7 +38,6 @@ scheduler: Optional[AsyncIOScheduler] = None
 CELESTIAL_TRACKS_BROADCAST_JOB_ID = "emit_cached_celestial_tracks"
 CELESTIAL_TRACKS_BROADCAST_INTERVAL_SECONDS = 5
 CELESTIAL_MAP_SETTINGS_NAME = "celestial-map-settings"
-MAX_CELESTIAL_PROJECTION_HOURS = 4320
 _celestial_sync_warmup_task: Optional[asyncio.Task] = None
 _ORBITAL_SYNC_TASK_PATTERNS = (
     "orbital data sync",
@@ -70,14 +71,14 @@ def _projection_payload_from_map_settings(settings: Dict[str, Any]) -> Dict[str,
         "past_hours": _coerce_int_setting(
             settings.get("pastHours", settings.get("past_hours")),
             SCHEDULED_SYNC_PAST_HOURS,
-            0,
-            MAX_CELESTIAL_PROJECTION_HOURS,
+            1,
+            MAX_CELESTIAL_PAST_HOURS,
         ),
         "future_hours": _coerce_int_setting(
             settings.get("futureHours", settings.get("future_hours")),
             SCHEDULED_SYNC_FUTURE_HOURS,
             1,
-            MAX_CELESTIAL_PROJECTION_HOURS,
+            MAX_CELESTIAL_FUTURE_HOURS,
         ),
         "step_minutes": _coerce_int_setting(
             settings.get("stepMinutes", settings.get("step_minutes")),
