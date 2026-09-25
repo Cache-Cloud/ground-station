@@ -1,57 +1,22 @@
 import asyncio
-import os
 from typing import Optional
 
 import tracker.runner
 from audio.audiobroadcaster import AudioBroadcaster
 from audio.audiostreamer import WebAudioStreamer
 from common.logger import logger
-from observations import events as observation_events
 from server import runtimestate
 from session.service import active_sdr_clients, session_service
 
 # Globals used by audio threads
 audio_consumer: Optional[WebAudioStreamer] = None
 audio_broadcaster: Optional[AudioBroadcaster] = None
+SESSION_CLEANUP_TIMEOUT_SECONDS = 10
 
 
 def cleanup_everything():
     """Cleanup function to stop all processes and threads."""
     logger.info("Cleaning up all processes and threads...")
-
-    # Stop all running observations first
-    try:
-        observation_sync = observation_events.observation_sync
-        if observation_sync and observation_sync.executor:
-            logger.info("Stopping all running observations...")
-            # Get all scheduled APScheduler jobs for observations
-            jobs = observation_sync.scheduler.get_jobs()
-            observation_ids = set()
-            for job in jobs:
-                if job.id.startswith("obs_"):
-                    # Extract observation_id from job_id format: "obs_{observation_id}_{start|stop}"
-                    parts = job.id.split("_")
-                    if len(parts) >= 3:
-                        obs_id = "_".join(parts[1:-1])  # Handle observation IDs with underscores
-                        observation_ids.add(obs_id)
-
-            # Stop each observation
-            for obs_id in observation_ids:
-                try:
-                    event_loop = asyncio.get_event_loop()
-                    if event_loop.is_running():
-                        asyncio.create_task(observation_sync.executor.stop_observation(obs_id))
-                    else:
-                        event_loop.run_until_complete(
-                            observation_sync.executor.stop_observation(obs_id)
-                        )
-                    logger.info(f"Stopped observation: {obs_id}")
-                except Exception as e:
-                    logger.warning(f"Error stopping observation {obs_id}: {e}")
-
-            logger.info("All observations stopped")
-    except Exception as e:  # pragma: no cover
-        logger.warning(f"Error stopping observations: {e}")
 
     # Terminate tracker processes
     try:
@@ -63,25 +28,6 @@ def cleanup_everything():
             logger.info("Tracker processes stopped")
     except Exception as e:  # pragma: no cover - best effort cleanup
         logger.warning(f"Error stopping tracker: {e}")
-
-    # Clean up all SDR sessions
-    try:
-        if active_sdr_clients:
-            logger.info(f"Cleaning up {len(active_sdr_clients)} SDR sessions...")
-            session_ids = list(active_sdr_clients.keys())
-            for sid in session_ids:
-                try:
-                    event_loop = asyncio.get_event_loop()
-                    if event_loop.is_running():
-                        asyncio.create_task(session_service.cleanup_session(sid))
-                    else:
-                        event_loop.run_until_complete(session_service.cleanup_session(sid))
-                    logger.info(f"Cleaned up SDR session: {sid}")
-                except Exception as e:  # pragma: no cover - best effort cleanup
-                    logger.warning(f"Error cleaning up SDR session {sid}: {e}")
-            logger.info("All SDR sessions cleaned up")
-    except Exception as e:  # pragma: no cover
-        logger.warning(f"Error during SDR sessions cleanup: {e}")
 
     # Stop audio threads
     try:
@@ -109,12 +55,29 @@ def cleanup_everything():
     logger.info("Cleanup complete")
 
 
-def signal_handler(signum, frame):
-    """Handle SIGINT and SIGTERM signals."""
-    logger.info(f"\nReceived signal {signum}, initiating shutdown...")
-    cleanup_everything()
-    logger.info("Forcing exit...")
-    os._exit(0)
+async def cleanup_sessions() -> None:
+    """Await cleanup for every remaining SDR session during ASGI shutdown."""
+    if not active_sdr_clients:
+        return
+
+    session_ids = list(active_sdr_clients.keys())
+    logger.info("Cleaning up %s remaining SDR session(s)...", len(session_ids))
+    for session_id in session_ids:
+        try:
+            await asyncio.wait_for(
+                session_service.cleanup_session(session_id),
+                timeout=SESSION_CLEANUP_TIMEOUT_SECONDS,
+            )
+            logger.info("Cleaned up SDR session: %s", session_id)
+        except asyncio.TimeoutError:
+            logger.error(
+                "Timed out after %ss cleaning SDR session %s",
+                SESSION_CLEANUP_TIMEOUT_SECONDS,
+                session_id,
+            )
+        except Exception as error:  # pragma: no cover - best effort cleanup
+            logger.warning("Error cleaning up SDR session %s: %s", session_id, error)
+    logger.info("All SDR sessions cleaned up")
 
 
 def stop_tracker():

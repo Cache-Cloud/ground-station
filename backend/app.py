@@ -1,7 +1,6 @@
 import asyncio
 import multiprocessing
 import os
-import signal
 import sys
 import threading
 
@@ -13,7 +12,7 @@ from common.arguments import arguments  # noqa: E402
 from common.logger import get_logger_config, logger  # noqa: E402
 from handlers.socket import register_socketio_handlers  # noqa: E402
 from server.shmmonitor import start_cleanup_thread  # noqa: E402
-from server.shutdown import cleanup_everything, signal_handler  # noqa: E402
+from server.shutdown import cleanup_everything  # noqa: E402
 from server.startup import (  # noqa: E402
     SOCKET_IO_MAX_PAYLOAD_BYTES,
     SOCKET_IO_PING_INTERVAL_SECONDS,
@@ -66,9 +65,6 @@ def configure_process_names():
 
 def main() -> None:
     print_banner()
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
 
     configure_process_names()
 

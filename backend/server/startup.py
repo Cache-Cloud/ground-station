@@ -31,7 +31,11 @@ from observations import events as obs_events
 from observations.bundle import prune_finalized_empty_observation_bundles
 from observations.events import emit_scheduled_observations_changed as _emit
 from observations.events import set_socketio_instance
-from observations.executor import ObservationExecutor
+from observations.executor import (
+    RESTART_INTERRUPTION_REASON,
+    SHUTDOWN_INTERRUPTION_REASON,
+    ObservationExecutor,
+)
 from observations.sync import ObservationSchedulerSync
 from pipeline.orchestration.processmanager import process_manager
 from server import runtimestate, shutdown
@@ -209,6 +213,22 @@ async def lifespan(fastapiapp: FastAPI):
     # Store observation_sync globally for use in handlers
     obs_events.observation_sync = observation_sync
 
+    # Runtime workers cannot be resumed safely after a process restart. Reconcile
+    # durable RUNNING rows before generation and scheduler synchronization so
+    # they cannot remain orphaned indefinitely.
+    interruption_stats = await observation_executor.interrupt_running_observations(
+        RESTART_INTERRUPTION_REASON
+    )
+    if interruption_stats["found"]:
+        logger.warning(
+            "Reconciled interrupted observations at startup: found=%s failed=%s "
+            "timed_out=%s errors=%s",
+            interruption_stats["found"],
+            interruption_stats["failed"],
+            interruption_stats["timed_out"],
+            interruption_stats["errors"],
+        )
+
     # Run initial observation generation
     asyncio.create_task(run_initial_observation_generation())
 
@@ -245,6 +265,29 @@ async def lifespan(fastapiapp: FastAPI):
         yield
     finally:
         logger.info("FastAPI lifespan cleanup...")
+        # Prevent new scheduled work while active observations transition to a
+        # durable failed state and release their runtime resources.
+        try:
+            scheduler.pause()
+        except Exception:
+            logger.exception("Failed to pause scheduler during shutdown")
+
+        try:
+            interruption_stats = await observation_executor.interrupt_running_observations(
+                SHUTDOWN_INTERRUPTION_REASON
+            )
+            if interruption_stats["found"]:
+                logger.info(
+                    "Interrupted observations during shutdown: found=%s failed=%s "
+                    "timed_out=%s errors=%s",
+                    interruption_stats["found"],
+                    interruption_stats["failed"],
+                    interruption_stats["timed_out"],
+                    interruption_stats["errors"],
+                )
+        except Exception:
+            logger.exception("Failed to reconcile running observations during shutdown")
+
         # Shutdown background task manager
         if background_task_manager:
             await background_task_manager.shutdown()
@@ -252,9 +295,10 @@ async def lifespan(fastapiapp: FastAPI):
         for task in list(background_tasks):
             task.cancel()
         background_tasks.clear()
+        await shutdown.cleanup_sessions()
         stop_scheduler()
-        process_manager.shutdown()
         shutdown.cleanup_everything()
+        process_manager.shutdown()
 
 
 sio = socketio.AsyncServer(

@@ -38,6 +38,7 @@
   - `GS_DB=backend/data/db/gs.db`
 
 ## GitHub Safety
+- Never create a git commit or push changes without the user's explicit permission for that exact action.
 - Never post/comment/create/update/delete on GitHub (issues/PRs/comments/labels/assignees/milestones/releases) unless the user explicitly asks for that exact write action in the current turn.
 - Default to read-only `gh` usage (list/view/status/check) unless explicit write permission is given in the current turn.
 - If there is any ambiguity, stop and ask before running any `gh` command that mutates remote state.

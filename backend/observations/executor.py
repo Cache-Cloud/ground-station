@@ -31,6 +31,7 @@ from observations import events as observation_events
 from observations.bundle import (
     add_bundle_session,
     create_observation_bundle,
+    finalize_interrupted_observation_bundles,
     finalize_observation_bundle,
     write_bundle_manifest,
 )
@@ -65,6 +66,10 @@ KNOWN_SATDUMP_PIPELINES = {
     "elektro_lrit",
     "elektro_hrit",
 }
+
+RESTART_INTERRUPTION_REASON = "Backend restarted while observation was running"
+SHUTDOWN_INTERRUPTION_REASON = "Backend shutdown interrupted observation"
+INTERRUPTION_CLEANUP_TIMEOUT_SECONDS = 15
 
 
 class ObservationExecutor:
@@ -136,8 +141,8 @@ class ObservationExecutor:
 
         error_message = f"SDR {sdr_id} failed: {message}"
         for observation_id in observation_ids:
-            # Startup owns rollback until it commits the RUNNING state. Recording
-            # the failure here lets that path stop every partially started session.
+            # The startup path owns rollback while resources are still being
+            # assembled. Recording the failure lets it stop every partial session.
             if observation_id in self._starting_observations:
                 self._pending_sdr_failures[observation_id] = error_message
                 continue
@@ -147,12 +152,14 @@ class ObservationExecutor:
         if observation_id in self._failing_observations:
             return
         self._failing_observations.add(observation_id)
+        should_finalize = False
         try:
             async with AsyncSessionLocal() as session:
                 result = await fetch_scheduled_observations(session, observation_id)
             if not result.get("success") or not result.get("data"):
                 logger.error(
-                    "Cannot fail observation %s after SDR error: not found", observation_id
+                    "Cannot fail observation %s after runtime interruption: not found",
+                    observation_id,
                 )
                 return
 
@@ -160,32 +167,102 @@ class ObservationExecutor:
             current_status = str(observation.get("status") or "").lower()
             if current_status in {STATUS_CANCELLED, STATUS_COMPLETED, STATUS_FAILED}:
                 return
+            should_finalize = True
 
             # Commit FAILED before cleanup so a delayed LOS job cannot overwrite it.
             await log_execution_event(observation_id, error_message, "error")
-            await update_observation_status(self.sio, observation_id, STATUS_FAILED, error_message)
+            updated = await update_observation_status(
+                self.sio, observation_id, STATUS_FAILED, error_message
+            )
+            if not updated:
+                logger.error(
+                    "Failed to persist interrupted observation %s as failed", observation_id
+                )
             await remove_scheduled_stop_job(observation_id)
 
             try:
                 await self._stop_observation_task(observation_id, observation)
             except Exception as cleanup_error:
                 logger.exception(
-                    "Failed to clean up observation %s after SDR failure: %s",
+                    "Failed to clean up observation %s after runtime interruption: %s",
                     observation_id,
                     cleanup_error,
                 )
                 await log_execution_event(
                     observation_id,
-                    f"Cleanup after SDR failure failed: {cleanup_error}",
+                    f"Cleanup after runtime interruption failed: {cleanup_error}",
                     "error",
                 )
 
-            self._running_observations.discard(observation_id)
-            bundle_dir = self._bundle_dirs.pop(observation_id, None)
-            if bundle_dir:
-                finalize_observation_bundle(bundle_dir, "failed")
         finally:
+            self._running_observations.discard(observation_id)
+            self._starting_observations.discard(observation_id)
+            self._pending_sdr_failures.pop(observation_id, None)
+
+            bundle_dir = self._bundle_dirs.pop(observation_id, None)
+            if should_finalize and bundle_dir and bundle_dir.exists():
+                finalize_observation_bundle(bundle_dir, "failed")
+
+            # A fresh process has no in-memory bundle map. Recover matching
+            # bundles by their persisted manifest so the UI does not show them
+            # as in progress forever after a restart.
+            if should_finalize:
+                try:
+                    finalize_interrupted_observation_bundles(
+                        observation_id, Path(__file__).parents[1]
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to finalize interrupted bundle for observation %s",
+                        observation_id,
+                    )
             self._failing_observations.discard(observation_id)
+
+    async def interrupt_running_observations(
+        self,
+        reason: str,
+        cleanup_timeout: float = INTERRUPTION_CLEANUP_TIMEOUT_SECONDS,
+    ) -> Dict[str, int]:
+        """Fail and clean up every observation persisted as running.
+
+        The failed status is committed before runtime cleanup begins. This is
+        deliberate: cleanup can involve hardware and worker processes, so a
+        timeout must never leave the durable status stuck at ``running``.
+        """
+        async with AsyncSessionLocal() as session:
+            result = await fetch_scheduled_observations(session)
+
+        if not result.get("success"):
+            raise RuntimeError(result.get("error") or "Failed to fetch observations")
+
+        running_ids = [
+            str(observation["id"])
+            for observation in result.get("data", [])
+            if observation.get("id")
+            and str(observation.get("status") or "").lower() == STATUS_RUNNING
+        ]
+        stats = {"found": len(running_ids), "failed": 0, "timed_out": 0, "errors": 0}
+
+        for observation_id in running_ids:
+            try:
+                await asyncio.wait_for(
+                    self._fail_running_observation(observation_id, reason),
+                    timeout=cleanup_timeout,
+                )
+                stats["failed"] += 1
+            except asyncio.TimeoutError:
+                stats["timed_out"] += 1
+                logger.error(
+                    "Timed out after %.1fs cleaning interrupted observation %s; "
+                    "its failed transition was attempted before cleanup",
+                    cleanup_timeout,
+                    observation_id,
+                )
+            except Exception:
+                stats["errors"] += 1
+                logger.exception("Failed to reconcile interrupted observation %s", observation_id)
+
+        return stats
 
     def _get_session_key(self, session: Dict[str, Any], session_index: int) -> str:
         sdr_id = session.get("sdr", {}).get("id") if isinstance(session, dict) else None
@@ -248,12 +325,12 @@ class ObservationExecutor:
 
         This method:
         1. Loads observation configuration from database
-        2. Checks if SDR is available (logs warning if in use)
-        3. Creates internal VFO session
-        4. Starts SDR processes for each session
-        5. Configures VFOs based on session tasks
-        6. Starts decoders, recorders, and trackers
-        7. Updates observation status to RUNNING
+        2. Persists RUNNING before starting runtime resources
+        3. Checks if SDR is available (logs warning if in use)
+        4. Creates internal VFO session
+        5. Starts SDR processes for each session
+        6. Configures VFOs based on session tasks
+        7. Starts decoders, recorders, and trackers
 
         Args:
             observation_id: The observation ID to start
@@ -287,6 +364,7 @@ class ObservationExecutor:
                     error_msg = f"Observation not found: {observation_id}"
                     logger.error(error_msg)
                     await log_execution_event(observation_id, error_msg, "error")
+                    self._running_observations.discard(observation_id)
                     return {"success": False, "error": error_msg}
 
                 observation = result["data"]
@@ -295,6 +373,7 @@ class ObservationExecutor:
             if not observation.get("enabled", True):
                 logger.warning(f"Observation {observation_id} is disabled, skipping")
                 await log_execution_event(observation_id, "Observation is disabled", "warning")
+                self._running_observations.discard(observation_id)
                 return {"success": False, "error": "Observation is disabled"}
 
             status = observation.get("status", "").lower()
@@ -304,6 +383,7 @@ class ObservationExecutor:
                     f"Observation {observation_id} has status {observation.get('status')}, skipping"
                 )
                 await log_execution_event(observation_id, error_msg, "warning")
+                self._running_observations.discard(observation_id)
                 return {"success": False, "error": error_msg}
 
             sessions = observation.get("sessions", []) or []
@@ -313,6 +393,7 @@ class ObservationExecutor:
                 await log_execution_event(observation_id, error_msg, "error")
                 await update_observation_status(self.sio, observation_id, STATUS_FAILED, error_msg)
                 await remove_scheduled_stop_job(observation_id)
+                self._running_observations.discard(observation_id)
                 return {"success": False, "error": error_msg}
 
             # 3. If rotator is required and currently parked, either unpark or cancel
@@ -373,6 +454,7 @@ class ObservationExecutor:
                         self.sio, observation_id, STATUS_FAILED, error_msg
                     )
                     await remove_scheduled_stop_job(observation_id)
+                    self._running_observations.discard(observation_id)
                     return {"success": False, "error": error_msg}
 
                 # Check if SDR is already in use - if so, we'll hijack it and reconfigure
@@ -388,6 +470,16 @@ class ObservationExecutor:
                         sdr_id,
                         observation_id,
                     )
+
+            # Persist the lifecycle transition before starting any tracker, SDR,
+            # decoder, or recorder. A crash from this point forward is therefore
+            # recoverable as an interrupted RUNNING observation on next startup.
+            self._starting_observations.add(observation_id)
+            running_persisted = await update_observation_status(
+                self.sio, observation_id, STATUS_RUNNING
+            )
+            if running_persisted is False:
+                raise RuntimeError("Failed to persist running observation status")
 
             # 5. Start tracker before any session tasks so doppler-dependent flows are ready
             combined_tasks: list[Dict[str, Any]] = []
@@ -413,6 +505,7 @@ class ObservationExecutor:
                 )
 
                 self._running_observations.discard(observation_id)
+                self._starting_observations.discard(observation_id)
                 self._tracker_context_by_observation.pop(observation_id, None)
 
                 status = STATUS_CANCELLED if tracker_error == "rotator_in_use" else STATUS_FAILED
@@ -461,7 +554,6 @@ class ObservationExecutor:
                 observation_id, f"Starting tasks for {observation['name']}", "info"
             )
 
-            self._starting_observations.add(observation_id)
             for session_index, session in enumerate(sessions, start=1):
                 pending_failure = self._pending_sdr_failures.pop(observation_id, None)
                 if pending_failure:
@@ -477,8 +569,6 @@ class ObservationExecutor:
                 if session_index < len(sessions):
                     await asyncio.sleep(0.5)
 
-            # 7. Update observation status to RUNNING
-            await update_observation_status(self.sio, observation_id, STATUS_RUNNING)
             self._starting_observations.discard(observation_id)
             pending_failure = self._pending_sdr_failures.pop(observation_id, None)
             if pending_failure:

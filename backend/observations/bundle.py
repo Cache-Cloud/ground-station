@@ -117,6 +117,39 @@ def finalize_observation_bundle(bundle_dir: Path, status: str) -> bool:
     return False
 
 
+def finalize_interrupted_observation_bundles(
+    observation_id: str, backend_dir: Path, status: str = "failed"
+) -> int:
+    """Finalize in-progress bundles that belong to an interrupted observation.
+
+    Bundle paths are intentionally readable and do not always contain the full
+    observation ID, so recovery uses the manifest as its source of truth.
+    """
+    observations_dir = backend_dir / "data" / "observations"
+    if not observations_dir.exists():
+        return 0
+
+    finalized_count = 0
+    for bundle_dir in observations_dir.glob(f"*{BUNDLE_SUFFIX}"):
+        manifest_path = bundle_dir / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        if not isinstance(manifest, dict):
+            continue
+        if manifest.get("observation_id") != observation_id:
+            continue
+        if not manifest.get("in_progress", manifest.get("status") == "in_progress"):
+            continue
+
+        finalize_observation_bundle(bundle_dir, status)
+        finalized_count += 1
+
+    return finalized_count
+
+
 def prune_finalized_empty_observation_bundles(backend_dir: Path) -> int:
     """Remove empty bundles left behind after an earlier process lifetime.
 

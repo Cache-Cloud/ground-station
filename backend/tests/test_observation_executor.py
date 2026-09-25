@@ -90,6 +90,10 @@ async def test_start_observation_starts_tracker_before_session_tasks(monkeypatch
     executor = _new_executor(executor_module)
     events = []
 
+    async def _mock_update_status(_sio, _observation_id, status, *_args, **_kwargs):
+        events.append(status)
+        return True
+
     async def _mock_start_tracker(*_args, **_kwargs):
         events.append("tracker")
         return {
@@ -105,11 +109,12 @@ async def test_start_observation_starts_tracker_before_session_tasks(monkeypatch
 
     monkeypatch.setattr(executor.tracker_handler, "start_tracker_task", _mock_start_tracker)
     monkeypatch.setattr(executor, "_execute_observation_session", _mock_execute_session)
+    monkeypatch.setattr(executor_module, "update_observation_status", _mock_update_status)
 
     result = await executor.start_observation("obs-1")
 
     assert result["success"] is True
-    assert events == ["tracker", "session"]
+    assert events == ["running", "tracker", "session"]
     assert executor._tracker_context_by_observation["obs-1"]["tracker_id"] == "target-1"
 
 
@@ -268,7 +273,7 @@ async def test_start_observation_cleans_up_tracker_when_session_start_raises(mon
 
 
 @pytest.mark.asyncio
-async def test_sdr_failure_during_start_rolls_back_without_marking_running(monkeypatch, tmp_path):
+async def test_sdr_failure_during_start_transitions_from_running_to_failed(monkeypatch, tmp_path):
     executor_module = _load_executor_module(monkeypatch)
     observation = _build_observation()
     _patch_common_start_dependencies(monkeypatch, executor_module, observation, tmp_path)
@@ -308,8 +313,7 @@ async def test_sdr_failure_during_start_rolls_back_without_marking_running(monke
     result = await executor.start_observation("obs-1")
 
     assert result["success"] is False
-    assert STATUS_FAILED in status_updates
-    assert "running" not in status_updates
+    assert status_updates == ["running", STATUS_FAILED]
     assert stopped_sessions == ["sdr-1"]
     assert "obs-1" not in executor._starting_observations
 
@@ -433,4 +437,54 @@ async def test_sdr_runtime_failure_marks_observation_failed_and_cleans_up(monkey
     assert execution_events == [("error", "SDR sdr-1 failed: USB transfer failed")]
     assert removed_jobs == ["obs-1"]
     assert stopped_observations == ["obs-1"]
+    assert "obs-1" not in executor._running_observations
+
+
+@pytest.mark.asyncio
+async def test_interrupt_running_observations_fails_before_runtime_cleanup(monkeypatch):
+    executor_module = _load_executor_module(monkeypatch)
+    observation = _build_observation()
+    observation["status"] = "running"
+    events = []
+
+    async def _fetch_observation(_session, observation_id=None):
+        if observation_id is None:
+            return {"success": True, "data": [observation]}
+        return {"success": True, "data": observation}
+
+    async def _update_status(_sio, _observation_id, status, error=None):
+        events.append(("status", status, error))
+        return True
+
+    async def _log_event(_observation_id, event, level):
+        events.append(("log", level, event))
+
+    async def _remove_job(_observation_id):
+        events.append(("remove-job",))
+
+    async def _stop_task(_observation_id, _observation):
+        events.append(("cleanup",))
+
+    monkeypatch.setattr(executor_module, "AsyncSessionLocal", lambda: _DummyAsyncSessionContext())
+    monkeypatch.setattr(executor_module, "fetch_scheduled_observations", _fetch_observation)
+    monkeypatch.setattr(executor_module, "update_observation_status", _update_status)
+    monkeypatch.setattr(executor_module, "log_execution_event", _log_event)
+    monkeypatch.setattr(executor_module, "remove_scheduled_stop_job", _remove_job)
+    monkeypatch.setattr(
+        executor_module, "finalize_interrupted_observation_bundles", lambda *_args: 0
+    )
+
+    executor = _new_executor(executor_module)
+    executor._running_observations.add("obs-1")
+    monkeypatch.setattr(executor, "_stop_observation_task", _stop_task)
+
+    stats = await executor.interrupt_running_observations("Backend restarted")
+
+    assert stats == {"found": 1, "failed": 1, "timed_out": 0, "errors": 0}
+    assert events == [
+        ("log", "error", "Backend restarted"),
+        ("status", STATUS_FAILED, "Backend restarted"),
+        ("remove-job",),
+        ("cleanup",),
+    ]
     assert "obs-1" not in executor._running_observations

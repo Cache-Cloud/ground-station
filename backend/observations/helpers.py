@@ -29,7 +29,7 @@ async def update_observation_status(
     observation_id: str,
     status: str,
     error_message: Optional[str] = None,
-) -> None:
+) -> bool:
     """
     Update observation status in database.
 
@@ -46,17 +46,26 @@ async def update_observation_status(
             )
             if not result["success"]:
                 logger.error(f"Failed to update observation status: {result.get('error')}")
+                return False
 
         # Emit event to notify clients
         if sio:
-            await sio.emit(
-                "observation-status-update",
-                {"id": observation_id, "status": status, "error": error_message},
-            )
+            try:
+                await sio.emit(
+                    "observation-status-update",
+                    {"id": observation_id, "status": status, "error": error_message},
+                )
+            except Exception as emit_error:
+                # The database is authoritative. A disconnected client must not
+                # make a successfully persisted lifecycle transition look failed.
+                logger.warning(f"Failed to emit observation status update: {emit_error}")
+
+        return True
 
     except Exception as e:
         logger.error(f"Error updating observation status: {e}")
         logger.error(traceback.format_exc())
+        return False
 
 
 async def log_execution_event(observation_id: str, event: str, level: str = "info") -> None:

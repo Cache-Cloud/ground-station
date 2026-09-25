@@ -4,6 +4,7 @@ from observations.bundle import (
     ARTIFACT_DIRECTORIES,
     add_bundle_session,
     create_observation_bundle,
+    finalize_interrupted_observation_bundles,
     finalize_observation_bundle,
     prune_finalized_empty_observation_bundles,
 )
@@ -50,6 +51,21 @@ def test_finalize_observation_bundle_retains_artifacts_and_metadata(tmp_path):
     assert manifest["status"] == "completed"
     assert manifest["in_progress"] is False
     assert manifest["finalized_at"]
+
+
+def test_finalize_interrupted_observation_bundles_uses_manifest_identity(tmp_path):
+    interrupted = create_observation_bundle("observation-interrupted", {}, tmp_path)
+    (interrupted / "decoded" / "image.png").write_bytes(b"image")
+    unrelated = create_observation_bundle("observation-unrelated", {}, tmp_path)
+
+    finalized_count = finalize_interrupted_observation_bundles("observation-interrupted", tmp_path)
+
+    interrupted_manifest = json.loads((interrupted / "manifest.json").read_text())
+    unrelated_manifest = json.loads((unrelated / "manifest.json").read_text())
+    assert finalized_count == 1
+    assert interrupted_manifest["status"] == "failed"
+    assert interrupted_manifest["in_progress"] is False
+    assert unrelated_manifest["status"] == "in_progress"
 
 
 def test_prune_finalized_empty_observation_bundles_preserves_active_and_artifact_bundles(tmp_path):

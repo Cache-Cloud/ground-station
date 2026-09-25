@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import threading
 import time
 from pathlib import Path
@@ -40,7 +41,6 @@ from handlers.entities.transmitterimport import (
 from pipeline.orchestration.processmanager import process_manager
 from server import runtimestate
 from server.schedulerstate import get_orbital_sync_next_run_time
-from server.shutdown import cleanup_everything
 from tasks.registry import get_task
 from tlesync.persist import save_orbital_sync_state
 from tlesync.state import sync_state_manager
@@ -155,9 +155,9 @@ async def restart_service(sio: Any, data: Optional[Dict], logger: Any, sid: str)
         # Delay allows Socket.IO to flush the success ack to the caller first.
         time.sleep(2)
         logger.info("Service restart requested via command API - initiating shutdown...")
-        cleanup_everything()
-        logger.info("Forcing container exit for restart...")
-        os._exit(0)
+        # Let Uvicorn run the ASGI lifespan cleanup, which persists interrupted
+        # observations before the container exits.
+        os.kill(os.getpid(), signal.SIGTERM)
 
     shutdown_thread = threading.Thread(target=delayed_shutdown, daemon=True)
     shutdown_thread.start()
