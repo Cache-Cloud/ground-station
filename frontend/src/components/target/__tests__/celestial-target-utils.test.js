@@ -1,11 +1,42 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildTargetCelestialPayload,
   buildTargetKeyFromCelestialRow,
   buildTargetSceneRequestKey,
   buildTargetSlotNumberByTargetKey,
   parseTargetSlotNumber,
   replaceCelestialTargetKey,
 } from '../celestial-target-utils';
+
+describe('buildTargetCelestialPayload', () => {
+  it('preserves backend-owned mission and body target keys', () => {
+    expect(buildTargetCelestialPayload({
+      trackingState: {
+        target_type: 'mission',
+        target_key: 'mission:catalog:42',
+        command: 'Juno',
+      },
+      targetName: 'Juno',
+    }).celestial[0]).toEqual(expect.objectContaining({
+      target_type: 'mission',
+      target_key: 'mission:catalog:42',
+      command: 'Juno',
+    }));
+
+    expect(buildTargetCelestialPayload({
+      trackingState: {
+        target_type: 'body',
+        target_key: 'body:catalog:venus',
+        body_id: 'Venus',
+      },
+      targetName: 'Venus',
+    }).celestial[0]).toEqual(expect.objectContaining({
+      target_type: 'body',
+      target_key: 'body:catalog:venus',
+      body_id: 'venus',
+    }));
+  });
+});
 
 describe('parseTargetSlotNumber', () => {
   it('parses target slot numbers from target tracker IDs', () => {

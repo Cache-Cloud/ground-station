@@ -586,13 +586,14 @@ const TargetMapCompositeView = ({}) => {
             // Keep payload dependencies scoped to stable target identity fields.
             trackingState: {
                 target_type: normalizeTargetType({ target_type: targetType, command: missionCommand, body_id: bodyId }),
+                target_key: nonSatelliteTargetKey,
                 command: missionCommand,
                 body_id: bodyId,
             },
             targetName: nonSatelliteTargetName,
             nextPassesHours,
         }),
-        [bodyId, missionCommand, nextPassesHours, nonSatelliteTargetName, targetType],
+        [bodyId, missionCommand, nextPassesHours, nonSatelliteTargetKey, nonSatelliteTargetName, targetType],
     );
     const [focusTargetSignal, setFocusTargetSignal] = useState(0);
     const [nonSatelliteFitAllSignal, setNonSatelliteFitAllSignal] = useState(0);
@@ -646,7 +647,7 @@ const TargetMapCompositeView = ({}) => {
     }, [dispatch]);
     const handleRefreshNonSatelliteScene = useCallback(async () => {
         if (!socket || !nonSatellitePayload) return;
-        await dispatch(fetchTargetCelestialScene({
+        return dispatch(fetchTargetCelestialScene({
             socket,
             payload: nonSatellitePayload,
             requestKey: nonSatelliteSceneRequestKey,
@@ -659,20 +660,24 @@ const TargetMapCompositeView = ({}) => {
     }, [isSatelliteTarget, nextPassesHours, nonSatellitePayload, nonSatelliteSceneRequestKey]);
 
     useEffect(() => {
-        if (!nonSatelliteFetchSignature || isSatelliteTarget || !nonSatellitePayload) {
+        if (!socket || !nonSatelliteFetchSignature || isSatelliteTarget || !nonSatellitePayload) {
             return;
         }
         // Tracker state updates arrive frequently. Fetch celestial tracks only when target identity/window changes.
         if (lastAutoFetchedSignatureRef.current === nonSatelliteFetchSignature) {
             return;
         }
-        lastAutoFetchedSignatureRef.current = nonSatelliteFetchSignature;
-        handleRefreshNonSatelliteScene();
+        void handleRefreshNonSatelliteScene().then((result) => {
+            if (fetchTargetCelestialScene.fulfilled.match(result)) {
+                lastAutoFetchedSignatureRef.current = nonSatelliteFetchSignature;
+            }
+        });
     }, [
         handleRefreshNonSatelliteScene,
         isSatelliteTarget,
         nonSatelliteFetchSignature,
         nonSatellitePayload,
+        socket,
     ]);
 
     useEffect(() => {

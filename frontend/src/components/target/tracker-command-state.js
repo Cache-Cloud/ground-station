@@ -80,7 +80,7 @@ export function pruneCommandHistory(state) {
 }
 
 export function commandPatch(data, current = {}) {
-    const fields = ['norad_id', 'target_type', 'target_name', 'mission_id', 'command', 'body_id',
+    const fields = ['norad_id', 'target_type', 'target_key', 'target_name', 'mission_id', 'command', 'body_id',
         'rotator_state', 'rig_state', 'group_id', 'rig_id', 'rotator_id', 'transmitter_id', 'rig_vfo', 'vfo1', 'vfo2'];
     return Object.fromEntries(fields.filter(key => data[key] !== undefined && data[key] !== current[key])
         .map(key => [key, data[key]]));

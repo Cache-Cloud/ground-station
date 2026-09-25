@@ -679,8 +679,9 @@ const TrackingLayout = React.memo(function TrackingLayout() {
     }, [layouts]);
 
     useEffect(() => {
-        // we do this here once onmount,
-        // we set the norad id and group id, once only here
+        if (!socket) return;
+
+        // Load the persisted target once the socket context is ready.
         dispatch(getTrackingStateFromBackend({socket}))
             .unwrap()
             .then((response) => {
@@ -695,10 +696,7 @@ const TrackingLayout = React.memo(function TrackingLayout() {
             .catch((error) => {
                 toast.error(`${t('errors.failed_get_tracking_state')}: ${error}`);
             });
-
-        return () => {
-        };
-    }, []);
+    }, [dispatch, socket, t]);
 
     // pre-make the components
     let gridContents = [

@@ -157,13 +157,14 @@ const TargetSkyPlanetariumView = () => {
         () => buildTargetCelestialPayload({
             trackingState: {
                 target_type: normalizeTargetType({target_type: targetType, command: missionCommand, body_id: bodyId}),
+                target_key: nonSatelliteTargetKey,
                 command: missionCommand,
                 body_id: bodyId,
             },
             targetName,
             nextPassesHours,
         }),
-        [bodyId, missionCommand, nextPassesHours, targetName, targetType],
+        [bodyId, missionCommand, nextPassesHours, nonSatelliteTargetKey, targetName, targetType],
     );
     const nonSatelliteFetchSignature = useMemo(() => {
         if (isSatelliteTarget || !nonSatellitePayload) return '';
@@ -174,7 +175,7 @@ const TargetSkyPlanetariumView = () => {
 
     const handleRefreshNonSatelliteScene = useCallback(async () => {
         if (!socket || !nonSatellitePayload) return;
-        await dispatch(fetchTargetCelestialScene({
+        return dispatch(fetchTargetCelestialScene({
             socket,
             payload: nonSatellitePayload,
             requestKey: nonSatelliteSceneRequestKey,
@@ -182,16 +183,19 @@ const TargetSkyPlanetariumView = () => {
     }, [dispatch, nonSatellitePayload, nonSatelliteSceneRequestKey, socket]);
 
     useEffect(() => {
-        if (!nonSatelliteFetchSignature || isSatelliteTarget || !nonSatellitePayload) {
+        if (!socket || !nonSatelliteFetchSignature || isSatelliteTarget || !nonSatellitePayload) {
             return;
         }
         // Tracker-state updates are frequent; fetch only when target identity/window changes.
         if (lastAutoFetchedSignatureRef.current === nonSatelliteFetchSignature) {
             return;
         }
-        lastAutoFetchedSignatureRef.current = nonSatelliteFetchSignature;
-        handleRefreshNonSatelliteScene();
-    }, [handleRefreshNonSatelliteScene, isSatelliteTarget, nonSatelliteFetchSignature, nonSatellitePayload]);
+        void handleRefreshNonSatelliteScene().then((result) => {
+            if (fetchTargetCelestialScene.fulfilled.match(result)) {
+                lastAutoFetchedSignatureRef.current = nonSatelliteFetchSignature;
+            }
+        });
+    }, [handleRefreshNonSatelliteScene, isSatelliteTarget, nonSatelliteFetchSignature, nonSatellitePayload, socket]);
 
     useEffect(() => {
         const handleFullscreenChange = () => {

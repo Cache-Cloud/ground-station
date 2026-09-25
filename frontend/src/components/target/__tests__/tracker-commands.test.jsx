@@ -117,6 +117,29 @@ describe('tracker command lifecycle', () => {
         await result;
     });
 
+    it('preserves the backend-owned target key when retargeting', async () => {
+        const {store, socket, requests} = setup();
+        const result = store.dispatch(setTrackingStateInBackend({
+            socket,
+            data: {
+                tracker_id: 'target-1',
+                target_type: 'mission',
+                target_key: 'mission:catalog:42',
+                target_name: 'Juno',
+                command: 'Juno',
+            },
+        }));
+
+        expect(requests[0].request.data.value).toEqual(expect.objectContaining({
+            target_type: 'mission',
+            target_key: 'mission:catalog:42',
+            target_name: 'Juno',
+            command: 'Juno',
+        }));
+        requests[0].ack(null, {success: true, data: {}});
+        await result;
+    });
+
     it('creates a new tracker without applying local defaults as state preconditions', async () => {
         const initial = reducer(undefined, {type: '@@init'});
         const store = configureStore({

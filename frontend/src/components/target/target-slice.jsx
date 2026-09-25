@@ -583,8 +583,8 @@ export const setTrackingStateInBackend = createAsyncThunk(
         const view = state.targetSatTrack.trackerViews?.[trackerId];
         const current = view?.trackingState || (state.targetSatTrack.trackerId === trackerId ? state.targetSatTrack.trackingState : {}) || {};
         const changes = explicitChanges || commandPatch(data, current);
-        if (['norad_id', 'target_type', 'mission_id', 'command', 'body_id', 'target_name'].some(key => key in changes)) {
-            for (const key of ['target_type', 'target_name', 'mission_id', 'command', 'body_id', 'norad_id', 'group_id']) {
+        if (['norad_id', 'target_type', 'target_key', 'mission_id', 'command', 'body_id', 'target_name'].some(key => key in changes)) {
+            for (const key of ['target_type', 'target_key', 'target_name', 'mission_id', 'command', 'body_id', 'norad_id', 'group_id']) {
                 if (data[key] !== undefined) changes[key] = data[key];
             }
         }

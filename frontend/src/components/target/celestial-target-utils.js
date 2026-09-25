@@ -177,6 +177,7 @@ export const buildTargetCelestialPayload = ({
         return null;
     }
 
+    const targetKey = buildTargetKeyFromTrackingState(trackingState);
     const futureHours = clampTargetPassHours(nextPassesHours);
     const sharedPayload = {
         past_hours: 0,
@@ -192,6 +193,7 @@ export const buildTargetCelestialPayload = ({
             celestial: [
                 {
                     target_type: 'mission',
+                    target_key: targetKey,
                     command,
                     name: String(targetName || command).trim() || command,
                 },
@@ -206,6 +208,7 @@ export const buildTargetCelestialPayload = ({
         celestial: [
             {
                 target_type: 'body',
+                target_key: targetKey,
                 body_id: bodyId,
                 name: String(targetName || bodyId).trim() || bodyId,
             },
