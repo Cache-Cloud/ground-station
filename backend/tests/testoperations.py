@@ -14,6 +14,7 @@ from tracker import logic
 from tracker import manager as managermodule
 from tracker import messages as messagemodule
 from tracker.execution import WorkerOperations
+from tracker.ipc import TRACKER_MSG_SET_SATELLITE_EPHEMERIS, TRACKER_MSG_SET_TRACKING_STATE
 from tracker.manager import TrackerManager
 from tracker.operations import OperationRegistry
 
@@ -220,6 +221,128 @@ def worker():
         lambda az, el, target_az, target_el: abs(az - target_az) < 1 and abs(el - target_el) < 1
     )
     return tracker
+
+
+def test_worker_clears_ephemeris_when_celestial_target_changes():
+    tracker = worker()
+    tracker.input_target_ephemeris = {
+        "target_type": "mission",
+        "target_key": "mission:curiosity",
+        "position_xyz_au": [1.0, 2.0, 3.0],
+    }
+    tracker.input_satellite = dict(tracker.input_target_ephemeris)
+
+    tracker.apply_input_message(
+        {
+            "type": TRACKER_MSG_SET_TRACKING_STATE,
+            "payload": {
+                "target_type": "mission",
+                "target_key": "mission:perseverance",
+                "command": "-168",
+            },
+        }
+    )
+
+    assert tracker.input_target_ephemeris is None
+    assert tracker.input_satellite is None
+
+
+def test_worker_keeps_ephemeris_for_same_celestial_target_state_update():
+    tracker = worker()
+    ephemeris = {
+        "target_type": "mission",
+        "target_key": "mission:curiosity",
+        "position_xyz_au": [1.0, 2.0, 3.0],
+    }
+    tracker.input_target_ephemeris = dict(ephemeris)
+
+    tracker.apply_input_message(
+        {
+            "type": TRACKER_MSG_SET_TRACKING_STATE,
+            "payload": {
+                "target_type": "mission",
+                "target_key": "mission:curiosity",
+                "command": "-76",
+                "rig_state": "tracking",
+            },
+        }
+    )
+
+    assert tracker.input_target_ephemeris == ephemeris
+
+
+def test_worker_rejects_non_satellite_ephemeris_from_another_target():
+    tracker = worker()
+    tracker.input_target_ephemeris = {
+        "target_type": "mission",
+        "target_key": "mission:curiosity",
+        "earth_position_xyz_au": [1.0, 0.0, 0.0],
+        "position_xyz_au": [1.5, 0.0, 0.0],
+    }
+
+    result = tracker._resolve_target_context(
+        {
+            "target_type": "mission",
+            "target_key": "mission:perseverance",
+            "command": "-168",
+        },
+        {"lat": 37.98, "lon": 23.72, "alt": 100},
+    )
+
+    assert result is None
+
+
+def test_worker_accepts_explicit_empty_ephemeris_clear():
+    tracker = worker()
+    tracker.input_target_ephemeris = {"target_key": "mission:curiosity"}
+    tracker.input_satellite = dict(tracker.input_target_ephemeris)
+
+    tracker.apply_input_message({"type": TRACKER_MSG_SET_SATELLITE_EPHEMERIS, "payload": {}})
+
+    assert tracker.input_target_ephemeris is None
+    assert tracker.input_satellite is None
+
+
+@pytest.mark.asyncio
+async def test_manager_sends_ephemeris_clear_when_mission_snapshot_is_missing(monkeypatch):
+    @asynccontextmanager
+    async def session():
+        yield object()
+
+    monkeypatch.setattr(managermodule, "AsyncSessionLocal", session)
+    monkeypatch.setattr(
+        managermodule.crud.locations,
+        "fetch_all_locations",
+        AsyncMock(return_value={"success": True, "data": []}),
+    )
+    monkeypatch.setattr(
+        managermodule.crud.preferences,
+        "get_map_settings",
+        AsyncMock(return_value={"success": True, "data": {"value": {}}}),
+    )
+
+    queue_to_tracker = queue.Queue()
+    manager = TrackerManager(queue_to_tracker=queue_to_tracker, tracker_id="target-1")
+    manager._build_mission_ephemeris_payload = AsyncMock(return_value=None)
+    manager._fetch_non_satellite_transmitters = AsyncMock(
+        return_value={"success": True, "data": [], "error": None}
+    )
+
+    await manager._sync_tracker_context(
+        {
+            "target_type": "mission",
+            "target_key": "mission:perseverance",
+            "command": "-168",
+        }
+    )
+
+    envelope = queue_to_tracker.get_nowait()
+    clear_messages = [
+        message
+        for message in envelope["payload"]["messages"]
+        if message["type"] == TRACKER_MSG_SET_SATELLITE_EPHEMERIS
+    ]
+    assert clear_messages == [{"type": TRACKER_MSG_SET_SATELLITE_EPHEMERIS, "payload": {}}]
 
 
 @pytest.mark.asyncio

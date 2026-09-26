@@ -762,6 +762,9 @@ class TrackerManager:
                 if mission_payload:
                     collect(TRACKER_MSG_SET_SATELLITE_EPHEMERIS, mission_payload)
                 else:
+                    # Explicitly clear a previously valid target snapshot. The
+                    # worker must never reuse it for this mission.
+                    collect(TRACKER_MSG_SET_SATELLITE_EPHEMERIS, {})
                     mission_command = str(tracking_state.get("command") or "").strip()
                     logger.warning(
                         "_sync_tracker_context: no mission ephemeris payload for tracker '%s' (command='%s')",
@@ -785,6 +788,9 @@ class TrackerManager:
                 if body_payload:
                     collect(TRACKER_MSG_SET_SATELLITE_EPHEMERIS, body_payload)
                 else:
+                    # Explicitly clear a previously valid target snapshot. The
+                    # worker must never reuse it for this body.
+                    collect(TRACKER_MSG_SET_SATELLITE_EPHEMERIS, {})
                     body_id = str(tracking_state.get("body_id") or "").strip().lower()
                     logger.warning(
                         "_sync_tracker_context: no body ephemeris payload for tracker '%s' (body_id='%s')",

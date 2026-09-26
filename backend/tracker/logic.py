@@ -267,6 +267,35 @@ class SatelliteTracker:
             return "body"
         return "satellite"
 
+    @classmethod
+    def _ephemeris_matches_tracking_state(
+        cls,
+        ephemeris: Optional[Dict[str, Any]],
+        tracking_state: Dict[str, Any],
+    ) -> bool:
+        """Return whether an ephemeris belongs to the selected tracking target."""
+        if not ephemeris:
+            return False
+
+        target_type = cls._normalize_target_type(tracking_state)
+        if target_type == "satellite":
+            expected_norad_id = tracking_state.get("norad_id")
+            actual_norad_id = ephemeris.get("norad_id")
+            return (
+                expected_norad_id is not None
+                and actual_norad_id is not None
+                and str(actual_norad_id) == str(expected_norad_id)
+            )
+
+        expected_target_key = normalize_target_key(tracking_state.get("target_key"))
+        actual_target_key = normalize_target_key(ephemeris.get("target_key"))
+        return bool(
+            expected_target_key
+            and actual_target_key
+            and expected_target_key.startswith(f"{target_type}:")
+            and actual_target_key == expected_target_key
+        )
+
     @staticmethod
     def _parse_iso_utc(value: Any) -> Optional[datetime]:
         text = str(value or "").strip()
@@ -617,6 +646,19 @@ class SatelliteTracker:
             )
             return None
         target_identifier = target_key
+
+        # The manager can change targets before a new Horizons snapshot is
+        # available. Never point hardware using the previous target's vectors.
+        payload_target_key = normalize_target_key(input_payload.get("target_key"))
+        if payload_target_key != target_key:
+            logger.warning(
+                "Ephemeris target does not match tracking state "
+                "(tracker_id=%s target=%s ephemeris_target=%s)",
+                self.tracker_id,
+                target_key,
+                payload_target_key or "missing",
+            )
+            return None
 
         earth_position = self._interpolate_earth_position(input_payload, now_epoch)
         if not earth_position:
@@ -1102,14 +1144,25 @@ class SatelliteTracker:
         elif msg_type == "cancel_operation":
             self.operations.cancel(payload["command_id"])
         elif msg_type == TRACKER_MSG_SET_TRACKING_STATE:
-            self.input_tracking_state = dict(payload)
+            next_tracking_state = dict(payload)
+            if not self._ephemeris_matches_tracking_state(
+                self.input_target_ephemeris,
+                next_tracking_state,
+            ):
+                # Context messages are applied as one batch. Clearing here makes
+                # a target transition safe even when the manager has no matching
+                # snapshot to send later in that batch.
+                self.input_target_ephemeris = None
+                self.input_satellite = None
+            self.input_tracking_state = next_tracking_state
         elif msg_type == TRACKER_MSG_SET_LOCATION:
             self.input_location = dict(payload)
         elif msg_type == TRACKER_MSG_SET_TRANSMITTERS:
             self.input_transmitters = list(payload.get("items", []))
         elif msg_type == TRACKER_MSG_SET_SATELLITE_EPHEMERIS:
-            self.input_target_ephemeris = dict(payload)
-            self.input_satellite = dict(payload)
+            next_ephemeris = dict(payload)
+            self.input_target_ephemeris = next_ephemeris or None
+            self.input_satellite = next_ephemeris or None
         elif msg_type == TRACKER_MSG_SET_MAP_SETTINGS:
             self.input_map_settings = dict(payload)
         elif msg_type == TRACKER_MSG_SET_HARDWARE:
