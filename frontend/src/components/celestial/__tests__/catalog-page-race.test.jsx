@@ -17,6 +17,7 @@ import '../../../i18n/config.js';
 import { CelestialCatalogPage } from '../admin-pages.jsx';
 import celestialReducer from '../celestial-slice.jsx';
 import monitoredReducer from '../monitored-slice.jsx';
+import satellitesReducer from '../../satellites/satellite-slice.jsx';
 
 const socketState = vi.hoisted(() => ({
     createAcknowledge: null,
@@ -32,26 +33,51 @@ vi.mock('../../common/socket.jsx', () => ({
 
 vi.mock('@mui/x-data-grid', async () => {
     const ReactModule = await import('react');
-    return {
-        gridClasses: { cell: 'MuiDataGrid-cell', columnHeader: 'MuiDataGrid-columnHeader' },
-        DataGrid: ({ rows = [], columns = [], getRowId }) => ReactModule.createElement(
+    const MockDataGrid = ({ rows = [], columns = [], getRowId, checkboxSelection, onRowSelectionModelChange }) => {
+        const [selectedIds, setSelectedIds] = ReactModule.useState([]);
+
+        const updateSelection = (rowId, checked) => {
+            setSelectedIds((current) => {
+                const next = checked
+                    ? [...new Set([...current, rowId])]
+                    : current.filter((id) => id !== rowId);
+                onRowSelectionModelChange?.(next);
+                return next;
+            });
+        };
+
+        return ReactModule.createElement(
             'div',
             {
                 'data-testid': 'catalog-grid',
                 'data-row-ids': rows.map((row) => getRowId?.(row) ?? row.key).join('|'),
             },
-            rows.map((row) => ReactModule.createElement(
-                'div',
-                { key: getRowId?.(row) ?? row.key },
-                columns
-                    .filter((column) => column.field === 'row_actions')
-                    .map((column) => ReactModule.createElement(
-                        ReactModule.Fragment,
-                        { key: column.field },
-                        column.renderCell({ row, value: row[column.field] }),
-                    )),
-            )),
-        ),
+            rows.map((row) => {
+                const rowId = getRowId?.(row) ?? row.key;
+                return ReactModule.createElement(
+                    'div',
+                    { key: rowId },
+                    checkboxSelection && ReactModule.createElement('input', {
+                        type: 'checkbox',
+                        checked: selectedIds.includes(rowId),
+                        'aria-label': `Select ${row.name || row.key}`,
+                        onChange: (event) => updateSelection(rowId, event.target.checked),
+                    }),
+                    columns
+                        .filter((column) => column.field === 'monitoring')
+                        .map((column) => ReactModule.createElement(
+                            ReactModule.Fragment,
+                            { key: column.field },
+                            column.renderCell({ row, value: row[column.field] }),
+                        )),
+                );
+            }),
+        );
+    };
+
+    return {
+        gridClasses: { cell: 'MuiDataGrid-cell', columnHeader: 'MuiDataGrid-columnHeader' },
+        DataGrid: MockDataGrid,
     };
 });
 
@@ -102,7 +128,41 @@ describe('CelestialCatalogPage monitor actions', () => {
             }
             if (request.cmd === 'refresh-monitored-celestial-now') {
                 acknowledge(socketState.refreshResponse);
+                return;
             }
+            if (request.cmd === 'get-transmitters') {
+                acknowledge({ success: true, data: [] });
+            }
+        });
+    });
+
+    it('opens transmitter management for the selected celestial target key', async () => {
+        const store = configureStore({
+            reducer: {
+                celestial: celestialReducer,
+                celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
+            },
+        });
+        render(
+            <Provider store={store}>
+                <CelestialCatalogPage />
+            </Provider>,
+        );
+
+        const editTransmittersButton = await screen.findByRole('button', { name: /^edit transmitters$/i });
+        expect(editTransmittersButton).toBeDisabled();
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Sun' }));
+        expect(editTransmittersButton).toBeEnabled();
+        fireEvent.click(editTransmittersButton);
+
+        expect(await screen.findByRole('dialog')).toHaveTextContent('Edit Transmitters: Sun');
+        await waitFor(() => {
+            expect(socketState.socket.emit).toHaveBeenCalledWith(
+                'api.call',
+                { cmd: 'get-transmitters', data: { target_key: 'body:sun' } },
+                expect.any(Function),
+            );
         });
     });
 
@@ -111,6 +171,7 @@ describe('CelestialCatalogPage monitor actions', () => {
             reducer: {
                 celestial: celestialReducer,
                 celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
             },
         });
         socketState.missions = [
@@ -134,8 +195,41 @@ describe('CelestialCatalogPage monitor actions', () => {
             ]);
             expect(new Set(rowIds).size).toBe(rowIds.length);
         });
-        expect(screen.getAllByRole('button', { name: /^monitor$/i })).toHaveLength(3);
+        expect(screen.getByRole('button', { name: /^monitor$/i })).toBeDisabled();
+        expect(screen.getByRole('button', { name: /^unmonitor$/i })).toBeDisabled();
+        expect(screen.getAllByText('Not monitored')).toHaveLength(3);
         expect(screen.queryByText(/^working$/i)).not.toBeInTheDocument();
+    });
+
+    it('enables both actions for a mixed monitored selection', async () => {
+        const store = configureStore({
+            reducer: {
+                celestial: celestialReducer,
+                celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
+            },
+        });
+        socketState.created = true;
+        socketState.missions = [{
+            id: 'voyager1',
+            target_key: 'mission:voyager_1',
+            display_name: 'Voyager 1',
+            command: 'Voyager 1',
+        }];
+
+        render(
+            <Provider store={store}>
+                <CelestialCatalogPage />
+            </Provider>,
+        );
+
+        await screen.findByText('Monitored');
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Sun' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Voyager 1' }));
+
+        expect(screen.getByRole('button', { name: /^edit transmitters$/i })).toBeDisabled();
+        expect(screen.getByRole('button', { name: /^monitor$/i })).toBeEnabled();
+        expect(screen.getByRole('button', { name: /^unmonitor$/i })).toBeEnabled();
     });
 
     it('starts only one create and first-refresh chain after rapid repeated clicks', async () => {
@@ -143,6 +237,7 @@ describe('CelestialCatalogPage monitor actions', () => {
             reducer: {
                 celestial: celestialReducer,
                 celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
             },
         });
         render(
@@ -151,7 +246,9 @@ describe('CelestialCatalogPage monitor actions', () => {
             </Provider>,
         );
 
-        const monitorButton = await screen.findByRole('button', { name: /^monitor$/i });
+        fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Sun' }));
+        const monitorButton = screen.getByRole('button', { name: /^monitor$/i });
+        expect(monitorButton).toBeEnabled();
         fireEvent.click(monitorButton);
         fireEvent.click(monitorButton);
 
@@ -180,7 +277,10 @@ describe('CelestialCatalogPage monitor actions', () => {
             );
             expect(refreshRequests).toHaveLength(1);
         });
-        expect(await screen.findByRole('button', { name: /^unmonitor$/i })).toBeInTheDocument();
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: /^unmonitor$/i })).toBeEnabled();
+            expect(screen.getByText('Monitored')).toBeInTheDocument();
+        });
         expect(screen.queryByText('Sun is now monitored and its data was refreshed.')).not.toBeInTheDocument();
     });
 
@@ -189,6 +289,7 @@ describe('CelestialCatalogPage monitor actions', () => {
             reducer: {
                 celestial: celestialReducer,
                 celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
             },
         });
         socketState.refreshResponse = { success: false, error: 'Horizons is unavailable' };
@@ -198,7 +299,8 @@ describe('CelestialCatalogPage monitor actions', () => {
             </Provider>,
         );
 
-        fireEvent.click(await screen.findByRole('button', { name: /^monitor$/i }));
+        fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Sun' }));
+        fireEvent.click(screen.getByRole('button', { name: /^monitor$/i }));
         socketState.created = true;
         await act(async () => {
             socketState.createAcknowledge({
@@ -224,6 +326,7 @@ describe('CelestialCatalogPage monitor actions', () => {
             reducer: {
                 celestial: celestialReducer,
                 celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
             },
         });
         render(
@@ -232,7 +335,8 @@ describe('CelestialCatalogPage monitor actions', () => {
             </Provider>,
         );
 
-        fireEvent.click(await screen.findByRole('button', { name: /^monitor$/i }));
+        fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Sun' }));
+        fireEvent.click(screen.getByRole('button', { name: /^monitor$/i }));
         await act(async () => {
             socketState.createAcknowledge({ success: false, error: 'Database write failed' });
         });

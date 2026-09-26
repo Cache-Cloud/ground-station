@@ -500,7 +500,8 @@
       "status": { "running": "En curso", "completed": "Completado", "action_required": "Acción requerida", "idle": "Inactivo" }
     },
     "catalog": {
-      "columns": { "name": "Nombre", "type": "Tipo", "agency_parent": "Agencia / Cuerpo principal", "status": "Estado", "identifier": "Comando Horizons / ID" },
+      "columns": { "name": "Nombre", "type": "Tipo", "agency_parent": "Agencia / Cuerpo principal", "status": "Estado", "identifier": "Comando Horizons / ID", "monitoring": "Monitorización" },
+      "monitoring": { "monitored": "Monitorizado", "not_monitored": "No monitorizado" },
       "actions": { "working": "Procesando…", "monitor": "Monitorizar", "unmonitor": "Dejar de monitorizar" },
       "filters": { "catalog": "Catálogo", "all_entries": "Todas las entradas", "solar_bodies": "Cuerpos del sistema solar", "spacecraft": "Naves espaciales", "status": "Estado", "all_statuses": "Todos los estados", "search": "Buscar en el catálogo" },
       "empty": "Ninguna entrada coincide con los filtros.",

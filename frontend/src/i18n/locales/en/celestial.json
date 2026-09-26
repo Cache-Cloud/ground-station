@@ -616,7 +616,8 @@
         "type": "Type",
         "agency_parent": "Agency / Parent",
         "status": "Status",
-        "identifier": "Horizons command / ID"
+        "identifier": "Horizons command / ID",
+        "monitoring": "Monitoring"
       },
       "types": {
         "star": "Star",
@@ -631,6 +632,10 @@
         "completed": "Completed",
         "failed": "Failed",
         "unknown": "Unknown"
+      },
+      "monitoring": {
+        "monitored": "Monitored",
+        "not_monitored": "Not monitored"
       },
       "actions": {
         "working": "Working…",

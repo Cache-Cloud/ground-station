@@ -500,7 +500,8 @@
       "status": { "running": "En cours", "completed": "Terminé", "action_required": "Action requise", "idle": "Inactif" }
     },
     "catalog": {
-      "columns": { "name": "Nom", "type": "Type", "agency_parent": "Agence / Corps parent", "status": "État", "identifier": "Commande Horizons / ID" },
+      "columns": { "name": "Nom", "type": "Type", "agency_parent": "Agence / Corps parent", "status": "État", "identifier": "Commande Horizons / ID", "monitoring": "Surveillance" },
+      "monitoring": { "monitored": "Surveillé", "not_monitored": "Non surveillé" },
       "actions": { "working": "Traitement…", "monitor": "Surveiller", "unmonitor": "Arrêter la surveillance" },
       "filters": { "catalog": "Catalogue", "all_entries": "Toutes les entrées", "solar_bodies": "Corps du système solaire", "spacecraft": "Sondes spatiales", "status": "État", "all_statuses": "Tous les états", "search": "Rechercher dans le catalogue" },
       "empty": "Aucune entrée ne correspond aux filtres.",

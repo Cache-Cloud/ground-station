@@ -517,8 +517,10 @@
         "type": "Typ",
         "agency_parent": "Agentur / Übergeordnet",
         "status": "Status",
-        "identifier": "Horizons-Befehl / ID"
+        "identifier": "Horizons-Befehl / ID",
+        "monitoring": "Überwachung"
       },
+      "monitoring": { "monitored": "Überwacht", "not_monitored": "Nicht überwacht" },
       "actions": { "working": "Wird ausgeführt…", "monitor": "Überwachen", "unmonitor": "Überwachung beenden" },
       "filters": {
         "catalog": "Katalog",

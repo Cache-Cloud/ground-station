@@ -36,7 +36,6 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { DataGrid, gridClasses } from '@mui/x-data-grid';
-import AddIcon from '@mui/icons-material/Add';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -80,6 +79,7 @@ import { buildEphemerisSyncFailure, describeHorizonsFailure } from './ephemeris-
 import { toRowSelectionModel, toSelectedIds } from '../../utils/datagrid-selection.js';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
 import VectorCoverageDialog from './vector-coverage-dialog.jsx';
+import TransmittersDialog from '../satellites/transmitters-dialog.jsx';
 
 const PAGE_PAPER_SX = { padding: 2, marginTop: 0, borderRadius: 0 };
 const DATA_GRID_SX = {
@@ -614,6 +614,7 @@ export function CelestialCatalogPage() {
     const dispatch = useDispatch();
     const { socket } = useSocket();
     const { t } = useTranslation('celestial');
+    const { t: tSat } = useTranslation('satellites');
     const monitored = useSelector((state) => state.celestialMonitored?.monitored || []);
     const [bodies, setBodies] = useState([]);
     const [missions, setMissions] = useState([]);
@@ -629,6 +630,8 @@ export function CelestialCatalogPage() {
     const [monitorError, setMonitorError] = useState('');
     const [pendingUnmonitor, setPendingUnmonitor] = useState(null);
     const [unmonitorError, setUnmonitorError] = useState('');
+    const [transmittersDialogData, setTransmittersDialogData] = useState(null);
+    const [selected, setSelected] = useState([]);
 
     const loadCatalog = useCallback(async () => {
         if (!socket) return;
@@ -703,42 +706,86 @@ export function CelestialCatalogPage() {
                 .some((value) => String(value || '').toLowerCase().includes(needle));
         });
     }, [bodies, kind, missions, search, statusFilter, t]);
+    const selectedRows = useMemo(() => {
+        const selectedIds = new Set(selected);
+        return rows.filter((row) => selectedIds.has(row.catalogId));
+    }, [rows, selected]);
+    const selectedRow = selectedRows.length === 1 ? selectedRows[0] : null;
+    const selectedMonitoredRows = useMemo(
+        () => selectedRows.filter((row) => row.key && monitoredByKey.has(row.key)),
+        [monitoredByKey, selectedRows],
+    );
+    const selectedUnmonitoredRows = useMemo(
+        () => selectedRows.filter((row) => row.key && !monitoredByKey.has(row.key)),
+        [monitoredByKey, selectedRows],
+    );
+    const pendingUnmonitorRows = useMemo(
+        () => (Array.isArray(pendingUnmonitor)
+            ? pendingUnmonitor
+            : (pendingUnmonitor ? [pendingUnmonitor] : [])),
+        [pendingUnmonitor],
+    );
 
-    const handleMonitor = async (row) => {
-        // State updates do not disable the button until React renders again.
-        // Guard synchronously so a rapid second click cannot start another create/refresh chain.
-        if (catalogActionInProgressRef.current) return;
+    const handleMonitor = async (catalogRows) => {
+        const rowsToMonitor = (Array.isArray(catalogRows) ? catalogRows : [catalogRows])
+            .filter((row) => row?.key && !monitoredByKey.has(row.key));
+        if (rowsToMonitor.length === 0 || catalogActionInProgressRef.current) return;
+
+        // Guard synchronously so rapid repeated clicks cannot start overlapping batches.
         catalogActionInProgressRef.current = true;
-        setBusyCatalogId(row.catalogId);
+        setBusyCatalogId(rowsToMonitor[0].catalogId);
         setMessage(null);
         setMonitorError('');
+
+        const createdTargets = [];
+        const createFailures = [];
         try {
-            const created = await dispatch(createMonitoredCelestial({
-                socket,
-                entry: {
-                    targetType: row.kind,
-                    displayName: row.name,
-                    command: row.kind === 'mission' ? row.identifier : '',
-                    bodyId: row.kind === 'body' ? row.identifier : '',
-                    enabled: true,
-                    sourceMode: row.kind === 'mission' ? 'catalog' : 'static-body',
-                },
-            })).unwrap();
-            const refreshResult = await dispatch(refreshMonitoredCelestialNow({ socket, ids: [created.id] }));
-            await dispatch(fetchMonitoredCelestial({ socket }));
-            if (refreshMonitoredCelestialNow.rejected.match(refreshResult)) {
-                setMonitorError(t('admin.catalog.feedback.first_refresh_failed', {
-                    name: row.name,
-                    error: refreshResult.payload
-                        || refreshResult.error?.message
-                        || t('admin.common.unknown_error'),
-                }));
+            for (const row of rowsToMonitor) {
+                try {
+                    const created = await dispatch(createMonitoredCelestial({
+                        socket,
+                        entry: {
+                            targetType: row.kind,
+                            displayName: row.name,
+                            command: row.kind === 'mission' ? row.identifier : '',
+                            bodyId: row.kind === 'body' ? row.identifier : '',
+                            enabled: true,
+                            sourceMode: row.kind === 'mission' ? 'catalog' : 'static-body',
+                        },
+                    })).unwrap();
+                    createdTargets.push({ row, id: created.id });
+                } catch (error) {
+                    createFailures.push({ row, error });
+                }
             }
-        } catch (error) {
-            setMonitorError(t('admin.catalog.feedback.monitor_failed', {
-                name: row.name,
-                error: String(error?.message || error),
-            }));
+
+            let nextError = '';
+            if (createdTargets.length > 0) {
+                const refreshResult = await dispatch(refreshMonitoredCelestialNow({
+                    socket,
+                    ids: createdTargets.map((target) => target.id),
+                }));
+                await dispatch(fetchMonitoredCelestial({ socket }));
+                if (refreshMonitoredCelestialNow.rejected.match(refreshResult)) {
+                    nextError = t('admin.catalog.feedback.first_refresh_failed', {
+                        name: createdTargets.map(({ row }) => row.name).join(', '),
+                        error: refreshResult.payload
+                            || refreshResult.error?.message
+                            || t('admin.common.unknown_error'),
+                    });
+                }
+            }
+
+            if (createFailures.length > 0) {
+                const createError = createFailures.map(({ row, error }) => (
+                    t('admin.catalog.feedback.monitor_failed', {
+                        name: row.name,
+                        error: String(error?.message || error),
+                    })
+                )).join('\n');
+                nextError = [nextError, createError].filter(Boolean).join('\n');
+            }
+            setMonitorError(nextError);
         } finally {
             catalogActionInProgressRef.current = false;
             setBusyCatalogId(null);
@@ -746,15 +793,16 @@ export function CelestialCatalogPage() {
     };
 
     const handleConfirmUnmonitor = async () => {
-        const row = pendingUnmonitor;
-        const existing = row ? monitoredByKey.get(row.key) : null;
-        if (!row || !existing || catalogActionInProgressRef.current) return;
+        const ids = pendingUnmonitorRows
+            .map((row) => monitoredByKey.get(row.key)?.id)
+            .filter(Boolean);
+        if (ids.length === 0 || catalogActionInProgressRef.current) return;
 
         catalogActionInProgressRef.current = true;
-        setBusyCatalogId(row.catalogId);
+        setBusyCatalogId(pendingUnmonitorRows[0]?.catalogId || 'selection');
         setUnmonitorError('');
         try {
-            await dispatch(deleteMonitoredCelestial({ socket, ids: [existing.id] })).unwrap();
+            await dispatch(deleteMonitoredCelestial({ socket, ids })).unwrap();
             setPendingUnmonitor(null);
         } catch (error) {
             setUnmonitorError(String(error?.message || error));
@@ -763,6 +811,18 @@ export function CelestialCatalogPage() {
             setBusyCatalogId(null);
         }
     };
+
+    const handleOpenTransmitters = useCallback((row) => {
+        if (!row?.key) return;
+
+        setTransmittersDialogData({
+            name: row.name || row.identifier || row.key,
+            target_key: row.key,
+            // Catalog endpoints do not hydrate transmitters; the shared dialog
+            // fetches the current list from the target key when it opens.
+            transmitters: Array.isArray(row.raw?.transmitters) ? row.raw.transmitters : [],
+        });
+    }, []);
 
     const statuses = useMemo(() => [...new Set(missions.map((row) => row.mission_status).filter(Boolean))].sort(), [missions]);
     const columns = [
@@ -818,9 +878,9 @@ export function CelestialCatalogPage() {
             renderCell: (params) => <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{params.value}</Typography>,
         },
         {
-            field: 'row_actions',
-            headerName: '',
-            width: 190,
+            field: 'monitoring',
+            headerName: t('admin.catalog.columns.monitoring'),
+            width: 150,
             sortable: false,
             filterable: false,
             disableColumnMenu: true,
@@ -829,34 +889,13 @@ export function CelestialCatalogPage() {
             renderCell: (params) => {
                 const isMonitored = monitoredByKey.has(params.row.key);
                 return (
-                    <Button
+                    <Chip
                         size="small"
-                        variant={isMonitored ? 'outlined' : 'contained'}
-                        color={isMonitored ? 'error' : 'primary'}
-                        disabled={!socket || Boolean(busyCatalogId)}
-                        onClick={(event) => {
-                            event.stopPropagation();
-                            if (isMonitored) {
-                                setUnmonitorError('');
-                                setPendingUnmonitor(params.row);
-                            } else {
-                                handleMonitor(params.row);
-                            }
-                        }}
-                    >
-                        <Stack component="span" direction="row" spacing={0.75} alignItems="center" sx={{ lineHeight: 1 }}>
-                            {isMonitored
-                                ? <DeleteOutlineIcon fontSize="small" sx={{ display: 'block' }} />
-                                : <AddIcon fontSize="small" sx={{ display: 'block' }} />}
-                            <Box component="span" sx={{ lineHeight: 1 }}>
-                                {busyCatalogId === params.row.catalogId
-                                    ? t('admin.catalog.actions.working')
-                                    : isMonitored
-                                        ? t('admin.catalog.actions.unmonitor')
-                                        : t('admin.catalog.actions.monitor')}
-                            </Box>
-                        </Stack>
-                    </Button>
+                        color={isMonitored ? 'success' : 'default'}
+                        variant={isMonitored ? 'filled' : 'outlined'}
+                        icon={isMonitored ? <CheckCircleOutlineIcon /> : <ToggleOffIcon />}
+                        label={t(`admin.catalog.monitoring.${isMonitored ? 'monitored' : 'not_monitored'}`)}
+                    />
                 );
             },
         },
@@ -897,10 +936,53 @@ export function CelestialCatalogPage() {
                 getRowId={(row) => row.catalogId}
                 pageSizeOptions={[5, 10, 25, 50, 100]}
                 initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
-                disableRowSelectionOnClick
+                checkboxSelection
+                onRowSelectionModelChange={(selection) => setSelected(toSelectedIds(selection))}
                 localeText={{ noRowsLabel: t('admin.catalog.empty') }}
-                sx={DATA_GRID_SX}
+                sx={{
+                    ...DATA_GRID_SX,
+                    '& .MuiDataGrid-row': { cursor: 'pointer' },
+                }}
             />
+            <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+                <Button
+                    variant="contained"
+                    disabled={selected.length !== 1 || !selectedRow?.key}
+                    onClick={() => {
+                        if (selectedRow) handleOpenTransmitters(selectedRow);
+                    }}
+                >
+                    {tSat('satellite_database.edit_transmitters')}
+                </Button>
+                <Button
+                    variant="contained"
+                    disabled={
+                        !socket
+                        || selectedUnmonitoredRows.length === 0
+                        || Boolean(busyCatalogId)
+                    }
+                    onClick={() => handleMonitor(selectedUnmonitoredRows)}
+                >
+                    {busyCatalogId
+                        ? t('admin.catalog.actions.working')
+                        : t('admin.catalog.actions.monitor')}
+                </Button>
+                <Button
+                    variant="contained"
+                    color="error"
+                    disabled={
+                        !socket
+                        || selectedMonitoredRows.length === 0
+                        || Boolean(busyCatalogId)
+                    }
+                    onClick={() => {
+                        setUnmonitorError('');
+                        setPendingUnmonitor(selectedMonitoredRows);
+                    }}
+                >
+                    {t('admin.catalog.actions.unmonitor')}
+                </Button>
+            </Stack>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>{t('admin.catalog.summary', { entries: rows.length, monitored: monitored.length })}</Typography>
             <Alert severity="info" sx={{ mt: 2 }}>
                 <AlertTitle>{t('admin.catalog.info.title')}</AlertTitle>
@@ -911,6 +993,17 @@ export function CelestialCatalogPage() {
                 open={Boolean(monitorError)}
                 message={monitorError}
                 onClose={() => setMonitorError('')}
+            />
+
+            <TransmittersDialog
+                open={Boolean(transmittersDialogData)}
+                onClose={() => setTransmittersDialogData(null)}
+                title={tSat('satellite_database.edit_transmitters_title', {
+                    name: transmittersDialogData?.name || '',
+                })}
+                satelliteData={transmittersDialogData}
+                variant="paper"
+                widthOffsetPx={20}
             />
 
             <Dialog
@@ -954,7 +1047,9 @@ export function CelestialCatalogPage() {
                 <DialogContent sx={{ px: 3, pt: 3, pb: 3 }}>
                     <Typography variant="body1" sx={{ mt: 2, mb: 1 }}>
                         {t('admin.catalog.confirm.question', {
-                            target: pendingUnmonitor?.name || t('admin.catalog.confirm.this_target'),
+                            target: pendingUnmonitorRows.length > 0
+                                ? pendingUnmonitorRows.map((row) => row.name).join(', ')
+                                : t('admin.catalog.confirm.this_target'),
                         })}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -979,7 +1074,7 @@ export function CelestialCatalogPage() {
                         variant="contained"
                         color="error"
                         startIcon={<DeleteOutlineIcon />}
-                        disabled={!pendingUnmonitor || Boolean(busyCatalogId)}
+                        disabled={pendingUnmonitorRows.length === 0 || Boolean(busyCatalogId)}
                         onClick={handleConfirmUnmonitor}
                     >
                         {t('admin.catalog.actions.unmonitor')}

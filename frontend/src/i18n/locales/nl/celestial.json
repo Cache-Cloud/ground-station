@@ -500,7 +500,8 @@
       "status": { "running": "Bezig", "completed": "Voltooid", "action_required": "Actie vereist", "idle": "Inactief" }
     },
     "catalog": {
-      "columns": { "name": "Naam", "type": "Type", "agency_parent": "Agentschap / Hoofdlichaam", "status": "Status", "identifier": "Horizons-opdracht / ID" },
+      "columns": { "name": "Naam", "type": "Type", "agency_parent": "Agentschap / Hoofdlichaam", "status": "Status", "identifier": "Horizons-opdracht / ID", "monitoring": "Volgstatus" },
+      "monitoring": { "monitored": "Gevolgd", "not_monitored": "Niet gevolgd" },
       "actions": { "working": "Bezig…", "monitor": "Volgen", "unmonitor": "Stoppen met volgen" },
       "filters": { "catalog": "Catalogus", "all_entries": "Alle vermeldingen", "solar_bodies": "Zonnestelsellichamen", "spacecraft": "Ruimtesondes", "status": "Status", "all_statuses": "Alle statussen", "search": "Catalogus doorzoeken" },
       "empty": "Geen catalogusvermeldingen passen bij de filters.",

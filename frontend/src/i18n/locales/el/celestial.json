@@ -517,8 +517,10 @@
         "type": "Τύπος",
         "agency_parent": "Οργανισμός / Γονικό σώμα",
         "status": "Κατάσταση",
-        "identifier": "Εντολή Horizons / ID"
+        "identifier": "Εντολή Horizons / ID",
+        "monitoring": "Παρακολούθηση"
       },
+      "monitoring": { "monitored": "Παρακολουθείται", "not_monitored": "Δεν παρακολουθείται" },
       "actions": { "working": "Εκτελείται…", "monitor": "Παρακολούθηση", "unmonitor": "Διακοπή παρακολούθησης" },
       "filters": {
         "catalog": "Κατάλογος",
