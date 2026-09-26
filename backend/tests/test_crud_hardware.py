@@ -68,7 +68,53 @@ class TestRotatorsCRUD:
         assert result["data"]["azimuth_mode"] == "0_360"
         assert result["data"]["parkaz"] is None
         assert result["data"]["parkel"] is None
+        assert result["data"]["tracking_lead_seconds"] == 2.0
         assert "id" in result["data"]
+
+    async def test_add_and_edit_rotator_tracking_lead(self, db_session):
+        """Persist a bounded feed-forward delay with the rotator definition."""
+        add_result = await add_rotator(
+            db_session,
+            {
+                "name": "Slow Rotator",
+                "host": "localhost",
+                "port": 4533,
+                "minaz": 0,
+                "maxaz": 360,
+                "minel": 0,
+                "maxel": 90,
+                "tracking_lead_seconds": 4.5,
+            },
+        )
+
+        assert add_result["success"] is True
+        assert add_result["data"]["tracking_lead_seconds"] == 4.5
+
+        edit_result = await edit_rotator(
+            db_session,
+            {"id": add_result["data"]["id"], "tracking_lead_seconds": 1.25},
+        )
+        assert edit_result["success"] is True
+        assert edit_result["data"]["tracking_lead_seconds"] == 1.25
+
+    async def test_rejects_rotator_tracking_lead_outside_supported_range(self, db_session):
+        """Reject values that could create an unexpectedly large pointing error."""
+        result = await add_rotator(
+            db_session,
+            {
+                "name": "Invalid Lead",
+                "host": "localhost",
+                "port": 4533,
+                "minaz": 0,
+                "maxaz": 360,
+                "minel": 0,
+                "maxel": 90,
+                "tracking_lead_seconds": 10.1,
+            },
+        )
+
+        assert result["success"] is False
+        assert "between 0 and 10" in result["error"]
 
     async def test_add_rotator_with_negative_azimuth_mode(self, db_session):
         """Test successful rotator creation with -180_180 azimuth mode."""

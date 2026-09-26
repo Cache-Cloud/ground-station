@@ -311,7 +311,7 @@ const rescaleToRange = (value, originalMin, originalMax, targetMin, targetMax) =
 };
 
 function GaugeAz({az, limits = [null, null],
-                     peakAz = null, targetCurrentAz = null,
+                     peakAz = null, targetCurrentAz = null, targetCommandAz = null,
                      isGeoStationary = false, isGeoSynchronous = false,
                      hardwareLimits = [null, null]
 }) {
@@ -319,6 +319,7 @@ function GaugeAz({az, limits = [null, null],
     let [hwMinAz, hwMaxAz] = hardwareLimits;
     const safeAz = normalizeAzimuthForGauge(az);
     const safeTargetCurrentAz = isFiniteNumber(targetCurrentAz) ? targetCurrentAz : null;
+    const safeTargetCommandAz = isFiniteNumber(targetCommandAz) ? targetCommandAz : null;
     minAz = isFiniteNumber(minAz) ? minAz : null;
     maxAz = isFiniteNumber(maxAz) ? maxAz : null;
     hwMinAz = isFiniteNumber(hwMinAz) ? hwMinAz : null;
@@ -390,15 +391,17 @@ function GaugeAz({az, limits = [null, null],
             </>}
             {/* Keep current-position indicators visible even in a restricted sector. */}
             <EdgeArrow angle={safeTargetCurrentAz} />
+            <Pointer angle={safeTargetCommandAz} stroke="#00bcd4" strokeWidth={2} opacity={0.9} />
             <GaugePointer/>
         </GaugeContainer>
     );
 }
 
-function GaugeEl({el, maxElevation = null, targetCurrentEl = null, hardwareLimits = [null, null]}) {
+function GaugeEl({el, maxElevation = null, targetCurrentEl = null, targetCommandEl = null, hardwareLimits = [null, null]}) {
     const safeEl = isFiniteNumber(el) ? el : null;
     const safeMaxElevation = isFiniteNumber(maxElevation) ? maxElevation : null;
     const safeTargetCurrentEl = isFiniteNumber(targetCurrentEl) ? targetCurrentEl : null;
+    const safeTargetCommandEl = isFiniteNumber(targetCommandEl) ? targetCommandEl : null;
     let [hwMinEl, hwMaxEl] = hardwareLimits;
     hwMinEl = isFiniteNumber(hwMinEl) ? hwMinEl : null;
     hwMaxEl = isFiniteNumber(hwMaxEl) ? hwMaxEl : null;
@@ -477,6 +480,12 @@ function GaugeEl({el, maxElevation = null, targetCurrentEl = null, hardwareLimit
             </>}
             {/* Elevation endpoints can also fall inside a restricted sector. */}
             <EdgeArrow angle={safeTargetCurrentEl !== null ? rescaleValue(safeTargetCurrentEl) : null} />
+            <Pointer
+                angle={safeTargetCommandEl !== null ? rescaleValue(safeTargetCommandEl) : null}
+                stroke="#00bcd4"
+                strokeWidth={2}
+                opacity={0.9}
+            />
             <GaugePointer/>
         </GaugeContainer>
     );

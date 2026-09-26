@@ -101,6 +101,8 @@
     "el_tolerance": "Elevation Deadband",
     "tolerance_warning": "Tolerance settings control the deadband for rotator movement. Setting these values too low can cause excessive commands, jitter, or errors on some hardware. Default safe value is 2°.",
     "tolerance_helper": "Lower values may stress some rotators.",
+    "tracking_lead": "Satellite Tracking Lead",
+    "tracking_lead_helper": "Points ahead to compensate for rotator latency. Use 0 to disable; allowed range is 0–10 seconds.",
     "az_type": "Az Type",
     "az_endstop": "Az Endstop",
     "cancel": "Cancel",
@@ -113,7 +115,8 @@
       "min_az_lte_max_az": "Min azimuth must be <= max azimuth",
       "invalid_azimuth_mode": "Invalid azimuth mode",
       "min_el_lte_max_el": "Min elevation must be <= max elevation",
-      "park_both_or_none": "Park azimuth and elevation must both be set or both left empty"
+      "park_both_or_none": "Park azimuth and elevation must both be set or both left empty",
+      "tracking_lead_range": "Tracking lead must be between 0 and 10 seconds"
     },
     "saved_success": "Rotator saved successfully",
     "deleted_success": "Rotator(s) deleted successfully",

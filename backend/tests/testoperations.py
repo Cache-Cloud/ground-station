@@ -292,6 +292,46 @@ def test_worker_rejects_non_satellite_ephemeris_from_another_target():
     assert result is None
 
 
+def test_satellite_rotator_command_uses_persisted_future_lead(monkeypatch):
+    tracker = worker()
+    tracker.input_target_ephemeris = {"norad_id": 25544, "name": "ISS"}
+    tracker.input_location = {"lat": 37.98, "lon": 23.72, "alt": 100}
+    tracker.rotator_details = {"tracking_lead_seconds": 3.5}
+    epochs = {}
+
+    def compile_data(*_args, observation_time=None, **_kwargs):
+        epochs["current"] = observation_time
+        return {
+            "position": {"az": 120.0, "el": 35.0},
+            "details": {},
+            "paths": {},
+            "coverage": [],
+            "transmitters": [],
+            "error": False,
+        }
+
+    propagation_input = SimpleNamespace(tle1="line 1", tle2="line 2")
+
+    def future_point(_lat, _lon, actual_propagation_input, observation_time):
+        assert actual_propagation_input is propagation_input
+        epochs["command"] = observation_time
+        return 124.0, 37.0
+
+    monkeypatch.setattr(logic, "compiled_satellite_data_from_inputs", compile_data)
+    monkeypatch.setattr(logic, "get_propagation_input", lambda *_args, **_kwargs: propagation_input)
+    monkeypatch.setattr(logic, "get_satellite_az_el_from_propagation", future_point)
+
+    result = tracker._resolve_target_context(
+        {"target_type": "satellite", "norad_id": 25544},
+        tracker.input_location,
+    )
+
+    assert result["skypoint"] == (120.0, 35.0)
+    assert result["command_skypoint"] == (124.0, 37.0)
+    assert result["tracking_lead_seconds"] == 3.5
+    assert (epochs["command"] - epochs["current"]).total_seconds() == 3.5
+
+
 def test_worker_accepts_explicit_empty_ephemeris_clear():
     tracker = worker()
     tracker.input_target_ephemeris = {"target_key": "mission:curiosity"}

@@ -11,6 +11,7 @@ import {
     FormControlLabel,
     InputAdornment,
     MenuItem,
+    Slider,
     Stack,
     TextField,
 } from "@mui/material";
@@ -142,6 +143,32 @@ export default function RotatorEditDialog({
                             ),
                         }}
                     />
+                    <Box>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span>{t("rotator.tracking_lead", { defaultValue: "Satellite Tracking Lead" })}</span>
+                            <strong>{Number(formValues.tracking_lead_seconds ?? 2).toFixed(1)} s</strong>
+                        </Box>
+                        <Slider
+                            aria-label={t("rotator.tracking_lead", { defaultValue: "Satellite Tracking Lead" })}
+                            value={Number(formValues.tracking_lead_seconds ?? 2)}
+                            min={0}
+                            max={10}
+                            step={0.1}
+                            marks={[
+                                {value: 0, label: "0"},
+                                {value: 2, label: "2"},
+                                {value: 5, label: "5"},
+                                {value: 10, label: "10 s"},
+                            ]}
+                            valueLabelDisplay="auto"
+                            onChange={(_event, value) => onPatchValues({tracking_lead_seconds: value})}
+                        />
+                        <Box sx={{ color: validationErrors.tracking_lead_seconds ? "error.main" : "text.secondary", fontSize: "0.75rem" }}>
+                            {validationErrors.tracking_lead_seconds || t("rotator.tracking_lead_helper", {
+                                defaultValue: "Points ahead to compensate for rotator latency. Use 0 to disable; allowed range is 0–10 seconds.",
+                            })}
+                        </Box>
+                    </Box>
                     <Alert severity="warning">{t("rotator.park_override_warning")}</Alert>
                     <FormControlLabel
                         control={

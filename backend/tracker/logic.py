@@ -16,9 +16,10 @@
 
 import asyncio
 import logging
+import math
 import multiprocessing
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import psutil
@@ -44,6 +45,7 @@ from tracker.righandler import RigHandler
 from tracker.rotatorhandler import RotatorHandler
 from tracker.statemanager import StateManager
 from tracking.doppler import calculate_range_rate_from_heliocentric_vectors
+from tracking.satellite import get_satellite_az_el_from_propagation
 
 logger = logging.getLogger("tracker-worker")
 
@@ -599,6 +601,7 @@ class SatelliteTracker:
                 self.input_location,
                 self.input_transmitters,
                 self.input_map_settings,
+                observation_time=now_epoch,
             )
             if satellite_data.get("error"):
                 logger.warning(
@@ -627,11 +630,31 @@ class SatelliteTracker:
                 float(satellite_data["position"]["az"]),
                 float(satellite_data["position"]["el"]),
             )
+            try:
+                tracking_lead_seconds = float(
+                    self.rotator_details.get("tracking_lead_seconds", 2.0)
+                )
+            except (TypeError, ValueError):
+                tracking_lead_seconds = 2.0
+            if not math.isfinite(tracking_lead_seconds):
+                tracking_lead_seconds = 2.0
+            tracking_lead_seconds = min(max(tracking_lead_seconds, 0.0), 10.0)
+
+            # Keep all published target telemetry at the current epoch. Only the
+            # physical rotator command receives the feed-forward satellite point.
+            command_skypoint = get_satellite_az_el_from_propagation(
+                observer_lat,
+                observer_lon,
+                propagation_input,
+                now_epoch + timedelta(seconds=tracking_lead_seconds),
+            )
             return {
                 "target_type": "satellite",
                 "target_name": satellite_name,
                 "target_id": str(norad_id),
                 "skypoint": skypoint,
+                "command_skypoint": command_skypoint,
+                "tracking_lead_seconds": tracking_lead_seconds,
                 "satellite_data": satellite_data,
                 "satellite_tles": satellite_tles,
             }
@@ -997,6 +1020,12 @@ class SatelliteTracker:
                 satellite_tles = target_context.get("satellite_tles")
                 satellite_name = target_context["target_name"]
                 skypoint = target_context["skypoint"]
+                command_skypoint = target_context.get("command_skypoint", skypoint)
+                self.rotator_data["tracking_lead_seconds"] = float(
+                    target_context.get("tracking_lead_seconds", 0.0)
+                )
+                self.rotator_data["command_az"] = float(command_skypoint[0])
+                self.rotator_data["command_el"] = float(command_skypoint[1])
 
                 if target_type == "satellite" and not satellite_tles:
                     # Six-digit OMM records propagate normally, but the rig
@@ -1062,7 +1091,7 @@ class SatelliteTracker:
 
                 # Control rotator position
                 if self.current_rotator_state == "tracking":
-                    await self.rotator_handler.control_rotator_position(skypoint)
+                    await self.rotator_handler.control_rotator_position(command_skypoint)
 
             except Exception as e:
                 logger.error(f"Error in satellite tracking task: {e}")

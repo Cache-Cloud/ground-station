@@ -333,6 +333,7 @@ class Rotators(Base):
     parkel = Column(Float, nullable=True)
     aztolerance = Column(Float, nullable=False, default=2.0)
     eltolerance = Column(Float, nullable=False, default=2.0)
+    tracking_lead_seconds = Column(Float, nullable=False, default=2.0)
     added = Column(AwareDateTime, nullable=False, default=datetime.now(timezone.utc))
     updated = Column(
         AwareDateTime,

@@ -416,6 +416,7 @@ def compiled_satellite_data_from_inputs(
     location: Dict[str, Any],
     transmitters: Optional[List[Any]] = None,
     map_settings: Optional[Dict[str, Any]] = None,
+    observation_time: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """
     Compile satellite data using in-memory inputs instead of database access.
@@ -452,7 +453,7 @@ def compiled_satellite_data_from_inputs(
             home_lat,
             home_lon,
             propagation_input,
-            datetime.now(timezone.utc),
+            observation_time or datetime.now(timezone.utc),
         )
 
         # calculate paths with caching

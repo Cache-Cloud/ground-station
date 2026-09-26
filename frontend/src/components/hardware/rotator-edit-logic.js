@@ -12,6 +12,7 @@ export const DEFAULT_ROTATOR = {
     parkel: null,
     aztolerance: 2.0,
     eltolerance: 2.0,
+    tracking_lead_seconds: 2.0,
 };
 
 export function isEmptyRotatorValue(value) {
@@ -51,6 +52,7 @@ export function prepareRotatorPayload(formValues) {
         parkel: toOptionalNumber(formValues.parkel),
         aztolerance: Number(formValues.aztolerance),
         eltolerance: Number(formValues.eltolerance),
+        tracking_lead_seconds: Number(formValues.tracking_lead_seconds),
     };
 }
 
@@ -121,6 +123,15 @@ export function validateRotatorForm(formValues, t) {
         validationErrors.eltolerance = t("shared.must_be_number");
     } else if (Number(formValues.eltolerance) < 0) {
         validationErrors.eltolerance = t("shared.must_be_gte_zero");
+    }
+    if (isEmptyRotatorValue(formValues.tracking_lead_seconds)) {
+        validationErrors.tracking_lead_seconds = t("shared.required");
+    } else if (Number.isNaN(Number(formValues.tracking_lead_seconds))) {
+        validationErrors.tracking_lead_seconds = t("shared.must_be_number");
+    } else if (Number(formValues.tracking_lead_seconds) < 0 || Number(formValues.tracking_lead_seconds) > 10) {
+        validationErrors.tracking_lead_seconds = t("rotator.validation.tracking_lead_range", {
+            defaultValue: "Tracking lead must be between 0 and 10 seconds",
+        });
     }
     return validationErrors;
 }

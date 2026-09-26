@@ -91,6 +91,28 @@ export const submitOrEditRotator = createAsyncThunk(
     }
 );
 
+export const updateRotatorTrackingLead = createAsyncThunk(
+    'rotators/updateTrackingLead',
+    async ({socket, rotatorId, trackingLeadSeconds}, {rejectWithValue}) => {
+        try {
+            return await new Promise((resolve, reject) => {
+                socket.emit("api.call", {
+                    cmd: 'edit-rotator',
+                    data: {id: rotatorId, tracking_lead_seconds: trackingLeadSeconds},
+                }, response => {
+                    if (response.success) {
+                        resolve(response.data);
+                    } else {
+                        reject(new Error(response.message || 'Failed to update tracking lead'));
+                    }
+                });
+            });
+        } catch (error) {
+            return rejectWithValue(error.message);
+        }
+    }
+);
+
 const defaultRotator = {
     id: null,
     name: '',
@@ -105,6 +127,7 @@ const defaultRotator = {
     parkel: null,
     aztolerance: 2.0,
     eltolerance: 2.0,
+    tracking_lead_seconds: 2.0,
 };
 
 const rotatorsSlice = createSlice({
@@ -212,6 +235,9 @@ const rotatorsSlice = createSlice({
                 state.loading = false;
                 state.status = 'failed';
                 state.error = action.payload;
+            })
+            .addCase(updateRotatorTrackingLead.fulfilled, (state, action) => {
+                state.rotators = action.payload;
             })
     },
 });

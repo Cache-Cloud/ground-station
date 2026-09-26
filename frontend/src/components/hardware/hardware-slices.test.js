@@ -10,7 +10,7 @@ import rotatorReducer, {
     setFormValues as setRotatorFormValues,
     setOpenDeleteConfirm,
 } from './rotator-slice.jsx';
-import { DEFAULT_ROTATOR } from './rotator-edit-logic.js';
+import { DEFAULT_ROTATOR, prepareRotatorPayload, validateRotatorForm } from './rotator-edit-logic.js';
 import sdrReducer, {
     fetchLocalAirspyDevices,
     fetchSDRs,
@@ -46,7 +46,19 @@ describe('hardware slices', () => {
         const state = rotatorReducer(undefined, { type: '@@INIT' });
 
         expect(DEFAULT_ROTATOR.port).toBe(4533);
+        expect(DEFAULT_ROTATOR.tracking_lead_seconds).toBe(2);
         expect(state.formValues.port).toBe(4533);
+        expect(state.formValues.tracking_lead_seconds).toBe(2);
+    });
+
+    it('normalizes and validates the persisted rotator tracking lead', () => {
+        const t = (key) => key;
+        const payload = prepareRotatorPayload({...DEFAULT_ROTATOR, tracking_lead_seconds: '3.5'});
+
+        expect(payload.tracking_lead_seconds).toBe(3.5);
+        expect(validateRotatorForm(payload, t).tracking_lead_seconds).toBeUndefined();
+        expect(validateRotatorForm({...payload, tracking_lead_seconds: 10.1}, t).tracking_lead_seconds)
+            .toBe('rotator.validation.tracking_lead_range');
     });
 
     it('selects fetched SDRs and records local-device request failures', () => {

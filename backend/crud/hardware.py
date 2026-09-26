@@ -13,10 +13,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+import math
 import traceback
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +28,8 @@ from db.models import Cameras, Rigs, Rotators, SDRs
 VALID_AZIMUTH_MODES = {"0_360", "-180_180", "0_450"}
 SUPPORTED_CAMERA_TYPES = {"hls", "mjpeg"}
 MAX_ANTENNA_LABEL_LENGTH = 64
+DEFAULT_TRACKING_LEAD_SECONDS = 2.0
+MAX_TRACKING_LEAD_SECONDS = 10.0
 
 
 def _normalize_optional_float(value):
@@ -35,6 +38,16 @@ def _normalize_optional_float(value):
     if isinstance(value, str) and value.strip() == "":
         return None
     return float(value)
+
+
+def _normalize_tracking_lead_seconds(value: Any) -> float:
+    """Validate the persisted satellite pointing lead for a rotator."""
+    normalized = float(value)
+    if not math.isfinite(normalized) or not 0 <= normalized <= MAX_TRACKING_LEAD_SECONDS:
+        raise ValueError(
+            f"tracking_lead_seconds must be between 0 and {MAX_TRACKING_LEAD_SECONDS:g}"
+        )
+    return normalized
 
 
 def _normalize_camera_type(value: object) -> str:
@@ -126,6 +139,9 @@ async def add_rotator(session: AsyncSession, data: dict) -> dict:
         assert (parkaz is None) == (
             parkel is None
         ), "parkaz and parkel must either both be set or both be null"
+        tracking_lead_seconds = _normalize_tracking_lead_seconds(
+            data.get("tracking_lead_seconds", DEFAULT_TRACKING_LEAD_SECONDS)
+        )
 
         new_id = uuid.uuid4()
         now = datetime.now(timezone.utc)
@@ -145,6 +161,7 @@ async def add_rotator(session: AsyncSession, data: dict) -> dict:
                 parkel=parkel,
                 aztolerance=data.get("aztolerance", 2.0),
                 eltolerance=data.get("eltolerance", 2.0),
+                tracking_lead_seconds=tracking_lead_seconds,
                 added=now,
                 updated=now,
             )
@@ -184,6 +201,10 @@ async def edit_rotator(session: AsyncSession, data: dict) -> dict:
             data["parkaz"] = _normalize_optional_float(data.get("parkaz"))
         if "parkel" in data:
             data["parkel"] = _normalize_optional_float(data.get("parkel"))
+        if "tracking_lead_seconds" in data:
+            data["tracking_lead_seconds"] = _normalize_tracking_lead_seconds(
+                data["tracking_lead_seconds"]
+            )
 
         data.pop("updated", None)
         data.pop("added", None)

@@ -208,6 +208,14 @@ export default function AntennaRotatorTable() {
             valueFormatter: (value) => formatDegrees(value)
         },
         {
+            field: 'tracking_lead_seconds',
+            headerName: t('rotator.tracking_lead', {defaultValue: 'Tracking Lead'}),
+            type: 'number',
+            flex: 1,
+            minWidth: 125,
+            valueFormatter: (value) => `${value ?? 2}s`
+        },
+        {
             field: 'row_actions',
             headerName: '',
             width: 56,

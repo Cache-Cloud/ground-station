@@ -146,6 +146,8 @@
     "manual_help": "Enter a position or use the dials, then press Move. Automatic tracking must be stopped.",
     "manual_azimuth": "Azimuth ({{min}}°–{{max}}°)",
     "manual_elevation": "Elevation ({{min}}°–{{max}}°)",
+    "tracking_lead": "Satellite tracking lead",
+    "tracking_lead_short": "Lead",
     "move": "MOVE",
     "close": "CLOSE"
   },

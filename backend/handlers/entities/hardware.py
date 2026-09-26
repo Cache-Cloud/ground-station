@@ -1025,7 +1025,9 @@ async def edit_rotator(
     """Edit an existing rotator."""
     async with AsyncSessionLocal() as dbsession:
         logger.debug(f"Editing rotator, data: {data}")
-        edit_reply = await crud.hardware.edit_rotator(dbsession, data)
+        # CRUD normalizes a mutable payload. Keep the handler copy intact so the
+        # active tracker can be notified with the edited rotator ID afterwards.
+        edit_reply = await crud.hardware.edit_rotator(dbsession, dict(data or {}))
         logger.debug(f"Edit rotator reply: {edit_reply}")
 
         rotators = await crud.hardware.fetch_rotators(dbsession)
