@@ -25,8 +25,8 @@ import { betterDateTimes } from "../common/common.jsx";
 import { useTranslation } from 'react-i18next';
 import { removeTask, stopBackgroundTask } from './tasks-slice.jsx';
 import {
+    Badge,
     Box,
-    CircularProgress,
     IconButton,
     Popover,
     Typography,
@@ -42,9 +42,7 @@ import {
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import StopIcon from '@mui/icons-material/Stop';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorIcon from '@mui/icons-material/Error';
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import CancelIcon from '@mui/icons-material/Cancel';
 import PlayDisabledIcon from '@mui/icons-material/PlayDisabled';
 
@@ -200,6 +198,7 @@ const BackgroundTasksPopover = () => {
 
     // Get tasks from Redux store
     const { tasks, runningTaskIds, completedTaskIds } = useSelector(state => state.backgroundTasks);
+    const taskCount = runningTaskIds.length + completedTaskIds.length;
     const timezone = useSelector((state) => {
         const timezonePreference = state.preferences?.preferences?.find((preference) => preference.name === 'timezone');
         return timezonePreference?.value || 'UTC';
@@ -335,19 +334,6 @@ const BackgroundTasksPopover = () => {
         if (hasStoppedTasks) return 'warning.main';
         if (completedTaskIds.length > 0) return 'success.main';
         return 'text.secondary';
-    };
-
-    const renderStatusIcon = () => {
-        if (hasFailedTasks) {
-            return <ErrorOutlineIcon />;
-        }
-        if (runningTaskIds.length > 0) {
-            return <PendingActionsIcon />;
-        }
-        if (completedTaskIds.length > 0) {
-            return <CheckCircleOutlineIcon />;
-        }
-        return <PendingActionsIcon />;
     };
 
     const getTooltip = () => {
@@ -579,42 +565,29 @@ const BackgroundTasksPopover = () => {
                     onClick={handleClick}
                     sx={{
                         color: getIconColor(),
-                        position: 'relative',
                     }}
                 >
-                    {runningTaskIds.length > 0 && (
-                        <CircularProgress
-                            size={28}
-                            thickness={5}
-                            color="inherit"
-                            sx={{
-                                position: 'absolute',
-                                opacity: 0.7,
-                            }}
-                        />
-                    )}
-                    {renderStatusIcon()}
-                    {runningTaskIds.length > 0 && (
-                        <Box
-                            sx={{
-                                position: 'absolute',
-                                top: 4,
-                                right: 4,
-                                bgcolor: hasFailedTasks ? 'error.main' : 'info.main',
-                                borderRadius: '50%',
-                                width: 12,
-                                height: 12,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '0.6rem',
-                                color: 'white',
-                                fontWeight: 'bold',
-                            }}
-                        >
-                            {runningTaskIds.length}
-                        </Box>
-                    )}
+                    <Badge
+                        badgeContent={taskCount}
+                        invisible={!connected || taskCount === 0}
+                        max={99}
+                        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                        sx={{
+                            '& .MuiBadge-badge': {
+                                minWidth: 14,
+                                height: 14,
+                                px: 0.4,
+                                bgcolor: 'background.paper',
+                                color: 'text.secondary',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                fontSize: '0.55rem',
+                                fontWeight: 700,
+                            },
+                        }}
+                    >
+                        <PendingActionsIcon />
+                    </Badge>
                 </IconButton>
             </Tooltip>
 

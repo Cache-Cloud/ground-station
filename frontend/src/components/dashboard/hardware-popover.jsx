@@ -131,7 +131,6 @@ const HardwareSettingsPopover = () => {
                 warningCount: 0,
                 disconnectedCount: 0,
                 assignedCount: 0,
-                issueCount: 0,
             },
             rig: {
                 activeCount: 0,
@@ -139,7 +138,6 @@ const HardwareSettingsPopover = () => {
                 warningCount: 0,
                 disconnectedCount: 0,
                 assignedCount: 0,
-                issueCount: 0,
             },
         };
 
@@ -246,17 +244,8 @@ const HardwareSettingsPopover = () => {
             .length;
         summary.rig.disconnectedCount = disconnectedAssignedRigCount + unassignedConfiguredRigCount;
 
-        // Badge bubbles represent warning/error attention only.
-        // Disconnected is treated as neutral state and is reported in tooltip text instead.
-        summary.rotator.issueCount = summary.rotator.warningCount;
-        summary.rig.issueCount = summary.rig.warningCount;
         return summary;
     }, [trackerInstances, trackerViews, rigs, rotators]);
-
-    const getFleetBadgeColor = useCallback((summaryByType) => {
-        if (summaryByType.warningCount > 0) return 'warning';
-        return 'default';
-    }, []);
 
     const getRigColor = () => {
         if (!hasConfiguredTargets) return 'text.disabled';
@@ -762,16 +751,20 @@ const HardwareSettingsPopover = () => {
                     }}
                 >
                     <Badge
-                        badgeContent={fleetHardwareSummary.rotator.issueCount > 0 ? fleetHardwareSummary.rotator.issueCount : null}
-                        color={getFleetBadgeColor(fleetHardwareSummary.rotator)}
+                        badgeContent={fleetHardwareSummary.rotator.connectedCount}
+                        invisible={!connected || !hasConfiguredTargets || fleetHardwareSummary.rotator.connectedCount === 0}
                         max={99}
                         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
                         sx={{
                             '& .MuiBadge-badge': {
                                 minWidth: 14,
                                 height: 14,
-                                px: 0.45,
-                                fontSize: '0.58rem',
+                                px: 0.4,
+                                bgcolor: 'background.paper',
+                                color: 'text.secondary',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                fontSize: '0.55rem',
                                 fontWeight: 700,
                             },
                         }}
@@ -792,16 +785,20 @@ const HardwareSettingsPopover = () => {
                     }}
                 >
                     <Badge
-                        badgeContent={fleetHardwareSummary.rig.issueCount > 0 ? fleetHardwareSummary.rig.issueCount : null}
-                        color={getFleetBadgeColor(fleetHardwareSummary.rig)}
+                        badgeContent={fleetHardwareSummary.rig.connectedCount}
+                        invisible={!connected || !hasConfiguredTargets || fleetHardwareSummary.rig.connectedCount === 0}
                         max={99}
                         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
                         sx={{
                             '& .MuiBadge-badge': {
                                 minWidth: 14,
                                 height: 14,
-                                px: 0.45,
-                                fontSize: '0.58rem',
+                                px: 0.4,
+                                bgcolor: 'background.paper',
+                                color: 'text.secondary',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                fontSize: '0.55rem',
                                 fontWeight: 700,
                             },
                         }}

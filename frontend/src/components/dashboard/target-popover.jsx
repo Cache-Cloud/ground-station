@@ -20,6 +20,7 @@
 
 import * as React from "react";
 import {
+    Badge,
     Box,
     Button,
     IconButton,
@@ -33,6 +34,7 @@ import { shallowEqual, useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import Tooltip from "@mui/material/Tooltip";
 import { useTranslation } from 'react-i18next';
+import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import InfoIcon from '@mui/icons-material/Info';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -136,18 +138,21 @@ const SatelliteInfoPopover = () => {
             minElevation: rotatorData?.minel ?? 0,
         };
     }, shallowEqual);
-    const hasAnyVisibleTarget = useMemo(() => {
+    const visibleTargetCount = useMemo(() => {
         const instances = Array.isArray(trackerInstances) ? trackerInstances : [];
-        const visibleInFleet = instances.some((instance) => {
+        const visibleInFleet = instances.reduce((count, instance) => {
             const instanceTrackerId = String(instance?.tracker_id || '').trim();
-            if (!instanceTrackerId) return false;
+            if (!instanceTrackerId) return count;
             const view = trackerViews?.[instanceTrackerId] || {};
             const elevation = view?.satelliteData?.position?.el;
-            return Number.isFinite(Number(elevation)) && Number(elevation) > 0;
-        });
-        if (visibleInFleet) return true;
-        return Number.isFinite(Number(targetSummary.elevation)) && Number(targetSummary.elevation) > 0;
+            return Number.isFinite(Number(elevation)) && Number(elevation) > 0
+                ? count + 1
+                : count;
+        }, 0);
+        if (visibleInFleet > 0) return visibleInFleet;
+        return Number.isFinite(Number(targetSummary.elevation)) && Number(targetSummary.elevation) > 0 ? 1 : 0;
     }, [trackerInstances, trackerViews, targetSummary.elevation]);
+    const hasAnyVisibleTarget = visibleTargetCount > 0;
 
     const openTargetData = useSelector((state) => {
         if (!open) {
@@ -826,7 +831,7 @@ const SatelliteInfoPopover = () => {
 
     return (
         <>
-            <Box sx={{ position: 'relative', display: 'inline-block' }}>
+            <Box sx={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
                 <Tooltip title={getTooltipText()}>
                     <IconButton
                         ref={buttonRef}
@@ -834,16 +839,34 @@ const SatelliteInfoPopover = () => {
                         size="small"
                         sx={{
                             width: 40,
+                            height: '100%',
                             color: getSatelliteIconColor(),
                             '&:hover': {
                                 backgroundColor: 'overlay.light'
-                            },
-                            '& svg': {
-                                height: '75%',
                             }
                         }}
                     >
-                        <SatelliteAltIcon />
+                        <Badge
+                            badgeContent={visibleTargetCount}
+                            invisible={!hasOnlineTargetSlots || visibleTargetCount === 0}
+                            max={99}
+                            anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                            sx={{
+                                '& .MuiBadge-badge': {
+                                    minWidth: 14,
+                                    height: 14,
+                                    px: 0.4,
+                                    bgcolor: 'background.paper',
+                                    color: 'text.secondary',
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    fontSize: '0.55rem',
+                                    fontWeight: 700,
+                                },
+                            }}
+                        >
+                            <GpsFixedIcon />
+                        </Badge>
                     </IconButton>
                 </Tooltip>
 
