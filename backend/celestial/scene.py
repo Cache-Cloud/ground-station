@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import math
 import threading
 import time
@@ -52,6 +53,7 @@ def _config_int(name: str, default: int, minimum: int) -> int:
 CACHE_TTL_SECONDS = 120
 VECTOR_DB_TTL_SECONDS = 2 * 60 * 60
 VECTOR_EPOCH_BUCKET_MINUTES = 60
+VECTOR_FETCH_PADDING_HOURS = 1
 COMPUTED_EPOCH_BUCKET_SECONDS = 60
 SCHEDULED_SYNC_PAST_HOURS = _config_int("celestial_sync_past_hours", 1, 1)
 SCHEDULED_SYNC_FUTURE_HOURS = 24
@@ -68,6 +70,11 @@ OBSERVER_SKY_TARGET_STEP_MINUTES = 5
 MAX_OBSERVER_SKY_SAMPLES_PER_TARGET = 1500
 DEFAULT_FRAME = "heliocentric-ecliptic"
 DEFAULT_CENTER = "sun"
+
+# Identical scene requests can arrive together from several browsers. Keep the
+# provider work shared while allowing every caller to apply its own cache/store
+# handling to an independent payload copy.
+_VECTOR_FETCH_TASKS: Dict[Tuple[Any, ...], asyncio.Task] = {}
 BODY_HORIZONS_COMMANDS: Dict[str, str] = {
     # Major planets.
     "mercury": "199",
@@ -1927,6 +1934,59 @@ async def _store_vectors_in_db(
         )
 
 
+async def _fetch_vectors_singleflight(
+    *,
+    command: str,
+    target_key: str,
+    epoch: datetime,
+    epoch_bucket_utc: datetime,
+    past_hours: int,
+    future_hours: int,
+    step_minutes: int,
+    retry_horizons: bool,
+) -> Dict[str, Any]:
+    """Share an identical in-flight Horizons request across scene callers."""
+    key = (
+        target_key,
+        epoch_bucket_utc.isoformat(),
+        int(past_hours),
+        int(future_hours),
+        int(step_minutes),
+        bool(retry_horizons),
+    )
+    running_loop = asyncio.get_running_loop()
+    task = _VECTOR_FETCH_TASKS.get(key)
+    if task is not None and task.get_loop() is not running_loop:
+        # Test runners and application reloads may replace the event loop.
+        # Never retain a task owned by a closed or unrelated loop.
+        _VECTOR_FETCH_TASKS.pop(key, None)
+        task = None
+
+    if task is None:
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                fetch_celestial_vectors,
+                command,
+                epoch,
+                past_hours,
+                future_hours,
+                step_minutes,
+                force_probe=retry_horizons,
+            )
+        )
+        _VECTOR_FETCH_TASKS[key] = task
+
+        def _discard_finished_task(finished_task: asyncio.Task) -> None:
+            if _VECTOR_FETCH_TASKS.get(key) is finished_task:
+                _VECTOR_FETCH_TASKS.pop(key, None)
+
+        task.add_done_callback(_discard_finished_task)
+
+    # A caller cancellation must not cancel provider work awaited by another
+    # browser. Each caller gets a deep copy because trajectory trimming mutates it.
+    return copy.deepcopy(await asyncio.shield(task))
+
+
 async def _get_vectors_snapshot(
     command: str,
     epoch: datetime,
@@ -2149,15 +2209,18 @@ async def _get_vectors_snapshot(
             "error": f"No cached vectors available for target '{normalized_target_key}'",
         }
 
+    padded_past_hours = int(past_hours) + VECTOR_FETCH_PADDING_HOURS
+    padded_future_hours = int(future_hours) + VECTOR_FETCH_PADDING_HOURS
     try:
-        fetched = await asyncio.to_thread(
-            fetch_celestial_vectors,
-            command,
-            epoch,
-            past_hours,
-            future_hours,
-            step_minutes,
-            force_probe=retry_horizons,
+        fetched = await _fetch_vectors_singleflight(
+            command=command,
+            target_key=normalized_target_key,
+            epoch=epoch,
+            epoch_bucket_utc=epoch_bucket_utc,
+            past_hours=padded_past_hours,
+            future_hours=padded_future_hours,
+            step_minutes=step_minutes,
+            retry_horizons=retry_horizons,
         )
     except Exception as exc:
         error_code = exc.reason if isinstance(exc, HorizonsUnavailableError) else "target_error"
@@ -2220,7 +2283,25 @@ async def _get_vectors_snapshot(
         error=None,
         ttl_seconds=VECTOR_DB_TTL_SECONDS,
     )
-    return {"payload": fetched, "cache": "db-miss", "stale": False, "error": None}
+    response_payload = copy.deepcopy(fetched)
+    _trim_payload_to_projection_window(
+        payload=response_payload,
+        epoch=epoch,
+        past_hours=past_hours,
+        future_hours=future_hours,
+    )
+    _refresh_payload_dynamics_at_epoch(
+        payload=response_payload,
+        epoch=epoch,
+        past_hours=past_hours,
+        future_hours=future_hours,
+    )
+    return {
+        "payload": response_payload,
+        "cache": "db-miss",
+        "stale": False,
+        "error": None,
+    }
 
 
 async def _fetch_celestial_with_cache(

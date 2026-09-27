@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -204,7 +205,9 @@ async def test_monitored_refresh_waits_for_an_active_refresh(monkeypatch):
 def _reset_horizons_availability():
     horizons.reset_horizons_circuit()
     syncstate.reset_celestial_sync_state()
+    scene._VECTOR_FETCH_TASKS.clear()
     yield
+    scene._VECTOR_FETCH_TASKS.clear()
     horizons.reset_horizons_circuit()
     syncstate.reset_celestial_sync_state()
 
@@ -263,13 +266,19 @@ async def test_get_vectors_snapshot_refetches_shifted_exact_projection(monkeypat
     fetched_payload = {
         "command": "301",
         "position_xyz_au": [2.0, 0.0, 0.0],
-        "orbit_samples_xyz_au": [[1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        "orbit_samples_xyz_au": [
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+        ],
         "orbit_sample_times_utc": [
-            (epoch - timedelta(hours=1)).isoformat(),
-            (epoch + timedelta(hours=1)).isoformat(),
+            (epoch - timedelta(hours=2)).isoformat(),
+            epoch.isoformat(),
+            (epoch + timedelta(hours=2)).isoformat(),
         ],
     }
-    calls = {"fetch": 0, "store": 0}
+    fetch_calls = []
+    stored = []
 
     async def _old_projection(*_args, **_kwargs):
         return {"payload": old_payload}
@@ -277,12 +286,21 @@ async def test_get_vectors_snapshot_refetches_shifted_exact_projection(monkeypat
     async def _no_compatible_projection(*_args, **_kwargs):
         return None
 
-    def _fetch(*_args, **_kwargs):
-        calls["fetch"] += 1
+    def _fetch(command, fetch_epoch, past_hours, future_hours, step_minutes, **kwargs):
+        fetch_calls.append(
+            (
+                command,
+                fetch_epoch,
+                past_hours,
+                future_hours,
+                step_minutes,
+                kwargs.get("force_probe"),
+            )
+        )
         return fetched_payload
 
-    async def _store(*_args, **_kwargs):
-        calls["store"] += 1
+    async def _store(**kwargs):
+        stored.append(kwargs)
 
     monkeypatch.setattr(scene, "_load_vectors_from_db", _old_projection)
     monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _old_projection)
@@ -307,9 +325,119 @@ async def test_get_vectors_snapshot_refetches_shifted_exact_projection(monkeypat
         allow_network_fetch=True,
     )
 
-    assert calls == {"fetch": 1, "store": 1}
+    assert fetch_calls == [("301", epoch, 2, 2, 60, False)]
+    assert len(stored) == 1
+    assert stored[0]["past_hours"] == 1
+    assert stored[0]["future_hours"] == 1
+    assert stored[0]["payload"]["orbit_sample_times_utc"] == [
+        (epoch - timedelta(hours=2)).isoformat(),
+        epoch.isoformat(),
+        (epoch + timedelta(hours=2)).isoformat(),
+    ]
     assert result["cache"] == "db-miss"
-    assert result["payload"] == fetched_payload
+    assert result["payload"]["orbit_sample_times_utc"] == [
+        (epoch - timedelta(hours=1)).isoformat(),
+        epoch.isoformat(),
+        (epoch + timedelta(hours=1)).isoformat(),
+    ]
+    assert result["payload"]["orbit_samples_xyz_au"] == [
+        [1.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0],
+        [3.0, 0.0, 0.0],
+    ]
+
+    async def _padded_projection(*_args, **_kwargs):
+        return {"payload": stored[0]["payload"]}
+
+    def _unexpected_fetch(*_args, **_kwargs):
+        raise AssertionError("The padded snapshot should cover the shifted window")
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _padded_projection)
+    monkeypatch.setattr(scene, "fetch_celestial_vectors", _unexpected_fetch)
+    shifted_epoch = epoch + timedelta(minutes=5)
+    shifted_result = await scene._get_vectors_snapshot(
+        command="301",
+        target_key="body:moon",
+        epoch=shifted_epoch,
+        past_hours=1,
+        future_hours=1,
+        step_minutes=60,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        force_refresh=False,
+        logger=_DummyLogger(),
+        allow_network_fetch=True,
+    )
+
+    assert shifted_result["cache"] == "db-hit"
+    assert (
+        shifted_result["payload"]["orbit_sample_times_utc"][0]
+        == (shifted_epoch - timedelta(hours=1)).isoformat()
+    )
+    assert (
+        shifted_result["payload"]["orbit_sample_times_utc"][-1]
+        == (shifted_epoch + timedelta(hours=1)).isoformat()
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_vectors_snapshot_coalesces_identical_network_misses(monkeypatch):
+    epoch = datetime(2026, 1, 1, 13, 0, tzinfo=timezone.utc)
+    fetch_started = threading.Event()
+    release_fetch = threading.Event()
+    fetch_calls = 0
+    store_calls = 0
+    fetched_payload = {
+        "command": "501",
+        "position_xyz_au": [2.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+        ],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=2)).isoformat(),
+            epoch.isoformat(),
+            (epoch + timedelta(hours=2)).isoformat(),
+        ],
+    }
+
+    def _fetch(*_args, **_kwargs):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        fetch_started.set()
+        assert release_fetch.wait(timeout=2)
+        return fetched_payload
+
+    async def _store(**_kwargs):
+        nonlocal store_calls
+        store_calls += 1
+
+    monkeypatch.setattr(scene, "fetch_celestial_vectors", _fetch)
+    monkeypatch.setattr(scene, "_store_vectors_in_db", _store)
+
+    request = {
+        "command": "501",
+        "target_key": "body:io",
+        "epoch": epoch,
+        "past_hours": 1,
+        "future_hours": 1,
+        "step_minutes": 60,
+        "observer_location": {"lat": 40.0, "lon": 22.0},
+        "force_refresh": True,
+        "logger": _DummyLogger(),
+        "allow_network_fetch": True,
+    }
+    first = asyncio.create_task(scene._get_vectors_snapshot(**request))
+    assert await asyncio.to_thread(fetch_started.wait, 2)
+    second = asyncio.create_task(scene._get_vectors_snapshot(**request))
+    await asyncio.sleep(0)
+    release_fetch.set()
+
+    first_result, second_result = await asyncio.gather(first, second)
+
+    assert fetch_calls == 1
+    assert store_calls == 2
+    assert first_result["payload"] == second_result["payload"]
 
 
 @pytest.mark.asyncio
@@ -650,7 +778,12 @@ async def test_get_vectors_snapshot_fetches_when_fresh_projection_is_too_short(m
     )
 
     assert calls["fetch"] == 1
-    assert result["payload"] == fetched_payload
+    assert result["cache"] == "db-miss"
+    assert result["payload"]["orbit_sample_times_utc"] == [
+        (epoch - timedelta(hours=1)).isoformat(),
+        (epoch + timedelta(hours=24)).isoformat(),
+    ]
+    assert result["payload"] != short_payload
 
 
 @pytest.mark.asyncio

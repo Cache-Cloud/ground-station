@@ -302,6 +302,7 @@ const CelestialMainLayout = () => {
     const [centerSunSignal, setCenterSunSignal] = useState(0);
     const [openSolarSystemLayoutOptionsDialog, setOpenSolarSystemLayoutOptionsDialog] = useState(false);
     const [solarSystemFullscreen, setSolarSystemFullscreen] = useState(false);
+    const [showRefreshOverlay, setShowRefreshOverlay] = useState(false);
     const [solarCanvasStatusInfo, setSolarCanvasStatusInfo] = useState({
         gestureHintText: '',
         scaleLabel: '',
@@ -309,6 +310,8 @@ const CelestialMainLayout = () => {
     const solarSystemViewportRef = React.useRef(null);
     const previousRenderableSolarBodiesCountRef = React.useRef(0);
     const autoFocusedTargetKeyRef = React.useRef('');
+    const mapSettingsRef = React.useRef(celestialState.mapSettings);
+    mapSettingsRef.current = celestialState.mapSettings;
 
     const projectionSettings = React.useMemo(() => {
         const mapSettings = celestialState.mapSettings || {};
@@ -351,23 +354,47 @@ const CelestialMainLayout = () => {
 
     useEffect(() => {
         if (!socket) return;
-        dispatch(getCelestialMapSettings({ socket }));
-        dispatch(fetchMonitoredCelestial({ socket }));
-    }, [socket, dispatch]);
+        let cancelled = false;
 
-    useEffect(() => {
-        if (!socket) return;
-        dispatch(fetchSolarSystemScene({
-            socket,
-            payload: {
-                ...sceneRequestPayload,
-                // Initial page load must fill missing Horizons-backed system bodies
-                // for the selected projection; cache-only loads can leave planets
-                // present only as non-renderable metadata rows.
-                allow_network_fetch: true,
-            },
-        }));
-    }, [socket, dispatch, sceneRequestPayload]);
+        dispatch(fetchMonitoredCelestial({ socket }));
+        const loadInitialScene = async () => {
+            // Wait for persisted projection settings before requesting the scene.
+            // Otherwise a new browser first fills the defaults, then immediately
+            // starts another Horizons batch for the user's saved window.
+            const settingsResult = await dispatch(getCelestialMapSettings({ socket }));
+            if (cancelled) return;
+
+            const mapSettings = getCelestialMapSettings.fulfilled.match(settingsResult)
+                ? settingsResult.payload || mapSettingsRef.current || {}
+                : mapSettingsRef.current || {};
+            await dispatch(fetchSolarSystemScene({
+                socket,
+                payload: {
+                    past_hours: parsePastProjectionHours(
+                        mapSettings.pastHours,
+                        DEFAULT_PAST_HOURS,
+                    ),
+                    future_hours: parseFutureProjectionHours(
+                        mapSettings.futureHours,
+                        DEFAULT_FUTURE_HOURS,
+                    ),
+                    step_minutes: parsePositiveNumber(
+                        mapSettings.stepMinutes,
+                        DEFAULT_STEP_MINUTES,
+                    ),
+                    // Initial page load must fill missing Horizons-backed system bodies
+                    // for the selected projection; cache-only loads can leave planets
+                    // present only as non-renderable metadata rows.
+                    allow_network_fetch: true,
+                },
+            }));
+        };
+
+        loadInitialScene();
+        return () => {
+            cancelled = true;
+        };
+    }, [socket, dispatch]);
 
     useEffect(() => {
         // Keep toggle icon state in sync when fullscreen changes via ESC/browser controls.
@@ -582,6 +609,18 @@ const CelestialMainLayout = () => {
     const solarSystemLoading = solarLoading || tracksLoading;
     const isSolarRefreshing = solarSystemLoading && viewMode === VIEW_MODE_SOLAR_SYSTEM && hasSolarScene;
     const isPlanetariumRefreshing = tracksLoading && viewMode === VIEW_MODE_PLANETARIUM && trackedCount > 0;
+    const refreshOverlayRequested = isSolarRefreshing || isPlanetariumRefreshing;
+    React.useEffect(() => {
+        if (!refreshOverlayRequested) {
+            setShowRefreshOverlay(false);
+            return undefined;
+        }
+
+        // Cached scene assembly often finishes within a single paint. Delay the
+        // in-canvas indicator so those quick refreshes do not flash a spinner.
+        const timer = window.setTimeout(() => setShowRefreshOverlay(true), 300);
+        return () => window.clearTimeout(timer);
+    }, [refreshOverlayRequested]);
     const selectedInfoTargetKey = React.useMemo(() => {
         const focusedKey = String(focusTargetKey || '').trim();
         if (focusedKey) {
@@ -883,7 +922,7 @@ const CelestialMainLayout = () => {
                                 />
                             )}
 
-                            {isSolarRefreshing || isPlanetariumRefreshing ? (
+                            {showRefreshOverlay ? (
                                 <Box
                                     sx={{
                                         position: 'absolute',
