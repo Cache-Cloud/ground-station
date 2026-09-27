@@ -32,7 +32,9 @@ const PLANET_COLORS = {
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 60000;
+const MAX_ZOOM = 2000000;
+const TARGET_PATH_FIT_PADDING = 0.72;
+const TARGET_PATH_MIN_SPAN_AU = 1e-12;
 const WHEEL_COMMIT_DELAY_MS = 180;
 const FOCUS_ANIMATION_DURATION_MS = 420;
 const DEFAULT_VIEWPORT = { zoom: 18, panX: 0, panY: 0 };
@@ -93,6 +95,49 @@ const normalizeViewport = (viewport) => ({
     panX: Number(viewport?.panX ?? DEFAULT_VIEWPORT.panX) || 0,
     panY: Number(viewport?.panY ?? DEFAULT_VIEWPORT.panY) || 0,
 });
+
+export const calculateTargetPathViewport = ({ points, width, height }) => {
+    if (!Array.isArray(points) || !points.length || width <= 0 || height <= 0) return null;
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    points.forEach((point) => {
+        if (!hasFiniteXY(point)) return;
+        const x = Number(point[0]);
+        const y = Number(point[1]);
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+    });
+    if (![minX, maxX, minY, maxY].every(Number.isFinite)) return null;
+
+    const spanX = maxX - minX;
+    const spanY = maxY - minY;
+    const zoomCandidates = [];
+    // A nearly horizontal or vertical path should be fitted by its meaningful
+    // axis; an artificial minimum on the other axis makes short paths invisible.
+    if (spanX > TARGET_PATH_MIN_SPAN_AU) {
+        zoomCandidates.push((width * TARGET_PATH_FIT_PADDING) / spanX);
+    }
+    if (spanY > TARGET_PATH_MIN_SPAN_AU) {
+        zoomCandidates.push((height * TARGET_PATH_FIT_PADDING) / spanY);
+    }
+
+    const requestedZoom = zoomCandidates.length
+        ? Math.min(...zoomCandidates)
+        : MAX_ZOOM;
+    const zoom = clamp(requestedZoom, MIN_ZOOM, MAX_ZOOM);
+    const worldCenterX = (minX + maxX) / 2;
+    const worldCenterY = (minY + maxY) / 2;
+    return {
+        zoom,
+        panX: -worldCenterX * zoom,
+        panY: worldCenterY * zoom,
+    };
+};
 const formatAu = (value) => {
     if (value >= 1) return `${value.toFixed(value >= 10 ? 0 : 1)} AU`;
     return `${value.toFixed(2)} AU`;
@@ -880,33 +925,12 @@ const SolarSystemCanvas = ({
         });
         if (!points.length) return;
 
-        let minX = Infinity;
-        let maxX = -Infinity;
-        let minY = Infinity;
-        let maxY = -Infinity;
-        points.forEach((point) => {
-            const x = Number(point[0] || 0);
-            const y = Number(point[1] || 0);
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
+        const nextViewport = calculateTargetPathViewport({
+            points,
+            width: rect.width,
+            height: rect.height,
         });
-
-        const spanX = Math.max(0.02, maxX - minX);
-        const spanY = Math.max(0.02, maxY - minY);
-        const padding = 0.78;
-        const zoomX = (rect.width * padding) / spanX;
-        const zoomY = (rect.height * padding) / spanY;
-        const nextZoom = clamp(Math.min(zoomX, zoomY), MIN_ZOOM, MAX_ZOOM);
-
-        const worldCenterX = (minX + maxX) / 2;
-        const worldCenterY = (minY + maxY) / 2;
-        const nextViewport = {
-            zoom: nextZoom,
-            panX: -worldCenterX * nextZoom,
-            panY: worldCenterY * nextZoom,
-        };
+        if (!nextViewport) return;
         if (instantFocus) {
             cancelViewportAnimation();
             viewportRef.current = nextViewport;
