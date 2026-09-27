@@ -9,6 +9,46 @@ const normalizeHexColor = (value) => {
   return /^#[0-9A-Fa-f]{6}$/.test(text) ? text.toUpperCase() : '';
 };
 
+export const calculateVisibleCurveMidpoint = (segments = []) => {
+  const usableSegments = (Array.isArray(segments) ? segments : [])
+    .filter((segment) => Array.isArray(segment) && segment.length >= 2)
+    .map((segment) => segment.filter(
+      (point) => Array.isArray(point)
+        && Number.isFinite(Number(point[0]))
+        && Number.isFinite(Number(point[1])),
+    ))
+    .filter((segment) => segment.length >= 2);
+  if (!usableSegments.length) return null;
+
+  const segment = usableSegments.reduce((widest, candidate) => {
+    const candidateSpan = Math.abs(Number(candidate[candidate.length - 1][0]) - Number(candidate[0][0]));
+    const widestSpan = Math.abs(Number(widest[widest.length - 1][0]) - Number(widest[0][0]));
+    return candidateSpan > widestSpan ? candidate : widest;
+  });
+  const startX = Number(segment[0][0]);
+  const endX = Number(segment[segment.length - 1][0]);
+  const midpointX = (startX + endX) / 2;
+
+  for (let index = 1; index < segment.length; index += 1) {
+    const previous = segment[index - 1];
+    const next = segment[index];
+    const previousX = Number(previous[0]);
+    const nextX = Number(next[0]);
+    if (midpointX < Math.min(previousX, nextX) || midpointX > Math.max(previousX, nextX)) continue;
+    const span = nextX - previousX;
+    const fraction = Math.abs(span) < 1e-9 ? 0 : (midpointX - previousX) / span;
+    return {
+      x: midpointX,
+      y: Number(previous[1]) + ((Number(next[1]) - Number(previous[1])) * fraction),
+    };
+  }
+
+  return {
+    x: midpointX,
+    y: Number(segment[Math.floor(segment.length / 2)][1]),
+  };
+};
+
 /**
  * PassCurve component - Renders a single satellite pass as an SVG path
  */
@@ -101,7 +141,7 @@ export const PassCurve = ({
         const clampedPointTime = Math.max(chartStartMs, Math.min(pointTime, chartEndMs));
         const x = ((clampedPointTime - chartStartMs) / totalDuration) * 100;
         const y = elevationToYPercent(point.elevation);
-        return `${x},${y}`;
+        return [x, y];
       });
       if (segmentPath.length >= 2) computedPathDataSegments.push(segmentPath);
     });
@@ -160,6 +200,10 @@ export const PassCurve = ({
     return null;
   }
 
+  const selectedVisibleCurveMidpoint = shouldForceSelectedLabel
+    ? calculateVisibleCurveMidpoint(computedPathDataSegments)
+    : null;
+
   // Find the peak point (highest elevation) for the label
   let peakPoint = null;
   let peakElevation = pass.peak_altitude || -Infinity;
@@ -204,6 +248,11 @@ export const PassCurve = ({
     const passMidpoint = (passStartTime + passEndTime) / 2;
     peakX = ((passMidpoint - chartStartMs) / totalDuration) * 100;
     peakY = elevationToYPercent(pass.peak_altitude || 0);
+  }
+
+  if (selectedVisibleCurveMidpoint) {
+    peakX = selectedVisibleCurveMidpoint.x;
+    peakY = selectedVisibleCurveMidpoint.y;
   }
 
   return (
@@ -262,13 +311,13 @@ export const PassCurve = ({
         {computedPathDataSegments.map((pathData, segmentIndex) => {
           // Create SVG path from points
           const pathString = pathData.map((point, i) => {
-            const [x, y] = point.split(',');
+            const [x, y] = point;
             return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
           }).join(' ');
 
           // Get first and last X coordinates for closing the fill path
-          const firstX = pathData[0].split(',')[0];
-          const lastX = pathData[pathData.length - 1].split(',')[0];
+          const firstX = pathData[0][0];
+          const lastX = pathData[pathData.length - 1][0];
           const bottomY = 100; // 0° elevation at bottom
 
           // Create closed path for fill area
@@ -382,7 +431,7 @@ export const PassCurve = ({
           fontSize = '0.6rem'; // Smaller font for low elevation passes (30-45°)
         }
         const effectiveLabelVerticalOffset = shouldForceSelectedLabel
-          ? Math.min(labelVerticalOffset, 112)
+          ? Math.min(labelVerticalOffset, 130)
           : labelVerticalOffset;
 
         return (

@@ -4,6 +4,7 @@ import {
   calculateTargetPathViewport,
   collectLiveTrackedTargetKeys,
   shouldSuppressStaticSolarBody,
+  splitOrbitSamplesAtTime,
 } from '../solarsystem-canvas.jsx';
 
 describe('solar system path endpoint markers', () => {
@@ -13,6 +14,33 @@ describe('solar system path endpoint markers', () => {
       fromY: 16,
       toX: 10,
       toY: 24,
+    });
+  });
+});
+
+describe('solar system live path split', () => {
+  const samples = [
+    [0, 0, 0],
+    [10, 10, 0],
+    [20, 0, 0],
+  ];
+  const times = [
+    '2026-01-01T00:00:00Z',
+    '2026-01-01T00:10:00Z',
+    '2026-01-01T00:20:00Z',
+  ];
+
+  it('interpolates the solid-to-dotted boundary at the live timestamp', () => {
+    expect(splitOrbitSamplesAtTime(samples, times, '2026-01-01T00:15:00Z')).toEqual({
+      pastSamples: [samples[0], samples[1], [15, 5, 0]],
+      futureSamples: [[15, 5, 0], samples[2]],
+    });
+  });
+
+  it('shares an exact sample between the past and future segments', () => {
+    expect(splitOrbitSamplesAtTime(samples, times, '2026-01-01T00:10:00Z')).toEqual({
+      pastSamples: [samples[0], samples[1]],
+      futureSamples: [samples[1], samples[2]],
     });
   });
 });

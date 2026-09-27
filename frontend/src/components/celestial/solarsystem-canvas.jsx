@@ -338,6 +338,63 @@ const resolvePastSegmentEndIndex = (samples, sampleTimesUtc, sceneTimestampUtc) 
     return lastPastIndex >= 1 ? lastPastIndex : -1;
 };
 
+export const splitOrbitSamplesAtTime = (samples, sampleTimesUtc, sceneTimestampUtc) => {
+    const normalizedSamples = Array.isArray(samples) ? samples : [];
+    const normalizedTimes = Array.isArray(sampleTimesUtc) ? sampleTimesUtc : [];
+    const sampleCount = Math.min(normalizedSamples.length, normalizedTimes.length);
+    const epochMs = Date.parse(String(sceneTimestampUtc || ''));
+    if (sampleCount < 2 || !Number.isFinite(epochMs)) {
+        return { pastSamples: [], futureSamples: normalizedSamples };
+    }
+
+    const sampleTimesMs = normalizedTimes
+        .slice(0, sampleCount)
+        .map((time) => Date.parse(String(time || '')));
+    if (sampleTimesMs.some((timeMs) => !Number.isFinite(timeMs))) {
+        return { pastSamples: [], futureSamples: normalizedSamples };
+    }
+
+    if (epochMs < sampleTimesMs[0]) {
+        return { pastSamples: [], futureSamples: normalizedSamples.slice(0, sampleCount) };
+    }
+    if (epochMs >= sampleTimesMs[sampleCount - 1]) {
+        return { pastSamples: normalizedSamples.slice(0, sampleCount), futureSamples: [] };
+    }
+
+    let pastEndIndex = 0;
+    for (let index = 1; index < sampleCount; index += 1) {
+        if (sampleTimesMs[index] <= epochMs) pastEndIndex = index;
+        else break;
+    }
+
+    const pastSamples = normalizedSamples.slice(0, pastEndIndex + 1);
+    const futureSamples = normalizedSamples.slice(pastEndIndex + 1, sampleCount);
+    const pastTimeMs = sampleTimesMs[pastEndIndex];
+    const futureTimeMs = sampleTimesMs[pastEndIndex + 1];
+    if (epochMs === pastTimeMs) {
+        futureSamples.unshift(normalizedSamples[pastEndIndex]);
+        return { pastSamples, futureSamples };
+    }
+
+    const intervalMs = futureTimeMs - pastTimeMs;
+    if (intervalMs <= 0) {
+        return { pastSamples, futureSamples };
+    }
+    const fraction = (epochMs - pastTimeMs) / intervalMs;
+    const pastPoint = normalizedSamples[pastEndIndex];
+    const futurePoint = normalizedSamples[pastEndIndex + 1];
+    if (!hasFiniteXYZ(pastPoint) || !hasFiniteXYZ(futurePoint)) {
+        return { pastSamples, futureSamples };
+    }
+    const splitPoint = [0, 1, 2].map(
+        (axis) => Number(pastPoint[axis])
+            + ((Number(futurePoint[axis]) - Number(pastPoint[axis])) * fraction),
+    );
+    pastSamples.push(splitPoint);
+    futureSamples.unshift(splitPoint);
+    return { pastSamples, futureSamples };
+};
+
 const formatSignedTimeOffset = (deltaMs) => {
     if (!Number.isFinite(deltaMs)) return '';
 
@@ -1417,28 +1474,27 @@ const SolarSystemCanvas = ({
                     ? 'rgba(180,180,200,0.35)'
                     : 'rgba(90,90,120,0.3)';
                 ctx.strokeStyle = orbitStrokeColor;
-                const pastEndIndex = resolvePastSegmentEndIndex(
+                const { pastSamples, futureSamples } = splitOrbitSamplesAtTime(
                     samples,
                     sampleTimesUtc,
                     sceneTimestampUtc,
                 );
-                const lastSampleIndex = samples.length - 1;
-                const drawOrbitSegment = (startIndex, endIndex, lineDashPattern) => {
-                    if (endIndex - startIndex < 1) return;
+                const drawOrbitSegment = (segmentSamples, lineDashPattern) => {
+                    if (segmentSamples.length < 2) return;
                     ctx.beginPath();
-                    for (let sampleIndex = startIndex; sampleIndex <= endIndex; sampleIndex += 1) {
-                        const [sx, sy] = toScreen(samples[sampleIndex]);
-                        if (sampleIndex === startIndex) ctx.moveTo(sx, sy);
+                    segmentSamples.forEach((sample, sampleIndex) => {
+                        const [sx, sy] = toScreen(sample);
+                        if (sampleIndex === 0) ctx.moveTo(sx, sy);
                         else ctx.lineTo(sx, sy);
-                    }
+                    });
                     // Keep paths open so we do not draw a synthetic end-to-start chord.
                     ctx.setLineDash(lineDashPattern);
                     ctx.stroke();
                 };
-                if (pastEndIndex >= 1) {
-                    drawOrbitSegment(0, pastEndIndex, []);
-                    const [startX, startY] = toScreen(samples[0]);
-                    const [nextX, nextY] = toScreen(samples[1]);
+                if (pastSamples.length >= 2) {
+                    drawOrbitSegment(pastSamples, []);
+                    const [startX, startY] = toScreen(pastSamples[0]);
+                    const [nextX, nextY] = toScreen(pastSamples[1]);
                     drawPathStartCap(
                         ctx,
                         startX,
@@ -1448,14 +1504,13 @@ const SolarSystemCanvas = ({
                         orbitStrokeColor,
                     );
                 }
-                const futureSegmentStartIndex = pastEndIndex >= 1 ? pastEndIndex : 0;
-                drawOrbitSegment(futureSegmentStartIndex, lastSampleIndex, [3, 4]);
+                drawOrbitSegment(futureSamples, [3, 4]);
                 ctx.setLineDash([]);
 
                 // Show forward direction for body trajectories.
-                if (samples.length >= 2) {
-                    const [endPrevX, endPrevY] = toScreen(samples[samples.length - 2]);
-                    const [endX, endY] = toScreen(samples[samples.length - 1]);
+                if (futureSamples.length >= 2) {
+                    const [endPrevX, endPrevY] = toScreen(futureSamples[futureSamples.length - 2]);
+                    const [endX, endY] = toScreen(futureSamples[futureSamples.length - 1]);
                     drawArrowHead(ctx, endPrevX, endPrevY, endX, endY, orbitStrokeColor);
                 }
 
@@ -1529,24 +1584,27 @@ const SolarSystemCanvas = ({
             ctx.strokeStyle = trackedStrokeColor;
             ctx.lineWidth = isSelected ? 2.2 : 1;
             const sampleTimesUtc = body.orbit_sample_times_utc || [];
-            const pastSegmentEndIndex = resolvePastSegmentEndIndex(samples, sampleTimesUtc, sceneTimestampUtc);
-            const lastSampleIndex = samples.length - 1;
-            const drawOrbitSegment = (startIndex, endIndex, lineDashPattern) => {
-                if (endIndex - startIndex < 1) return;
+            const { pastSamples, futureSamples } = splitOrbitSamplesAtTime(
+                samples,
+                sampleTimesUtc,
+                sceneTimestampUtc,
+            );
+            const drawOrbitSegment = (segmentSamples, lineDashPattern) => {
+                if (segmentSamples.length < 2) return;
                 ctx.beginPath();
-                for (let sampleIndex = startIndex; sampleIndex <= endIndex; sampleIndex += 1) {
-                    const [sx, sy] = toScreen(samples[sampleIndex]);
-                    if (sampleIndex === startIndex) ctx.moveTo(sx, sy);
+                segmentSamples.forEach((sample, sampleIndex) => {
+                    const [sx, sy] = toScreen(sample);
+                    if (sampleIndex === 0) ctx.moveTo(sx, sy);
                     else ctx.lineTo(sx, sy);
-                }
+                });
                 ctx.setLineDash(lineDashPattern);
                 ctx.stroke();
             };
             // Keep the timeline split clear in the UI: past samples are solid, future samples are dotted.
-            if (pastSegmentEndIndex >= 1) {
-                drawOrbitSegment(0, pastSegmentEndIndex, []);
-                const [startX, startY] = toScreen(samples[0]);
-                const [nextX, nextY] = toScreen(samples[1]);
+            if (pastSamples.length >= 2) {
+                drawOrbitSegment(pastSamples, []);
+                const [startX, startY] = toScreen(pastSamples[0]);
+                const [nextX, nextY] = toScreen(pastSamples[1]);
                 drawPathStartCap(
                     ctx,
                     startX,
@@ -1556,15 +1614,14 @@ const SolarSystemCanvas = ({
                     trackedStrokeColor,
                 );
             }
-            const futureSegmentStartIndex = pastSegmentEndIndex >= 1 ? pastSegmentEndIndex : 0;
-            drawOrbitSegment(futureSegmentStartIndex, lastSampleIndex, [3, 4]);
+            drawOrbitSegment(futureSamples, [3, 4]);
             ctx.setLineDash([]);
 
             // Direction arrow at the latest endpoint in forward time direction.
-            if (samples.length >= 2) {
-                const lastIndex = samples.length - 1;
-                const [endPrevX, endPrevY] = toScreen(samples[lastIndex - 1]);
-                const [endX, endY] = toScreen(samples[lastIndex]);
+            if (futureSamples.length >= 2) {
+                const lastIndex = futureSamples.length - 1;
+                const [endPrevX, endPrevY] = toScreen(futureSamples[lastIndex - 1]);
+                const [endX, endY] = toScreen(futureSamples[lastIndex]);
                 // Keep the arrowhead tip anchored on the exact path-end endpoint.
                 drawArrowHead(ctx, endPrevX, endPrevY, endX, endY, trackedStrokeColor);
             }
