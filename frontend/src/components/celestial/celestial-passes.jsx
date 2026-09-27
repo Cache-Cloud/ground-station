@@ -811,8 +811,8 @@ const CelestialPasses = ({
             headerName: tCelestial('passes.columns.end'),
             minWidth: 230,
             renderCell: (params) => (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                    <Typography component="span" variant="caption" sx={{ fontWeight: 700, color: 'text.primary' }}>
+                <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                    <Typography component="span" variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1.2, fontWeight: 700, color: 'text.primary' }}>
                         {formatRelativeTime(params.value, nowMs, tCelestial)}
                     </Typography>
                     {params.row?.estimatedEnd && (
@@ -837,7 +837,7 @@ const CelestialPasses = ({
                             </Box>
                         </Tooltip>
                     )}
-                    <Typography component="span" className="passes-time-absolute" variant="caption" sx={{ color: 'text.secondary', ml: 0.5 }}>
+                    <Typography component="span" className="passes-time-absolute" variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1.2, color: 'text.secondary', ml: 0.5 }}>
                         · {formatAbsoluteTime(params.value, timezone, locale)}
                     </Typography>
                 </Box>
