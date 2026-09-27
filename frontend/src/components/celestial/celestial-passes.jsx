@@ -816,12 +816,26 @@ const CelestialPasses = ({
                         {formatRelativeTime(params.value, nowMs, tCelestial)}
                     </Typography>
                     {params.row?.estimatedEnd && (
-                        <Chip
-                            size="small"
-                            variant="outlined"
-                            label={tCelestial('passes.projection_limit')}
-                            sx={{ height: 18, flexShrink: 0, '& .MuiChip-label': { px: 0.65, fontSize: '0.62rem' } }}
-                        />
+                        <Tooltip title={tCelestial('passes.projection_limit')}>
+                            <Box
+                                component="span"
+                                aria-label={tCelestial('passes.projection_limit')}
+                                sx={{
+                                    width: 17,
+                                    height: 17,
+                                    flexShrink: 0,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    border: 1,
+                                    borderColor: 'divider',
+                                    borderRadius: '50%',
+                                    color: 'text.secondary',
+                                }}
+                            >
+                                <AccessTimeFilledIcon sx={{ fontSize: 11 }} />
+                            </Box>
+                        </Tooltip>
                     )}
                     <Typography component="span" className="passes-time-absolute" variant="caption" sx={{ color: 'text.secondary', ml: 0.5 }}>
                         · {formatAbsoluteTime(params.value, timezone, locale)}

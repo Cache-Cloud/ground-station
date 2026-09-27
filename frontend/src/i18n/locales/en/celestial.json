@@ -307,7 +307,7 @@
     }
   },
   "passes": {
-    "title": "Celestial Passes",
+    "title": "Celestial Visibility",
     "count_label_single": "pass",
     "count_label_plural": "passes",
     "table_settings": "Table settings",
