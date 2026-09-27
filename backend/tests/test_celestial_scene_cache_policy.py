@@ -228,7 +228,12 @@ async def test_get_vectors_snapshot_uses_fresh_snapshot_with_different_projectio
         return None
 
     async def _fresh_compatible_snapshot(*_args, **_kwargs):
-        return {"payload": compatible_payload}
+        return {
+            "payload": compatible_payload,
+            "past_hours": 24,
+            "future_hours": 72,
+            "step_minutes": 60,
+        }
 
     monkeypatch.setattr(scene, "_load_vectors_from_db", _no_projection_match)
     monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_projection_match)
@@ -253,6 +258,114 @@ async def test_get_vectors_snapshot_uses_fresh_snapshot_with_different_projectio
 
     assert result["cache"] == "db-compatible-hit"
     assert result["stale"] is False
+    assert result["payload"]["position_xyz_au"] == [2.0, 0.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_get_vectors_snapshot_fetches_when_fresh_projection_is_too_short(monkeypatch):
+    epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    short_payload = {
+        "position_xyz_au": [2.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [[1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=1)).isoformat(),
+            (epoch + timedelta(hours=1)).isoformat(),
+        ],
+    }
+    fetched_payload = {
+        "position_xyz_au": [4.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [[4.0, 0.0, 0.0], [5.0, 0.0, 0.0]],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=1)).isoformat(),
+            (epoch + timedelta(hours=24)).isoformat(),
+        ],
+    }
+    calls = {"fetch": 0}
+
+    async def _no_projection_match(*_args, **_kwargs):
+        return None
+
+    async def _short_snapshot(*_args, **_kwargs):
+        return {
+            "payload": short_payload,
+            "past_hours": 1,
+            "future_hours": 1,
+            "step_minutes": 60,
+        }
+
+    def _fetch(*_args, **_kwargs):
+        calls["fetch"] += 1
+        return fetched_payload
+
+    async def _store(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(scene, "_load_latest_vectors_for_target_from_db", _short_snapshot)
+    monkeypatch.setattr(scene, "fetch_celestial_vectors", _fetch)
+    monkeypatch.setattr(scene, "_store_vectors_in_db", _store)
+
+    result = await scene._get_vectors_snapshot(
+        command="301",
+        target_key="body:moon",
+        epoch=epoch,
+        past_hours=1,
+        future_hours=24,
+        step_minutes=60,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        force_refresh=False,
+        logger=_DummyLogger(),
+        allow_network_fetch=True,
+    )
+
+    assert calls["fetch"] == 1
+    assert result["payload"] == fetched_payload
+
+
+@pytest.mark.asyncio
+async def test_cache_only_short_projection_is_current_position_only(monkeypatch):
+    epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    short_payload = {
+        "position_xyz_au": [0.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [[1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=1)).isoformat(),
+            (epoch + timedelta(hours=1)).isoformat(),
+        ],
+    }
+
+    async def _no_projection_match(*_args, **_kwargs):
+        return None
+
+    async def _short_snapshot(*_args, **_kwargs):
+        return {
+            "payload": short_payload,
+            "past_hours": 1,
+            "future_hours": 1,
+            "step_minutes": 60,
+        }
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(scene, "_load_latest_vectors_for_target_from_db", _short_snapshot)
+
+    result = await scene._get_vectors_snapshot(
+        command="301",
+        target_key="body:moon",
+        epoch=epoch,
+        past_hours=1,
+        future_hours=24,
+        step_minutes=60,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        force_refresh=False,
+        logger=_DummyLogger(),
+        allow_network_fetch=False,
+    )
+
+    assert result["cache"] == "db-compatible-current-only"
+    assert result["current_position_usable"] is True
+    assert result["calculation_usable"] is False
     assert result["payload"]["position_xyz_au"] == [2.0, 0.0, 0.0]
 
 

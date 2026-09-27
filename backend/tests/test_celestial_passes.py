@@ -4,6 +4,26 @@ from celestial import scene
 from celestial.scene import _build_pass_events_from_samples
 
 
+def test_position_interpolation_rejects_times_outside_sample_interval():
+    start = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
+    samples = [
+        (start, [1.0, 2.0, 3.0]),
+        (start + timedelta(hours=1), [2.0, 3.0, 4.0]),
+    ]
+
+    assert scene._interpolate_position_from_samples(samples, start - timedelta(seconds=1)) is None
+    assert (
+        scene._interpolate_position_from_samples(samples, start + timedelta(hours=1, seconds=1))
+        is None
+    )
+    assert scene._interpolate_position_from_samples(samples, start) == [1.0, 2.0, 3.0]
+    assert scene._interpolate_position_from_samples(samples, start + timedelta(hours=1)) == [
+        2.0,
+        3.0,
+        4.0,
+    ]
+
+
 def test_build_pass_events_extracts_crossing_window():
     start = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
     samples = [
@@ -215,3 +235,46 @@ def test_extract_row_observer_samples_does_not_call_local_earth_fallback(monkeyp
     )
 
     assert samples == []
+
+
+def test_extract_row_observer_samples_stops_when_earth_samples_end(monkeypatch):
+    """A current Earth position must not be reused beyond its trajectory samples."""
+    start = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
+    row = {
+        "target_type": "body",
+        "target_key": "body:moon",
+        "body_id": "moon",
+        "orbit_samples_xyz_au": [
+            [1.0, 0.001, 0.0],
+            [1.0, 0.002, 0.0],
+        ],
+        "orbit_sample_times_utc": [
+            start.isoformat(),
+            (start + timedelta(hours=1)).isoformat(),
+        ],
+    }
+    earth_orbit_samples = [
+        (start, [0.999, 0.0, 0.0]),
+        (start + timedelta(minutes=30), [0.999, 0.0005, 0.0]),
+    ]
+
+    monkeypatch.setattr(
+        scene,
+        "compute_observer_sky_position",
+        lambda **_kwargs: {"sky_position": {"az_deg": 180.0, "el_deg": 30.0}},
+    )
+
+    samples = scene._extract_row_observer_samples(
+        row=row,
+        epoch=start,
+        past_hours=0,
+        future_hours=1,
+        step_minutes=30,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        earth_position_xyz_au=[0.999, 0.0, 0.0],
+        earth_orbit_samples=earth_orbit_samples,
+        logger=type("_DummyLogger", (), {"debug": lambda *_args, **_kwargs: None})(),
+    )
+
+    assert len(samples) == 7
+    assert samples[-1]["time"] == start + timedelta(minutes=30)

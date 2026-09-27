@@ -565,9 +565,14 @@ def _interpolate_position_from_samples(
     ordered = sorted(samples, key=lambda item: item[0])
     first_time, first_pos = ordered[0]
     last_time, last_pos = ordered[-1]
-    if at_time <= first_time:
+    # A position can only be interpolated inside the sampled interval. Reusing
+    # an endpoint outside that interval freezes one body while the other keeps
+    # moving, which creates false observer-relative motion in sky paths.
+    if at_time < first_time or at_time > last_time:
+        return None
+    if at_time == first_time:
         return [float(first_pos[0]), float(first_pos[1]), float(first_pos[2])]
-    if at_time >= last_time:
+    if at_time == last_time:
         return [float(last_pos[0]), float(last_pos[1]), float(last_pos[2])]
 
     cursor = 0
@@ -732,6 +737,28 @@ def _payload_covers_current_epoch(payload: Dict[str, Any], *, epoch: datetime) -
     if len(valid_times) < 2:
         return False
     return valid_times[0] <= epoch <= valid_times[-1]
+
+
+def _snapshot_projection_is_compatible(
+    snapshot: Dict[str, Any],
+    *,
+    past_hours: int,
+    future_hours: int,
+    step_minutes: int,
+) -> bool:
+    """Return whether a differently keyed snapshot can satisfy this projection."""
+    try:
+        cached_past_hours = int(snapshot["past_hours"])
+        cached_future_hours = int(snapshot["future_hours"])
+        cached_step_minutes = int(snapshot["step_minutes"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    return (
+        cached_past_hours >= int(past_hours)
+        and cached_future_hours >= int(future_hours)
+        and cached_step_minutes <= int(step_minutes)
+    )
 
 
 def _extract_earth_position_xyz_au(planets: List[Dict[str, Any]]) -> Optional[List[float]]:
@@ -1563,13 +1590,6 @@ def _extract_row_observer_samples(
             sample_time,
         )
         if not earth_position_for_sample:
-            if earth_position_xyz_au and len(earth_position_xyz_au) >= 3:
-                earth_position_for_sample = [
-                    float(earth_position_xyz_au[0]),
-                    float(earth_position_xyz_au[1]),
-                    float(earth_position_xyz_au[2]),
-                ]
-        if not earth_position_for_sample:
             continue
 
         try:
@@ -1836,28 +1856,42 @@ async def _get_vectors_snapshot(
                 "stale": False,
                 "error": None,
             }
-        # Target views use a shorter projection than the scheduled sync. Their
-        # current sky position is still valid when it is interpolated from the
-        # fresh scheduled samples, so do not fall back to an older exact-window
-        # snapshot solely because the projection dimensions differ.
+        # A differently keyed snapshot is reusable for a trajectory only when
+        # its window is at least as wide and its samples are at least as dense.
+        # A shorter snapshot may still provide the live marker, but it must not
+        # freeze at an endpoint while another body's trajectory continues.
         compatible_cached = await _load_latest_vectors_for_target_from_db(
             target_key=normalized_target_key,
             valid_only=True,
         )
         if compatible_cached and isinstance(compatible_cached.get("payload"), dict):
             payload = dict(compatible_cached["payload"])
-            _refresh_payload_dynamics_at_epoch(
-                payload=payload,
-                epoch=epoch,
+            projection_is_compatible = _snapshot_projection_is_compatible(
+                compatible_cached,
                 past_hours=past_hours,
                 future_hours=future_hours,
+                step_minutes=step_minutes,
             )
-            return {
-                "payload": payload,
-                "cache": "db-compatible-hit",
-                "stale": False,
-                "error": None,
-            }
+            current_position_usable = _payload_covers_current_epoch(payload, epoch=epoch)
+            if projection_is_compatible or (not allow_network_fetch and current_position_usable):
+                _refresh_payload_dynamics_at_epoch(
+                    payload=payload,
+                    epoch=epoch,
+                    past_hours=past_hours,
+                    future_hours=future_hours,
+                )
+                return {
+                    "payload": payload,
+                    "cache": (
+                        "db-compatible-hit"
+                        if projection_is_compatible
+                        else "db-compatible-current-only"
+                    ),
+                    "stale": False,
+                    "error": None,
+                    "current_position_usable": current_position_usable,
+                    "calculation_usable": projection_is_compatible,
+                }
 
     if not allow_network_fetch:
         stale_cached = await _load_latest_vectors_from_db(
