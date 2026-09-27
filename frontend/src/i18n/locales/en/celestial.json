@@ -312,6 +312,7 @@
     "count_label_plural": "passes",
     "table_settings": "Table settings",
     "refresh": "Refresh passes",
+    "projection_limit": "Projection limit",
     "timeline_default_target_name": "Celestial target",
     "status": {
       "visible": "Visible",

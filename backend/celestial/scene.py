@@ -1965,12 +1965,31 @@ async def _get_vectors_snapshot(
                     future_hours=future_hours,
                 )
                 if projection_is_compatible:
-                    _trim_payload_to_projection_window(
+                    projection_trimmed = _trim_payload_to_projection_window(
                         payload=payload,
                         epoch=epoch,
                         past_hours=past_hours,
                         future_hours=future_hours,
                     )
+                    if allow_network_fetch and projection_trimmed:
+                        # A periodic sync may satisfy a short target projection
+                        # from a wider Horizons snapshot. Persist the derived
+                        # interval so five-second cache-only broadcasts keep
+                        # fixed boundaries until the next sync instead of
+                        # recentering the pass window on every broadcast.
+                        await _store_vectors_in_db(
+                            target_key=normalized_target_key,
+                            epoch_bucket_utc=epoch_bucket_utc,
+                            past_hours=past_hours,
+                            future_hours=future_hours,
+                            step_minutes=step_minutes,
+                            payload=payload,
+                            source="horizons",
+                            frame=DEFAULT_FRAME,
+                            center=DEFAULT_CENTER,
+                            error=None,
+                            ttl_seconds=VECTOR_DB_TTL_SECONDS,
+                        )
                 return {
                     "payload": payload,
                     "cache": (

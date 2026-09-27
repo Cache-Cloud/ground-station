@@ -452,6 +452,108 @@ async def test_get_vectors_snapshot_uses_fresh_snapshot_with_different_projectio
     ]
 
 
+@pytest.mark.asyncio
+async def test_network_sync_materializes_compatible_snapshot_as_fixed_projection(monkeypatch):
+    epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    compatible_payload = {
+        "command": "501",
+        "position_xyz_au": [1.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [3.0, 0.0, 0.0],
+            [7.0, 0.0, 0.0],
+        ],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=24)).isoformat(),
+            epoch.isoformat(),
+            (epoch + timedelta(hours=24)).isoformat(),
+            (epoch + timedelta(hours=72)).isoformat(),
+        ],
+    }
+    stored = []
+
+    async def _no_projection_match(*_args, **_kwargs):
+        return None
+
+    async def _compatible_snapshot(*_args, **_kwargs):
+        return {
+            "payload": compatible_payload,
+            "past_hours": 24,
+            "future_hours": 72,
+            "step_minutes": 60,
+        }
+
+    async def _store(**kwargs):
+        stored.append(kwargs)
+
+    def _unexpected_fetch(*_args, **_kwargs):
+        raise AssertionError("The compatible Horizons snapshot should avoid a network fetch")
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(
+        scene,
+        "_load_latest_vectors_for_target_from_db",
+        _compatible_snapshot,
+    )
+    monkeypatch.setattr(scene, "_store_vectors_in_db", _store)
+    monkeypatch.setattr(scene, "fetch_celestial_vectors", _unexpected_fetch)
+
+    result = await scene._get_vectors_snapshot(
+        command="501",
+        target_key="body:io",
+        epoch=epoch,
+        past_hours=1,
+        future_hours=1,
+        step_minutes=60,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        force_refresh=False,
+        logger=_DummyLogger(),
+        allow_network_fetch=True,
+    )
+
+    assert result["cache"] == "db-compatible-hit"
+    assert len(stored) == 1
+    assert stored[0]["target_key"] == "body:io"
+    assert stored[0]["past_hours"] == 1
+    assert stored[0]["future_hours"] == 1
+    assert stored[0]["step_minutes"] == 60
+    assert stored[0]["payload"]["orbit_sample_times_utc"] == [
+        (epoch - timedelta(hours=1)).isoformat(),
+        epoch.isoformat(),
+        (epoch + timedelta(hours=1)).isoformat(),
+    ]
+
+    async def _materialized_projection(*_args, **_kwargs):
+        return {"payload": stored[0]["payload"]}
+
+    async def _unexpected_fallback(*_args, **_kwargs):
+        raise AssertionError("The materialized projection should satisfy the cache-only broadcast")
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _materialized_projection)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _unexpected_fallback)
+
+    broadcast_result = await scene._get_vectors_snapshot(
+        command="501",
+        target_key="body:io",
+        epoch=epoch + timedelta(seconds=5),
+        past_hours=1,
+        future_hours=1,
+        step_minutes=60,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        force_refresh=False,
+        logger=_DummyLogger(),
+        allow_network_fetch=False,
+    )
+
+    assert broadcast_result["cache"] == "db-hit-partial"
+    assert (
+        broadcast_result["payload"]["orbit_sample_times_utc"][-1]
+        == (epoch + timedelta(hours=1)).isoformat()
+    )
+
+
 def test_wider_cached_trajectory_is_trimmed_to_requested_window():
     epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     payload = {

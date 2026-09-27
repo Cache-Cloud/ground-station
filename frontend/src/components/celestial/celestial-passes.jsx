@@ -638,6 +638,7 @@ const CelestialPasses = ({
             timeToPeakSeconds,
             eventStart: pass.event_start,
             eventEnd: pass.event_end,
+            estimatedEnd: Boolean(pass.estimated_end ?? pass.estimatedEnd),
             event_start: pass.event_start,
             event_end: pass.event_end,
             peak_time: pass.peak_time,
@@ -808,12 +809,20 @@ const CelestialPasses = ({
         {
             field: 'eventEnd',
             headerName: tCelestial('passes.columns.end'),
-            minWidth: 180,
+            minWidth: 230,
             renderCell: (params) => (
-                <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     <Typography component="span" variant="caption" sx={{ fontWeight: 700, color: 'text.primary' }}>
                         {formatRelativeTime(params.value, nowMs, tCelestial)}
                     </Typography>
+                    {params.row?.estimatedEnd && (
+                        <Chip
+                            size="small"
+                            variant="outlined"
+                            label={tCelestial('passes.projection_limit')}
+                            sx={{ height: 18, flexShrink: 0, '& .MuiChip-label': { px: 0.65, fontSize: '0.62rem' } }}
+                        />
+                    )}
                     <Typography component="span" className="passes-time-absolute" variant="caption" sx={{ color: 'text.secondary', ml: 0.5 }}>
                         · {formatAbsoluteTime(params.value, timezone, locale)}
                     </Typography>
