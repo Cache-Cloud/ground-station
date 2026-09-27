@@ -85,8 +85,56 @@ def test_build_pass_events_handles_open_ended_pass():
     assert event["target_key"] == "body:mars"
     assert event["estimated_start"] is True
     assert event["estimated_end"] is True
+    assert event["id"] == "body:mars_projection-open"
+    assert event["projection_start"] == start.isoformat()
+    assert event["projection_end"] == (start + timedelta(minutes=2)).isoformat()
     assert event["peak_elevation_deg"] == 4.0
     assert [point["elevation"] for point in event["elevation_curve"]] == [3.0, 4.0, 2.0]
+
+
+def test_observer_samples_keep_fixed_snapshot_boundaries_when_epoch_moves(monkeypatch):
+    snapshot_start = datetime(2026, 1, 1, 10, 12, tzinfo=timezone.utc)
+    snapshot_end = snapshot_start + timedelta(hours=2)
+    row = {
+        "target_type": "body",
+        "target_key": "body:io",
+        "body_id": "io",
+        "orbit_samples_xyz_au": [[1.0, 0.001, 0.0], [1.0, 0.002, 0.0]],
+        "orbit_sample_times_utc": [snapshot_start.isoformat(), snapshot_end.isoformat()],
+    }
+    earth_samples = [
+        (snapshot_start, [0.999, 0.0, 0.0]),
+        (snapshot_end, [0.999, 0.0005, 0.0]),
+    ]
+    monkeypatch.setattr(
+        scene,
+        "compute_observer_sky_position",
+        lambda **_kwargs: {"sky_position": {"az_deg": 180.0, "el_deg": 30.0}},
+    )
+
+    def extract(epoch):
+        return scene._extract_row_observer_samples(
+            row=row,
+            epoch=epoch,
+            past_hours=1,
+            future_hours=1,
+            step_minutes=10,
+            observer_location={"lat": 40.0, "lon": 22.0},
+            earth_position_xyz_au=None,
+            earth_orbit_samples=earth_samples,
+            logger=type("_DummyLogger", (), {"debug": lambda *_args, **_kwargs: None})(),
+        )
+
+    first = extract(snapshot_start + timedelta(hours=1))
+    second = extract(snapshot_start + timedelta(hours=1, seconds=5))
+
+    assert [sample["time"] for sample in first] == [sample["time"] for sample in second]
+    assert first[0]["time"] == snapshot_start
+    assert first[-1]["time"] == snapshot_end
+    first_event = scene._build_pass_events_from_samples(row, first, horizon_deg=0.0)[0]
+    second_event = scene._build_pass_events_from_samples(row, second, horizon_deg=0.0)[0]
+    assert first_event["id"] == second_event["id"] == "body:io_projection-open"
+    assert first_event["event_end"] == second_event["event_end"] == snapshot_end.isoformat()
 
 
 def test_build_pass_events_densifies_sparse_curve_segments():

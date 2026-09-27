@@ -442,6 +442,28 @@ def _build_window_timestamps(
     return timestamps
 
 
+def _build_interval_timestamps(
+    start: datetime,
+    end: datetime,
+    step_minutes: int,
+) -> List[datetime]:
+    """Build a stable sample grid for an already-fetched vector interval."""
+    if end < start:
+        return []
+
+    step = timedelta(minutes=max(1, int(step_minutes)))
+    timestamps = [start]
+    current = start + step
+    while current < end:
+        timestamps.append(current)
+        current += step
+    if timestamps[-1] < end:
+        # The exact snapshot boundary is meaningful: it is the point through
+        # which projection coverage is known, even when it is not a LOS.
+        timestamps.append(end)
+    return timestamps
+
+
 def _round_up(value: int, base: int) -> int:
     if base <= 1:
         return max(1, value)
@@ -879,6 +901,36 @@ async def _load_earth_observer_vectors(
         allow_network_fetch=allow_network_fetch,
         retry_horizons=retry_horizons,
     )
+    earth_cache = str(earth_snapshot.get("cache") or "")
+    if not allow_network_fetch and (
+        earth_cache.endswith("partial") or earth_cache == "db-compatible-current-only"
+    ):
+        # A target-slot request can keep writing a narrow Earth snapshot around
+        # NOW. Prefer the scheduled broad snapshot for pass calculations so the
+        # observer interval remains fixed between scheduled refreshes.
+        covering_earth = await _load_covering_vectors_for_target_from_db(
+            target_key=_target_key_from_parts("body", body_id="earth"),
+            past_hours=past_hours,
+            future_hours=future_hours,
+            maximum_step_minutes=max(60, int(step_minutes)),
+        )
+        covering_payload = (
+            covering_earth.get("payload") if isinstance(covering_earth, dict) else None
+        )
+        if isinstance(covering_payload, dict) and _payload_covers_projection_window(
+            covering_payload,
+            epoch=epoch,
+            past_hours=past_hours,
+            future_hours=future_hours,
+        ):
+            earth_snapshot = {
+                "payload": dict(covering_payload),
+                "cache": "db-earth-covering-hit",
+                "stale": False,
+                "error": None,
+                "current_position_usable": True,
+                "calculation_usable": True,
+            }
     payload = earth_snapshot.get("payload")
     if isinstance(payload, dict):
         # Current pointing only needs samples around this epoch. A stale snapshot
@@ -1465,9 +1517,14 @@ def _build_pass_events_from_samples(
                 )
                 target_key = str(row.get("target_key") or "").strip()
                 event_start_iso = active_pass["start_time"].astimezone(timezone.utc).isoformat()
+                event_id = (
+                    f"{target_key}_projection-open"
+                    if active_pass["estimated_start"]
+                    else f"{target_key}_{event_start_iso}"
+                )
                 events.append(
                     {
-                        "id": f"{target_key}_{event_start_iso}",
+                        "id": event_id,
                         "target_key": target_key,
                         "target_type": row.get("target_type"),
                         "name": row.get("name"),
@@ -1492,6 +1549,10 @@ def _build_pass_events_from_samples(
                         "elevation_curve": elevation_curve,
                         "estimated_start": bool(active_pass["estimated_start"]),
                         "estimated_end": False,
+                        "projection_start": (
+                            event_start_iso if active_pass["estimated_start"] else None
+                        ),
+                        "projection_end": None,
                         "horizon_threshold_deg": float(horizon_deg),
                     }
                 )
@@ -1517,9 +1578,15 @@ def _build_pass_events_from_samples(
         )
         target_key = str(row.get("target_key") or "").strip()
         event_start_iso = active_pass["start_time"].astimezone(timezone.utc).isoformat()
+        event_end_iso = end_time.astimezone(timezone.utc).isoformat()
+        event_id = (
+            f"{target_key}_projection-open"
+            if active_pass["estimated_start"]
+            else f"{target_key}_{event_start_iso}"
+        )
         events.append(
             {
-                "id": f"{target_key}_{event_start_iso}",
+                "id": event_id,
                 "target_key": target_key,
                 "target_type": row.get("target_type"),
                 "name": row.get("name"),
@@ -1530,7 +1597,7 @@ def _build_pass_events_from_samples(
                 "cache": row.get("cache"),
                 "stale": bool(row.get("stale")),
                 "event_start": event_start_iso,
-                "event_end": end_time.astimezone(timezone.utc).isoformat(),
+                "event_end": event_end_iso,
                 "peak_time": active_pass["peak_time"].astimezone(timezone.utc).isoformat(),
                 "duration_seconds": duration_seconds,
                 "start_azimuth_deg": float(active_pass["start_azimuth_deg"]),
@@ -1544,6 +1611,8 @@ def _build_pass_events_from_samples(
                 "elevation_curve": elevation_curve,
                 "estimated_start": bool(active_pass["estimated_start"]),
                 "estimated_end": True,
+                "projection_start": (event_start_iso if active_pass["estimated_start"] else None),
+                "projection_end": event_end_iso,
                 "horizon_threshold_deg": float(horizon_deg),
             }
         )
@@ -1615,10 +1684,20 @@ def _extract_row_observer_samples(
         future_hours=future_hours,
         source_step_minutes=step_minutes,
     )
-    observer_sample_times = _build_window_timestamps(
-        epoch=epoch,
-        past_hours=past_hours,
-        future_hours=future_hours,
+    ordered_target_samples = sorted(target_samples, key=lambda item: item[0])
+    ordered_earth_samples = sorted(earth_samples, key=lambda item: item[0])
+    if len(ordered_earth_samples) < 2:
+        return []
+
+    # Cache-only broadcasts run every five seconds, but their projection data
+    # remains fixed until the next Horizons refresh. Anchor pass calculations
+    # to the shared vector coverage instead of rebuilding a window around NOW.
+    # This makes estimated AOS/LOS boundaries deterministic between refreshes.
+    coverage_start = max(ordered_target_samples[0][0], ordered_earth_samples[0][0])
+    coverage_end = min(ordered_target_samples[-1][0], ordered_earth_samples[-1][0])
+    observer_sample_times = _build_interval_timestamps(
+        start=coverage_start,
+        end=coverage_end,
         step_minutes=observer_step_minutes,
     )
 
@@ -1772,6 +1851,29 @@ async def _load_latest_vectors_for_target_from_db(
             dbsession,
             target_id=target_key,
             valid_only=valid_only,
+            as_of=datetime.now(timezone.utc),
+        )
+    if not result.get("success"):
+        return None
+    row = result.get("data")
+    return row if isinstance(row, dict) else None
+
+
+async def _load_covering_vectors_for_target_from_db(
+    target_key: str,
+    past_hours: int,
+    future_hours: int,
+    maximum_step_minutes: int,
+) -> Optional[Dict[str, Any]]:
+    """Load a broad fresh snapshot suitable for a complete observer window."""
+    async with AsyncSessionLocal() as dbsession:
+        result = await crud_celestial_vectors.fetch_covering_celestial_vector_snapshot_for_target(
+            dbsession,
+            target_id=target_key,
+            past_hours=past_hours,
+            future_hours=future_hours,
+            maximum_step_minutes=maximum_step_minutes,
+            valid_only=True,
             as_of=datetime.now(timezone.utc),
         )
     if not result.get("success"):

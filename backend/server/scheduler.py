@@ -28,6 +28,10 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 scheduler: Optional[AsyncIOScheduler] = None
 CELESTIAL_TRACKS_BROADCAST_JOB_ID = "emit_cached_celestial_tracks"
 CELESTIAL_TRACKS_BROADCAST_INTERVAL_SECONDS = 5
+# Per-target future projections may be as short as one hour. Refresh a little
+# before that minimum window expires so a successful sync can replace it
+# without a coverage gap in the UI.
+CELESTIAL_SYNC_MAX_INTERVAL_MINUTES = 55
 _celestial_sync_warmup_task: Optional[asyncio.Task] = None
 _ORBITAL_SYNC_TASK_PATTERNS = (
     "orbital data sync",
@@ -493,7 +497,10 @@ def start_scheduler(sio, process_manager, background_task_manager):
         )
     except (TypeError, ValueError):
         celestial_sync_interval_minutes = 60
-    celestial_sync_interval_minutes = max(5, celestial_sync_interval_minutes)
+    celestial_sync_interval_minutes = min(
+        max(5, celestial_sync_interval_minutes),
+        CELESTIAL_SYNC_MAX_INTERVAL_MINUTES,
+    )
     if celestial_sync_enabled:
         # Let startup settle before the first Horizons cache-fill run.
         scheduler.add_job(

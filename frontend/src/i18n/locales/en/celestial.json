@@ -313,9 +313,11 @@
     "table_settings": "Table settings",
     "refresh": "Refresh passes",
     "projection_limit": "Projection limit",
+    "projection_expired": "Projection expired",
     "timeline_default_target_name": "Celestial target",
     "status": {
       "visible": "Visible",
+      "projection_expired": "Projection expired",
       "passed": "Passed",
       "upcoming": "Upcoming"
     },

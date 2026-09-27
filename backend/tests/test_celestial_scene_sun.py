@@ -105,6 +105,57 @@ async def test_load_earth_observer_vectors_allows_current_stale_samples(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_load_earth_observer_vectors_prefers_broad_coverage_for_passes(monkeypatch):
+    epoch = datetime(2026, 6, 21, 10, 30, tzinfo=timezone.utc)
+    narrow_start = epoch - timedelta(minutes=30)
+    narrow_end = epoch + timedelta(minutes=30)
+    broad_start = epoch - timedelta(hours=6)
+    broad_end = epoch + timedelta(hours=72)
+
+    async def _partial_snapshot(**_kwargs):
+        return {
+            "payload": {
+                "position_xyz_au": [1.0, 0.0, 0.0],
+                "orbit_samples_xyz_au": [[1.0, 0.0, 0.0], [1.1, 0.0, 0.0]],
+                "orbit_sample_times_utc": [narrow_start.isoformat(), narrow_end.isoformat()],
+            },
+            "cache": "db-hit-partial",
+            "calculation_usable": True,
+            "current_position_usable": True,
+        }
+
+    async def _broad_snapshot(**_kwargs):
+        return {
+            "payload": {
+                "position_xyz_au": [1.0, 0.0, 0.0],
+                "orbit_samples_xyz_au": [[0.9, 0.0, 0.0], [1.2, 0.0, 0.0]],
+                "orbit_sample_times_utc": [broad_start.isoformat(), broad_end.isoformat()],
+            }
+        }
+
+    monkeypatch.setattr(scene, "_get_vectors_snapshot", _partial_snapshot)
+    monkeypatch.setattr(
+        scene,
+        "_load_covering_vectors_for_target_from_db",
+        _broad_snapshot,
+    )
+
+    _position, samples = await scene._load_earth_observer_vectors(
+        epoch=epoch,
+        past_hours=1,
+        future_hours=1,
+        step_minutes=10,
+        observer_location=None,
+        force_refresh=False,
+        allow_network_fetch=False,
+        logger=_DummyLogger(),
+    )
+
+    assert samples[0][0] == broad_start
+    assert samples[-1][0] == broad_end
+
+
+@pytest.mark.asyncio
 async def test_build_celestial_tracks_supports_sun_body_target(monkeypatch):
     async def _stub_observer_location():
         return {

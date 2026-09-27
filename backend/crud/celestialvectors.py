@@ -631,6 +631,51 @@ async def fetch_latest_celestial_vector_snapshot_for_target(
         return {"success": False, "error": str(e)}
 
 
+async def fetch_covering_celestial_vector_snapshot_for_target(
+    session: AsyncSession,
+    target_id: str,
+    past_hours: int,
+    future_hours: int,
+    maximum_step_minutes: int,
+    valid_only: bool = True,
+    as_of: Optional[datetime] = None,
+) -> dict:
+    """Fetch a broad, sufficiently dense snapshot for observer calculations."""
+    try:
+        target_key = normalize_target_key(target_id)
+        if not target_key:
+            return {"success": False, "error": "target_id is required"}
+
+        now_utc = as_of or datetime.now(timezone.utc)
+        stmt = select(CelestialVectorSnapshots).where(
+            CelestialVectorSnapshots.target_id == target_key,
+            CelestialVectorSnapshots.past_hours >= int(past_hours),
+            CelestialVectorSnapshots.future_hours >= int(future_hours),
+            CelestialVectorSnapshots.step_minutes <= int(maximum_step_minutes),
+        )
+        if valid_only:
+            stmt = stmt.where(CelestialVectorSnapshots.expires_at >= now_utc)
+        stmt = stmt.order_by(
+            (CelestialVectorSnapshots.past_hours + CelestialVectorSnapshots.future_hours).desc(),
+            CelestialVectorSnapshots.step_minutes.asc(),
+            CelestialVectorSnapshots.fetched_at.desc(),
+        )
+
+        result = await session.execute(stmt)
+        row = result.scalars().first()
+        if not row:
+            return {"success": True, "data": None, "error": None}
+        return {
+            "success": True,
+            "data": _normalize_snapshot_entry(serialize_object(row)),
+            "error": None,
+        }
+    except Exception as e:
+        logger.error(f"Error fetching covering celestial vector snapshot by target: {e}")
+        logger.error(traceback.format_exc())
+        return {"success": False, "error": str(e)}
+
+
 async def upsert_celestial_vector_snapshot(
     session: AsyncSession,
     data: Dict[str, Any],

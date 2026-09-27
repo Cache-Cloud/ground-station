@@ -331,3 +331,26 @@ def test_start_and_stop_scheduler_register_expected_jobs(monkeypatch):
     assert orbital_sync_job.trigger.interval == timedelta(hours=12)
     assert scheduler.shutdown_wait is False
     assert references == [scheduler, None]
+
+
+def test_celestial_sync_is_scheduled_before_minimum_projection_expires(monkeypatch):
+    monkeypatch.setattr(scheduler_module, "AsyncIOScheduler", _Scheduler)
+    monkeypatch.setattr(scheduler_module, "set_scheduler_reference", lambda _scheduler: None)
+    monkeypatch.setattr(scheduler_module, "scheduler", None)
+    monkeypatch.setattr(scheduler_module.arguments, "celestial_periodic_sync_enabled", True)
+    monkeypatch.setattr(
+        scheduler_module.arguments,
+        "celestial_periodic_sync_interval_minutes",
+        60,
+    )
+
+    scheduler = scheduler_module.start_scheduler(object(), object(), _TaskManager())
+    try:
+        sync_job = next(
+            job for job in scheduler.jobs if job.id == "sync_celestial_vector_snapshots"
+        )
+        assert sync_job.trigger.interval == timedelta(
+            minutes=scheduler_module.CELESTIAL_SYNC_MAX_INTERVAL_MINUTES
+        )
+    finally:
+        scheduler_module.stop_scheduler()

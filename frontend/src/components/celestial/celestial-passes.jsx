@@ -275,12 +275,13 @@ const CustomPagination = () => {
     );
 };
 
-const getPassStatus = (row, now) => {
+export const getCelestialPassStatus = (row, now) => {
     const startMs = Number(row?.eventStartMs);
     const endMs = Number(row?.eventEndMs);
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
         return 'upcoming';
     }
+    if (row?.estimatedEnd && endMs < now) return 'projection-expired';
     if (startMs <= now && endMs >= now) return 'live';
     if (endMs < now) return 'passed';
     return 'upcoming';
@@ -363,6 +364,17 @@ const PassStatusCell = ({ status, targetNumber = null, t }) => {
                 label={t('passes.status.visible')}
                 variant="filled"
                 sx={{ fontWeight: 700, minWidth: 85 }}
+            />
+        );
+    } else if (status === 'projection-expired') {
+        statusChip = (
+            <Chip
+                icon={<AccessTimeFilledIcon sx={{ fontSize: '0.85rem' }} />}
+                size="small"
+                color="warning"
+                label={t('passes.status.projection_expired', { defaultValue: 'Projection expired' })}
+                variant="outlined"
+                sx={{ fontWeight: 700, minWidth: 125 }}
             />
         );
     } else if (status === 'passed') {
@@ -591,7 +603,6 @@ const CelestialPasses = ({
     const rows = useMemo(() => (passes || []).map((pass) => {
         const eventStartMs = new Date(pass.event_start).getTime();
         const eventEndMs = new Date(pass.event_end).getTime();
-        const status = getPassStatus({ eventStartMs, eventEndMs }, nowMs);
         const targetTypeKey = String(pass.target_type || 'mission').toLowerCase() === 'body' ? 'body' : 'mission';
         const normalizedTargetKey = String(pass.target_key || '').trim();
         const track = trackByTargetKey[normalizedTargetKey] || {};
@@ -612,6 +623,8 @@ const CelestialPasses = ({
             ).trim();
         const rawCurrentElevationDeg = Number(track?.sky_position?.el_deg);
         const currentElevationDeg = Number.isFinite(rawCurrentElevationDeg) ? rawCurrentElevationDeg : null;
+        const estimatedEnd = Boolean(pass.estimated_end ?? pass.estimatedEnd);
+        const status = getCelestialPassStatus({ eventStartMs, eventEndMs, estimatedEnd }, nowMs);
         const elevationTrend = elevationTrendByTargetKey[normalizedTargetKey] || {};
         const peakTimeMs = new Date(pass.peak_time).getTime();
         const timeToPeakSeconds = Number.isFinite(peakTimeMs) && peakTimeMs > nowMs
@@ -638,7 +651,8 @@ const CelestialPasses = ({
             timeToPeakSeconds,
             eventStart: pass.event_start,
             eventEnd: pass.event_end,
-            estimatedEnd: Boolean(pass.estimated_end ?? pass.estimatedEnd),
+            estimatedEnd,
+            projectionEnd: pass.projection_end || pass.projectionEnd || null,
             event_start: pass.event_start,
             event_end: pass.event_end,
             peak_time: pass.peak_time,
@@ -782,6 +796,13 @@ const CelestialPasses = ({
             minWidth: 150,
             sortable: false,
             renderCell: (params) => {
+                if (params.row?.estimatedEnd) {
+                    return (
+                        <Tooltip title={tCelestial('passes.projection_limit')}>
+                            <Typography component="span" variant="caption" sx={{ color: 'text.secondary' }}>—</Typography>
+                        </Tooltip>
+                    );
+                }
                 return <ProgressFormatter row={params.row} nowMs={nowMs} />;
             },
         },
@@ -789,7 +810,10 @@ const CelestialPasses = ({
             field: 'duration',
             headerName: tCelestial('passes.columns.duration'),
             minWidth: 100,
-            valueGetter: (_value, row) => formatDuration(row.durationSeconds, tCelestial),
+            valueGetter: (_value, row) => {
+                const duration = formatDuration(row.durationSeconds, tCelestial);
+                return row.estimatedEnd && duration !== '-' ? `≥ ${duration}` : duration;
+            },
         },
         {
             field: 'eventStart',
@@ -813,13 +837,19 @@ const CelestialPasses = ({
             renderCell: (params) => (
                 <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     <Typography component="span" variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1.2, fontWeight: 700, color: 'text.primary' }}>
-                        {formatRelativeTime(params.value, nowMs, tCelestial)}
+                        {params.row?.estimatedEnd && params.row?.eventEndMs < nowMs
+                            ? tCelestial('passes.projection_expired', { defaultValue: 'Projection expired' })
+                            : formatRelativeTime(params.value, nowMs, tCelestial)}
                     </Typography>
                     {params.row?.estimatedEnd && (
-                        <Tooltip title={tCelestial('passes.projection_limit')}>
+                        <Tooltip title={params.row?.eventEndMs < nowMs
+                            ? tCelestial('passes.projection_expired', { defaultValue: 'Projection expired' })
+                            : tCelestial('passes.projection_limit')}>
                             <Box
                                 component="span"
-                                aria-label={tCelestial('passes.projection_limit')}
+                                aria-label={params.row?.eventEndMs < nowMs
+                                    ? tCelestial('passes.projection_expired', { defaultValue: 'Projection expired' })
+                                    : tCelestial('passes.projection_limit')}
                                 sx={{
                                     width: 17,
                                     height: 17,
