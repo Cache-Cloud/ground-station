@@ -314,6 +314,8 @@
     "refresh": "Refresh passes",
     "projection_limit": "Projection limit",
     "projection_expired": "Projection expired",
+    "projection_time_remaining": "Time remaining until projection limit",
+    "projection_window_progress": "Projection window progress",
     "timeline_default_target_name": "Celestial target",
     "status": {
       "visible": "Visible",

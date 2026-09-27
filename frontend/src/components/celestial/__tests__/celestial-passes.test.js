@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { getCelestialPassStatus } from '../celestial-passes.jsx';
+import {
+    calculateProjectionProgress,
+    calculateProjectionRemainingSeconds,
+    getCelestialPassStatus,
+} from '../celestial-passes.jsx';
 
 describe('getCelestialPassStatus', () => {
     it('reports an elapsed projection boundary as expired instead of a completed pass', () => {
@@ -21,5 +25,35 @@ describe('getCelestialPassStatus', () => {
             eventEndMs: now - 60_000,
             estimatedEnd: false,
         }, now)).toBe('passed');
+    });
+});
+
+describe('calculateProjectionProgress', () => {
+    it('advances on the five-second celestial update cadence', () => {
+        const row = { eventStartMs: 0, eventEndMs: 100_000 };
+
+        expect(calculateProjectionProgress(row, 12_000)).toBe(10);
+        expect(calculateProjectionProgress(row, 14_999)).toBe(10);
+        expect(calculateProjectionProgress(row, 15_000)).toBe(15);
+    });
+
+    it('clamps progress at the projection boundaries', () => {
+        const row = { eventStartMs: 10_000, eventEndMs: 20_000 };
+
+        expect(calculateProjectionProgress(row, 0)).toBe(0);
+        expect(calculateProjectionProgress(row, 25_000)).toBe(100);
+    });
+});
+
+describe('calculateProjectionRemainingSeconds', () => {
+    it('counts down to the fixed projection boundary', () => {
+        const row = { eventEndMs: 100_000 };
+
+        expect(calculateProjectionRemainingSeconds(row, 40_000)).toBe(60);
+        expect(calculateProjectionRemainingSeconds(row, 45_000)).toBe(55);
+    });
+
+    it('stops at zero after the projection boundary', () => {
+        expect(calculateProjectionRemainingSeconds({ eventEndMs: 100_000 }, 105_000)).toBe(0);
     });
 });

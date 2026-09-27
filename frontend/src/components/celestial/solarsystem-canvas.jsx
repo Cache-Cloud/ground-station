@@ -263,68 +263,23 @@ const hasFiniteXYZ = (position) =>
 
 const normalizeBodyId = (value) => String(value || '').trim().toLowerCase();
 
-const computeMedian = (values) => {
-    const sorted = values
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value))
-        .sort((a, b) => a - b);
-    if (!sorted.length) return null;
-    const middle = Math.floor(sorted.length / 2);
-    if (sorted.length % 2 === 1) return sorted[middle];
-    return (sorted[middle - 1] + sorted[middle]) / 2;
-};
+export const collectLiveTrackedTargetKeys = (tracked = []) => new Set(
+    (Array.isArray(tracked) ? tracked : [])
+        .filter((body) => hasFiniteXYZ(body?.position_xyz_au))
+        .map((body) => resolveTargetKey(body))
+        .filter(Boolean),
+);
 
-const computeParentRelativeRadiusAu = (moon, parent) => {
-    if (!hasFiniteXYZ(moon?.position_xyz_au) || !hasFiniteXYZ(parent?.position_xyz_au)) {
-        return null;
-    }
-
-    const radii = [];
-    const moonSamples = Array.isArray(moon?.orbit_samples_xyz_au) ? moon.orbit_samples_xyz_au : [];
-    const parentSamples = Array.isArray(parent?.orbit_samples_xyz_au) ? parent.orbit_samples_xyz_au : [];
-    const moonTimes = Array.isArray(moon?.orbit_sample_times_utc) ? moon.orbit_sample_times_utc : [];
-    const parentTimes = Array.isArray(parent?.orbit_sample_times_utc) ? parent.orbit_sample_times_utc : [];
-
-    if (moonSamples.length >= 2 && parentSamples.length >= 2) {
-        if (moonTimes.length && parentTimes.length) {
-            const parentSampleByTime = new Map();
-            parentTimes.forEach((time, index) => {
-                if (hasFiniteXYZ(parentSamples[index])) {
-                    parentSampleByTime.set(String(time), parentSamples[index]);
-                }
-            });
-            moonTimes.forEach((time, index) => {
-                const moonSample = moonSamples[index];
-                const parentSample = parentSampleByTime.get(String(time));
-                if (!hasFiniteXYZ(moonSample) || !hasFiniteXYZ(parentSample)) return;
-                radii.push(Math.hypot(
-                    Number(moonSample[0]) - Number(parentSample[0]),
-                    Number(moonSample[1]) - Number(parentSample[1]),
-                ));
-            });
-        } else if (moonSamples.length === parentSamples.length) {
-            moonSamples.forEach((moonSample, index) => {
-                const parentSample = parentSamples[index];
-                if (!hasFiniteXYZ(moonSample) || !hasFiniteXYZ(parentSample)) return;
-                radii.push(Math.hypot(
-                    Number(moonSample[0]) - Number(parentSample[0]),
-                    Number(moonSample[1]) - Number(parentSample[1]),
-                ));
-            });
-        }
-    }
-
-    const sampledRadius = computeMedian(radii.filter((radius) => radius > 0));
-    if (Number.isFinite(sampledRadius) && sampledRadius > 0) {
-        return sampledRadius;
-    }
-
-    const currentRadius = Math.hypot(
-        Number(moon.position_xyz_au[0]) - Number(parent.position_xyz_au[0]),
-        Number(moon.position_xyz_au[1]) - Number(parent.position_xyz_au[1]),
-    );
-    return Number.isFinite(currentRadius) && currentRadius > 0 ? currentRadius : null;
-};
+export const shouldSuppressStaticSolarBody = (
+    body,
+    liveTrackedTargetKeys,
+    showTrackedObjects = true,
+) => Boolean(
+    showTrackedObjects
+    && liveTrackedTargetKeys instanceof Set
+    && resolveTargetKey(body)
+    && liveTrackedTargetKeys.has(resolveTargetKey(body)),
+);
 
 const HELIOCENTRIC_ORIGIN_EPSILON_AU = 1e-9;
 const SUN_LABEL_SINGLE_MODE_OFFSET_PX = 5;
@@ -524,6 +479,44 @@ const drawArrowHead = (ctx, fromX, fromY, toX, toY, color) => {
     ctx.fillStyle = color;
     ctx.fill();
 };
+
+export const calculatePerpendicularPathCap = (
+    startX,
+    startY,
+    nextX,
+    nextY,
+    capLength = 7,
+) => {
+    const dx = nextX - startX;
+    const dy = nextY - startY;
+    const pathLength = Math.hypot(dx, dy);
+    if (pathLength < 0.01) return null;
+
+    const halfCapLength = capLength / 2;
+    const perpendicularX = (-dy / pathLength) * halfCapLength;
+    const perpendicularY = (dx / pathLength) * halfCapLength;
+    return {
+        fromX: startX - perpendicularX,
+        fromY: startY - perpendicularY,
+        toX: startX + perpendicularX,
+        toY: startY + perpendicularY,
+    };
+};
+
+const drawPathStartCap = (ctx, startX, startY, nextX, nextY, color) => {
+    const cap = calculatePerpendicularPathCap(startX, startY, nextX, nextY);
+    if (!cap) return;
+
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(cap.fromX, cap.fromY);
+    ctx.lineTo(cap.toX, cap.toY);
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.restore();
+};
+
 const drawTextOnArc = (ctx, text, cx, cy, radius, centerAngle, style = {}) => {
     const value = String(text || '');
     if (!value || radius <= 0) return;
@@ -713,49 +706,10 @@ const SolarSystemCanvas = ({
         || (Array.isArray(tracked) && tracked.length === 1);
     const asteroidZones = scene?.asteroid_zones || [];
     const asteroidResonanceGaps = scene?.asteroid_resonance_gaps || [];
-    const moonOrbitRings = useMemo(() => {
-        if (!Array.isArray(renderablePlanets) || renderablePlanets.length === 0) return [];
-
-        const bodyById = new Map();
-        renderablePlanets.forEach((body) => {
-            const bodyId = normalizeBodyId(body?.id);
-            if (!bodyId) return;
-            bodyById.set(bodyId, body);
-        });
-
-        const rings = renderablePlanets
-            .filter((body) => normalizeBodyId(body?.body_type) === 'moon')
-            .map((moon) => {
-                const moonId = normalizeBodyId(moon?.id);
-                const parentId = normalizeBodyId(moon?.parent_id || moon?.parent_body_id);
-                if (!moonId || !parentId) return null;
-
-                const parent = bodyById.get(parentId);
-                if (!parent || !hasFiniteXYZ(parent.position_xyz_au)) return null;
-
-                const radiusAu = computeParentRelativeRadiusAu(moon, parent);
-                if (!Number.isFinite(radiusAu) || radiusAu <= 0) return null;
-
-                return {
-                    key: `${parentId}:${moonId}`,
-                    parentId,
-                    moonId,
-                    parentPositionXyAu: [
-                        Number(parent.position_xyz_au[0]),
-                        Number(parent.position_xyz_au[1]),
-                    ],
-                    radiusAu,
-                    color: PLANET_COLORS[moonId] || PLANET_COLORS.moon || '#cfd8dc',
-                };
-            })
-            .filter(Boolean);
-
-        rings.sort((a, b) => {
-            if (a.parentId === b.parentId) return a.radiusAu - b.radiusAu;
-            return a.parentId.localeCompare(b.parentId);
-        });
-        return rings;
-    }, [renderablePlanets]);
+    const liveTrackedTargetKeys = useMemo(
+        () => collectLiveTrackedTargetKeys(tracked),
+        [tracked],
+    );
     const effectiveDisplayOptions = {
         ...DEFAULT_DISPLAY_OPTIONS,
         ...(displayOptions || {}),
@@ -1442,42 +1396,20 @@ const SolarSystemCanvas = ({
         ctx.stroke();
 
         if (effectiveDisplayOptions.showPlanets && effectiveDisplayOptions.showPlanetOrbits) {
-            // Parent-centered moon orbit rings are derived from Horizons-backed
-            // moon and parent vectors already present in the scene payload.
-            if (moonOrbitRings.length > 0) {
-                ctx.save();
-                ctx.lineWidth = 1;
-                ctx.setLineDash([4, 4]);
-
-                moonOrbitRings.forEach((ring) => {
-                    const [parentX, parentY] = toScreen(ring.parentPositionXyAu);
-                    const radiusPx = ring.radiusAu * scale;
-                    if (!Number.isFinite(radiusPx) || radiusPx <= 0.75) return;
-                    if (radiusPx > MAX_BACKGROUND_RING_RADIUS_PX) return;
-
-                    const nearestX = clamp(parentX, 0, width);
-                    const nearestY = clamp(parentY, 0, height);
-                    const minDistanceToViewportEdgePx = Math.hypot(nearestX - parentX, nearestY - parentY);
-                    const maxDistanceX = Math.max(Math.abs(parentX), Math.abs(width - parentX));
-                    const maxDistanceY = Math.max(Math.abs(parentY), Math.abs(height - parentY));
-                    const maxDistanceToViewportEdgePx = Math.hypot(maxDistanceX, maxDistanceY);
-                    if (radiusPx < (minDistanceToViewportEdgePx - 1)) return;
-                    if (radiusPx > (maxDistanceToViewportEdgePx + 1)) return;
-
-                    ctx.beginPath();
-                    ctx.arc(parentX, parentY, radiusPx, 0, Math.PI * 2);
-                    ctx.strokeStyle = hexToRgba(ring.color, theme.palette.mode === 'dark' ? 0.28 : 0.2);
-                    ctx.stroke();
-                });
-
-                ctx.setLineDash([]);
-                ctx.restore();
-            }
-
-            // Planet orbits (sampled paths).
+            // Solar body trajectories all stay in the scene's heliocentric frame.
             ctx.lineWidth = 1;
             renderablePlanets.forEach((planet) => {
-                if (normalizeBodyId(planet?.body_type) === 'moon') return;
+                if (shouldSuppressStaticSolarBody(
+                    planet,
+                    liveTrackedTargetKeys,
+                    effectiveDisplayOptions.showTrackedObjects,
+                )) return;
+                // Offline moon samples are parent-centered visual rings rather
+                // than heliocentric trajectories, so do not present them as paths.
+                if (
+                    normalizeBodyId(planet?.body_type) === 'moon'
+                    && (planet?.approximate || planet?.calculation_usable === false)
+                ) return;
                 const samples = planet.orbit_samples_xyz_au || [];
                 if (!samples.length) return;
                 const sampleTimesUtc = planet.orbit_sample_times_utc || [];
@@ -1505,6 +1437,16 @@ const SolarSystemCanvas = ({
                 };
                 if (pastEndIndex >= 1) {
                     drawOrbitSegment(0, pastEndIndex, []);
+                    const [startX, startY] = toScreen(samples[0]);
+                    const [nextX, nextY] = toScreen(samples[1]);
+                    drawPathStartCap(
+                        ctx,
+                        startX,
+                        startY,
+                        nextX,
+                        nextY,
+                        orbitStrokeColor,
+                    );
                 }
                 const futureSegmentStartIndex = pastEndIndex >= 1 ? pastEndIndex : 0;
                 drawOrbitSegment(futureSegmentStartIndex, lastSampleIndex, [3, 4]);
@@ -1526,6 +1468,14 @@ const SolarSystemCanvas = ({
             const shouldShowBodyLabels = effectiveDisplayOptions.showPlanetLabels || !hasTrackedRows;
             // Planets.
             renderablePlanets.forEach((planet) => {
+                const bodyTargetKey = resolveTargetKey(planet);
+                // A live row owns the marker while it is monitored. The static
+                // body remains in the scene to provide hierarchy and orbit data.
+                if (shouldSuppressStaticSolarBody(
+                    planet,
+                    liveTrackedTargetKeys,
+                    effectiveDisplayOptions.showTrackedObjects,
+                )) return;
                 const id = String(planet.id || '').toLowerCase();
                 const color = PLANET_COLORS[id] || '#bbbbbb';
                 const [sx, sy] = toScreen(planet.position_xyz_au);
@@ -1542,7 +1492,6 @@ const SolarSystemCanvas = ({
                     if (isMoon && gridStepAu > 1) return;
                     // Keep the Sun label clear of the larger center icon.
                     const labelAnchorX = id === 'sun' ? sx + 12 : sx;
-                    const bodyTargetKey = resolveTargetKey(planet);
                     const bodyTargetSlotNumber = resolveTargetSlotNumber(bodyTargetKey);
                     const hasBodyTargetSlotNumber = Number.isFinite(bodyTargetSlotNumber) && bodyTargetSlotNumber > 0;
                     // The final target-slot layer renders its own framed name beside
@@ -1596,6 +1545,16 @@ const SolarSystemCanvas = ({
             // Keep the timeline split clear in the UI: past samples are solid, future samples are dotted.
             if (pastSegmentEndIndex >= 1) {
                 drawOrbitSegment(0, pastSegmentEndIndex, []);
+                const [startX, startY] = toScreen(samples[0]);
+                const [nextX, nextY] = toScreen(samples[1]);
+                drawPathStartCap(
+                    ctx,
+                    startX,
+                    startY,
+                    nextX,
+                    nextY,
+                    trackedStrokeColor,
+                );
             }
             const futureSegmentStartIndex = pastSegmentEndIndex >= 1 ? pastSegmentEndIndex : 0;
             drawOrbitSegment(futureSegmentStartIndex, lastSampleIndex, [3, 4]);
@@ -1646,6 +1605,7 @@ const SolarSystemCanvas = ({
 
         // Tracked object markers from Horizons.
         const pendingTargetSlotBadges = [];
+        const pendingSelectedMarkerLabels = [];
         if (effectiveDisplayOptions.showTrackedObjects) {
             tracked.forEach((body) => {
                 if (!hasFiniteXYZ(body.position_xyz_au)) return;
@@ -1716,9 +1676,57 @@ const SolarSystemCanvas = ({
                 }
                 if (targetSlotBadgeSpec) pendingTargetSlotBadges.push(targetSlotBadgeSpec);
 
+                if (
+                    isSelected
+                    && !hasTargetSlotNumber
+                    && effectiveDisplayOptions.showTrackedLabels
+                ) {
+                    const nameLabel = String(
+                        body.name || body.command || body.body_id || targetKey || 'object',
+                    );
+                    const markerOuterSize = markerSize + 2;
+                    const nameHeight = 14;
+                    const nameGap = 3;
+                    const namePaddingX = 4;
+                    const nameFontSize = Math.max(8, Math.floor(nameHeight * 0.72));
+                    const nameFontFamily = theme.typography?.fontFamily || 'Arial';
+                    ctx.save();
+                    ctx.font = `700 ${nameFontSize}px ${nameFontFamily}`;
+                    const nameTextWidth = Math.ceil(Math.max(4, ctx.measureText(nameLabel).width));
+                    ctx.restore();
+                    const nameWidth = nameTextWidth + (namePaddingX * 2);
+                    const rightNameLeft = sx + (markerOuterSize / 2) + nameGap;
+                    const leftNameLeft = sx - (markerOuterSize / 2) - nameGap - nameWidth;
+                    const nameLeft = rightNameLeft + nameWidth <= width
+                        ? rightNameLeft
+                        : Math.max(0, leftNameLeft);
+                    const nameTop = sy - (nameHeight / 2);
+                    const labelBox = {
+                        x: nameLeft,
+                        y: nameTop,
+                        w: nameWidth,
+                        h: nameHeight,
+                    };
+                    pendingSelectedMarkerLabels.push({
+                        nameLabel,
+                        nameLeft,
+                        nameTop,
+                        nameWidth,
+                        nameHeight,
+                        namePaddingX,
+                        nameFontSize,
+                        nameFontFamily,
+                        nameColor: theme.palette.text.primary,
+                        markerColor: trackedHexColor,
+                    });
+                    placedLabelBoxes.push(labelBox);
+                }
+
                 if (effectiveDisplayOptions.showTrackedLabels) {
                     // Target-slot names are rendered together with their badge below.
                     if (hasTargetSlotNumber) return;
+                    // Selected marker names are rendered as an attached label below.
+                    if (isSelected) return;
                     if (shouldHideTrackedLabelAsDuplicate(body)) return;
                     const labelColor = isSelected
                         ? theme.palette.text.primary
@@ -1904,6 +1912,37 @@ const SolarSystemCanvas = ({
             drawOffscreenDirectionIndicator(target, offsetIndex);
         });
 
+        pendingSelectedMarkerLabels.forEach((label) => {
+            ctx.save();
+            ctx.font = `700 ${label.nameFontSize}px ${label.nameFontFamily}`;
+            ctx.beginPath();
+            ctx.roundRect(
+                label.nameLeft,
+                label.nameTop,
+                label.nameWidth,
+                label.nameHeight,
+                2,
+            );
+            ctx.fillStyle = theme.palette.background.paper;
+            ctx.globalAlpha = 0.88;
+            ctx.fill();
+            ctx.globalAlpha = 0.7;
+            ctx.strokeStyle = label.markerColor;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.globalAlpha = 1;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = label.nameColor;
+            ctx.fillText(
+                label.nameLabel,
+                label.nameLeft + label.namePaddingX,
+                label.nameTop + (label.nameHeight / 2) + 0.35,
+            );
+            ctx.restore();
+        });
+
         // Render target-slot badges and their names together so the topmost badge
         // cannot cover the label text.
         pendingTargetSlotBadges.forEach((badge) => {
@@ -1967,7 +2006,7 @@ const SolarSystemCanvas = ({
         starCatalog,
         tracked,
         hasTrackedRows,
-        moonOrbitRings,
+        liveTrackedTargetKeys,
         selectedTargetKeySet,
         targetNumberByTargetKey,
         hasTrackedSelection,

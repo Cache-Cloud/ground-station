@@ -1018,6 +1018,7 @@ async def test_build_horizons_solar_system_bodies_keeps_missing_rows_without_ori
     assert solar_meta["cache"]["missing_count"] == 1
     assert len(planets) == 1
     row = planets[0]
+    assert row["target_key"] == "body:pluto"
     assert row["id"] == "pluto"
     assert row["stale"] is True
     assert row["position_xyz_au"] is None
@@ -1071,6 +1072,7 @@ async def test_build_horizons_solar_system_bodies_uses_offline_visual_fallback(m
 
     assert solar_meta["cache"]["offline_count"] == 1
     assert solar_meta["cache"]["missing_count"] == 0
+    assert planets[0]["target_key"] == "body:saturn"
     assert planets[0]["source"] == "offline-analytic-kepler"
     assert planets[0]["approximate"] is True
     assert len(planets[0]["position_xyz_au"]) == 3

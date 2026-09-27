@@ -14,6 +14,7 @@ import {
     FormGroup,
     IconButton,
     InputLabel,
+    LinearProgress,
     MenuItem,
     Select,
     Tooltip,
@@ -285,6 +286,71 @@ export const getCelestialPassStatus = (row, now) => {
     if (startMs <= now && endMs >= now) return 'live';
     if (endMs < now) return 'passed';
     return 'upcoming';
+};
+
+const PROJECTION_PROGRESS_INTERVAL_MS = 5000;
+
+export const calculateProjectionProgress = (row, nowMs) => {
+    const startMs = Number(row?.eventStartMs);
+    const endMs = Number(row?.eventEndMs);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return 0;
+    }
+    const cadenceNowMs = Math.floor(Number(nowMs) / PROJECTION_PROGRESS_INTERVAL_MS)
+        * PROJECTION_PROGRESS_INTERVAL_MS;
+    const percentage = ((cadenceNowMs - startMs) / (endMs - startMs)) * 100;
+    return Math.max(0, Math.min(100, Math.round(percentage)));
+};
+
+export const calculateProjectionRemainingSeconds = (row, nowMs) => {
+    const endMs = Number(row?.eventEndMs);
+    const currentMs = Number(nowMs);
+    if (!Number.isFinite(endMs) || !Number.isFinite(currentMs)) return Number.NaN;
+    return Math.max(0, Math.ceil((endMs - currentMs) / 1000));
+};
+
+const ProjectionProgress = ({ row, nowMs, t }) => {
+    const value = calculateProjectionProgress(row, nowMs);
+    return (
+        <Tooltip title={t('passes.projection_window_progress', { defaultValue: 'Projection window progress' })}>
+            <Box
+                sx={{
+                    position: 'relative',
+                    width: '100%',
+                    height: '100%',
+                    minHeight: 35,
+                    px: 0.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                }}
+            >
+                <LinearProgress
+                    variant="determinate"
+                    value={value}
+                    color="info"
+                    sx={{ width: '100%', height: 14, borderRadius: 1 }}
+                />
+                <Typography
+                    component="span"
+                    variant="caption"
+                    sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'common.white',
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        lineHeight: 1,
+                        textShadow: '0 0 2px rgba(0, 0, 0, 0.9)',
+                    }}
+                >
+                    {value}%
+                </Typography>
+            </Box>
+        </Tooltip>
+    );
 };
 
 const getStatusPriority = (status) => {
@@ -565,7 +631,7 @@ const CelestialPasses = ({
     const currentlyTrackedTargetKey = useMemo(() => buildTrackingTargetKey(trackingState), [trackingState]);
 
     useEffect(() => {
-        const interval = setInterval(() => setNowMs(Date.now()), 1000);
+        const interval = setInterval(() => setNowMs(Date.now()), PROJECTION_PROGRESS_INTERVAL_MS);
         return () => clearInterval(interval);
     }, []);
 
@@ -797,11 +863,7 @@ const CelestialPasses = ({
             sortable: false,
             renderCell: (params) => {
                 if (params.row?.estimatedEnd) {
-                    return (
-                        <Tooltip title={tCelestial('passes.projection_limit')}>
-                            <Typography component="span" variant="caption" sx={{ color: 'text.secondary' }}>—</Typography>
-                        </Tooltip>
-                    );
+                    return <ProjectionProgress row={params.row} nowMs={nowMs} t={tCelestial} />;
                 }
                 return <ProgressFormatter row={params.row} nowMs={nowMs} />;
             },
@@ -811,9 +873,23 @@ const CelestialPasses = ({
             headerName: tCelestial('passes.columns.duration'),
             minWidth: 100,
             valueGetter: (_value, row) => {
-                const duration = formatDuration(row.durationSeconds, tCelestial);
-                return row.estimatedEnd && duration !== '-' ? `≥ ${duration}` : duration;
+                if (row.estimatedEnd) {
+                    return formatDuration(
+                        calculateProjectionRemainingSeconds(row, nowMs),
+                        tCelestial,
+                    );
+                }
+                return formatDuration(row.durationSeconds, tCelestial);
             },
+            renderCell: (params) => params.row?.estimatedEnd ? (
+                <Tooltip title={tCelestial('passes.projection_time_remaining', {
+                    defaultValue: 'Time remaining until projection limit',
+                })}>
+                    <Typography component="span" variant="body2">
+                        {params.value}
+                    </Typography>
+                </Tooltip>
+            ) : params.value,
         },
         {
             field: 'eventStart',

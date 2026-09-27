@@ -1059,6 +1059,7 @@ async def _build_horizons_solar_system_bodies(
                 planets.append(
                     {
                         **offline_payload,
+                        "target_key": target_key,
                         "id": body_id,
                         "name": str(target.get("name") or offline_payload.get("name") or body_id),
                         "body_type": target.get("body_class")
@@ -1083,6 +1084,7 @@ async def _build_horizons_solar_system_bodies(
             # and would create misleading overlap in the solar-system canvas.
             planets.append(
                 {
+                    "target_key": target_key,
                     "id": body_id,
                     "name": str(target.get("name") or body_id),
                     "body_type": target.get("body_class") or "body",
@@ -1103,6 +1105,7 @@ async def _build_horizons_solar_system_bodies(
             continue
 
         row_payload = {
+            "target_key": target_key,
             "id": body_id,
             "name": str(target.get("name") or body_id),
             "body_type": target.get("body_class") or "body",

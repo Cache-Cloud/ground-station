@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { calculateTargetPathViewport } from '../solarsystem-canvas.jsx';
+import {
+  calculatePerpendicularPathCap,
+  calculateTargetPathViewport,
+  collectLiveTrackedTargetKeys,
+  shouldSuppressStaticSolarBody,
+} from '../solarsystem-canvas.jsx';
+
+describe('solar system path endpoint markers', () => {
+  it('builds a centered cap perpendicular to the path start', () => {
+    expect(calculatePerpendicularPathCap(10, 20, 20, 20, 8)).toEqual({
+      fromX: 10,
+      fromY: 16,
+      toX: 10,
+      toY: 24,
+    });
+  });
+});
 
 describe('solar system target path fitting', () => {
   it('zooms short projected paths using their actual bounds', () => {
@@ -28,5 +44,18 @@ describe('solar system target path fitting', () => {
     });
 
     expect(viewport.zoom).toBeCloseTo(216000);
+  });
+});
+
+describe('solar system monitored body ownership', () => {
+  it('suppresses a static marker when the same live target is rendered', () => {
+    const liveKeys = collectLiveTrackedTargetKeys([
+      { target_key: 'body:io', position_xyz_au: [1, 2, 3] },
+      { target_key: 'body:europa', position_xyz_au: null },
+    ]);
+
+    expect(shouldSuppressStaticSolarBody({ target_key: 'body:io' }, liveKeys)).toBe(true);
+    expect(shouldSuppressStaticSolarBody({ target_key: 'body:europa' }, liveKeys)).toBe(false);
+    expect(shouldSuppressStaticSolarBody({ target_key: 'body:io' }, liveKeys, false)).toBe(false);
   });
 });
