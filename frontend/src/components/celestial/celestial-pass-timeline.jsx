@@ -11,6 +11,7 @@ const CelestialPassTimeline = ({
     passes = [],
     loading = false,
     gridEditable = false,
+    projectionPastHours = 0.1,
     projectionFutureHours = 24,
     selectedTargetKey = '',
     onRefresh = null,
@@ -71,17 +72,25 @@ const CelestialPassTimeline = ({
         () => String(selectedTargetKey || '').trim(),
         [selectedTargetKey],
     );
+    const timelinePastHours = Number.isFinite(Number(projectionPastHours))
+        ? Math.max(0, Number(projectionPastHours))
+        : 0.1;
+    const timelineFutureHours = Number.isFinite(Number(projectionFutureHours))
+        ? Math.max(0.01, Number(projectionFutureHours))
+        : 24;
+    const timelineWindowHours = timelinePastHours + timelineFutureHours;
 
     return (
         <PassTimeline
-            timeWindowHours={projectionFutureHours}
+            timeWindowHours={timelineWindowHours}
+            pastOffsetHours={timelinePastHours}
             satelliteName={null}
             passes={normalizedPasses}
             activePass={null}
             gridEditable={gridEditable}
             labelType={false}
             loading={loading}
-            nextPassesHours={projectionFutureHours}
+            nextPassesHours={timelineWindowHours}
             onRefresh={onRefresh}
             showHoverElevation={false}
             highlightActivePasses={true}

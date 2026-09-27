@@ -245,6 +245,10 @@ def test_target_key_migration_rewrites_all_persisted_owners(monkeypatch, tmp_pat
         monitored_key = connection.execute(
             "SELECT target_key FROM monitored_celestial WHERE id = 'monitored-1'"
         ).fetchone()[0]
+        monitored_projection = connection.execute(
+            "SELECT projection_past_hours, projection_future_hours, projection_step_minutes "
+            "FROM monitored_celestial WHERE id = 'monitored-1'"
+        ).fetchone()
         transmitter_keys = dict(
             connection.execute(
                 "SELECT id, target_key FROM transmitters WHERE target_key IS NOT NULL"
@@ -266,6 +270,7 @@ def test_target_key_migration_rewrites_all_persisted_owners(monkeypatch, tmp_pat
     }.issubset(target_ids)
     assert snapshot_target == "mission:voyager_1"
     assert monitored_key == "mission:exomars"
+    assert monitored_projection == (1, 24, 60)
     assert transmitter_keys == {
         "tx-legacy": "mission:legacy_mission",
         "tx-voyager": "mission:voyager_1",

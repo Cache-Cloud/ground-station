@@ -51,8 +51,8 @@ const findNearestOptionIndex = (options, value) => {
     ), 0);
 };
 
-const pastIndexToPosition = (optionIndex) => PAST_HOUR_OPTIONS.length - 1 - optionIndex;
-const pastPositionToIndex = (position) => PAST_HOUR_OPTIONS.length - 1 - Number(position);
+const pastIndexToPosition = (optionIndex, options) => options.length - 1 - optionIndex;
+const pastPositionToIndex = (position, options) => options.length - 1 - Number(position);
 
 const sliderSx = {
     position: 'absolute',
@@ -104,32 +104,38 @@ const ProjectionSelector = ({
     disabled = false,
     onPastHoursChange,
     onFutureHoursChange,
+    pastOptions = PAST_HOUR_OPTIONS,
+    futureOptions = FUTURE_HOUR_OPTIONS,
 }) => {
+    const resolvedPastOptions = pastOptions.length > 1 ? pastOptions : PAST_HOUR_OPTIONS;
+    const resolvedFutureOptions = futureOptions.length > 1 ? futureOptions : FUTURE_HOUR_OPTIONS;
     const pastOptionIndex = useMemo(
-        () => findNearestOptionIndex(PAST_HOUR_OPTIONS, pastHours),
-        [pastHours],
+        () => findNearestOptionIndex(resolvedPastOptions, pastHours),
+        [pastHours, resolvedPastOptions],
     );
     const futureOptionIndex = useMemo(
-        () => findNearestOptionIndex(FUTURE_HOUR_OPTIONS, futureHours),
-        [futureHours],
+        () => findNearestOptionIndex(resolvedFutureOptions, futureHours),
+        [futureHours, resolvedFutureOptions],
     );
-    const [pastPosition, setPastPosition] = useState(pastIndexToPosition(pastOptionIndex));
+    const [pastPosition, setPastPosition] = useState(
+        pastIndexToPosition(pastOptionIndex, resolvedPastOptions),
+    );
     const [futurePosition, setFuturePosition] = useState(futureOptionIndex);
 
     useEffect(() => {
-        setPastPosition(pastIndexToPosition(pastOptionIndex));
-    }, [pastOptionIndex]);
+        setPastPosition(pastIndexToPosition(pastOptionIndex, resolvedPastOptions));
+    }, [pastOptionIndex, resolvedPastOptions]);
 
     useEffect(() => {
         setFuturePosition(futureOptionIndex);
     }, [futureOptionIndex]);
 
-    const selectedPastOption = PAST_HOUR_OPTIONS[pastPositionToIndex(pastPosition)];
-    const selectedFutureOption = FUTURE_HOUR_OPTIONS[futurePosition];
+    const selectedPastOption = resolvedPastOptions[pastPositionToIndex(pastPosition, resolvedPastOptions)];
+    const selectedFutureOption = resolvedFutureOptions[futurePosition];
     const pastHandleX = TRACK_START
-        + (pastPosition / (PAST_HOUR_OPTIONS.length - 1)) * (PAST_TRACK_END - TRACK_START);
+        + (pastPosition / (resolvedPastOptions.length - 1)) * (PAST_TRACK_END - TRACK_START);
     const futureHandleX = FUTURE_TRACK_START
-        + (futurePosition / (FUTURE_HOUR_OPTIONS.length - 1)) * (TRACK_END - FUTURE_TRACK_START);
+        + (futurePosition / (resolvedFutureOptions.length - 1)) * (TRACK_END - FUTURE_TRACK_START);
     const labelSx = {
         fontSize: '0.6rem',
         fontWeight: 700,
@@ -244,15 +250,15 @@ const ProjectionSelector = ({
                     opacity="0.82"
                     vectorEffect="non-scaling-stroke"
                 />
-                {PAST_HOUR_OPTIONS.map((option, index) => {
-                    const position = pastIndexToPosition(index);
+                {resolvedPastOptions.map((option, index) => {
+                    const position = pastIndexToPosition(index, resolvedPastOptions);
                     const x = TRACK_START
-                        + (position / (PAST_HOUR_OPTIONS.length - 1)) * (PAST_TRACK_END - TRACK_START);
+                        + (position / (resolvedPastOptions.length - 1)) * (PAST_TRACK_END - TRACK_START);
                     return <circle key={`past-tick-${option.value}`} cx={asPercent(x)} cy={TRACK_Y} r="1.4" fill="currentColor" opacity="0.42" />;
                 })}
-                {FUTURE_HOUR_OPTIONS.map((option, index) => {
+                {resolvedFutureOptions.map((option, index) => {
                     const x = FUTURE_TRACK_START
-                        + (index / (FUTURE_HOUR_OPTIONS.length - 1)) * (TRACK_END - FUTURE_TRACK_START);
+                        + (index / (resolvedFutureOptions.length - 1)) * (TRACK_END - FUTURE_TRACK_START);
                     return <circle key={`future-tick-${option.value}`} cx={asPercent(x)} cy={TRACK_Y} r="1.4" fill="currentColor" opacity="0.42" />;
                 })}
                 <circle cx={asPercent(NOW_X)} cy={TRACK_Y} r="3.5" fill="currentColor" opacity="0.9" />
@@ -268,11 +274,11 @@ const ProjectionSelector = ({
                     pointerEvents: 'none',
                 }}
             >
-                {PAST_HOUR_OPTIONS.map((option, index) => {
-                    const position = pastIndexToPosition(index);
+                {resolvedPastOptions.map((option, index) => {
+                    const position = pastIndexToPosition(index, resolvedPastOptions);
                     const x = TRACK_START
-                        + (position / (PAST_HOUR_OPTIONS.length - 1)) * (PAST_TRACK_END - TRACK_START);
-                    const selected = index === pastPositionToIndex(pastPosition);
+                        + (position / (resolvedPastOptions.length - 1)) * (PAST_TRACK_END - TRACK_START);
+                    const selected = index === pastPositionToIndex(pastPosition, resolvedPastOptions);
                     return (
                         <Typography
                             component="span"
@@ -294,9 +300,9 @@ const ProjectionSelector = ({
                         </Typography>
                     );
                 })}
-                {FUTURE_HOUR_OPTIONS.map((option, index) => {
+                {resolvedFutureOptions.map((option, index) => {
                     const x = FUTURE_TRACK_START
-                        + (index / (FUTURE_HOUR_OPTIONS.length - 1)) * (TRACK_END - FUTURE_TRACK_START);
+                        + (index / (resolvedFutureOptions.length - 1)) * (TRACK_END - FUTURE_TRACK_START);
                     const selected = index === futurePosition;
                     return (
                         <Typography
@@ -324,30 +330,34 @@ const ProjectionSelector = ({
             <Slider
                 value={pastPosition}
                 min={0}
-                max={PAST_HOUR_OPTIONS.length - 1}
+                max={resolvedPastOptions.length - 1}
                 step={1}
                 track={false}
                 disabled={disabled}
                 aria-label={`${pastLabel} projection`}
-                getAriaValueText={(position) => PAST_HOUR_OPTIONS[pastPositionToIndex(position)].label}
+                getAriaValueText={(position) => (
+                    resolvedPastOptions[pastPositionToIndex(position, resolvedPastOptions)].label
+                )}
                 onChange={(_event, position) => setPastPosition(Number(position))}
                 onChangeCommitted={(_event, position) => {
-                    onPastHoursChange?.(PAST_HOUR_OPTIONS[pastPositionToIndex(position)].value);
+                    onPastHoursChange?.(
+                        resolvedPastOptions[pastPositionToIndex(position, resolvedPastOptions)].value,
+                    );
                 }}
                 sx={{ ...sliderSx, left: asPercent(TRACK_START) }}
             />
             <Slider
                 value={futurePosition}
                 min={0}
-                max={FUTURE_HOUR_OPTIONS.length - 1}
+                max={resolvedFutureOptions.length - 1}
                 step={1}
                 track={false}
                 disabled={disabled}
                 aria-label={`${futureLabel} projection`}
-                getAriaValueText={(position) => FUTURE_HOUR_OPTIONS[Number(position)].label}
+                getAriaValueText={(position) => resolvedFutureOptions[Number(position)].label}
                 onChange={(_event, position) => setFuturePosition(Number(position))}
                 onChangeCommitted={(_event, position) => {
-                    onFutureHoursChange?.(FUTURE_HOUR_OPTIONS[Number(position)].value);
+                    onFutureHoursChange?.(resolvedFutureOptions[Number(position)].value);
                 }}
                 sx={{ ...sliderSx, left: asPercent(FUTURE_TRACK_START) }}
             />

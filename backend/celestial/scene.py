@@ -223,6 +223,16 @@ def _normalize_targets(data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         if isinstance(item, dict):
             color = item.get("color")
+            projection_obj = item.get("projection")
+            projection = projection_obj if isinstance(projection_obj, dict) else item
+            target_projection = {
+                "past_hours": projection.get("past_hours", projection.get("pastHours")),
+                "future_hours": projection.get("future_hours", projection.get("futureHours")),
+                "step_minutes": projection.get("step_minutes", projection.get("stepMinutes")),
+            }
+            target_projection = {
+                key: value for key, value in target_projection.items() if value is not None
+            }
             target_type = (
                 str(item.get("target_type") or item.get("targetType") or "mission").strip().lower()
             )
@@ -254,6 +264,7 @@ def _normalize_targets(data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     or _target_key_from_parts("body", body_id=body_id),
                 )
                 if body_payload:
+                    body_payload.update(target_projection)
                     normalized.append(body_payload)
                 continue
 
@@ -270,6 +281,7 @@ def _normalize_targets(data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     "horizons_command": command,
                     "name": name,
                     "color": color,
+                    **target_projection,
                 }
             )
 
@@ -443,20 +455,9 @@ def _compute_adaptive_step_minutes(
     max_samples: int,
 ) -> int:
     span_hours = max(1, int(past_hours) + int(future_hours))
-
-    # Increase minimum resolution progressively as window span grows.
-    if span_hours <= 72:
-        min_step_for_span = 30
-    elif span_hours <= 14 * 24:
-        min_step_for_span = 60
-    elif span_hours <= 60 * 24:
-        min_step_for_span = 180
-    elif span_hours <= 180 * 24:
-        min_step_for_span = 360
-    else:
-        min_step_for_span = 720
-
-    effective_step = max(int(requested_step_minutes), min_step_for_span)
+    # Honor the target's requested density unless it would exceed the hard
+    # sample cap. This makes the per-target interval an actual precision choice.
+    effective_step = max(5, int(requested_step_minutes))
 
     # Enforce hard sample cap per target by raising step if needed.
     span_minutes = span_hours * 60
@@ -705,6 +706,47 @@ def _refresh_payload_dynamics_at_epoch(
     )
     if derived_velocity:
         payload["velocity_xyz_au_per_day"] = derived_velocity
+
+
+def _trim_payload_to_projection_window(
+    *,
+    payload: Dict[str, Any],
+    epoch: datetime,
+    past_hours: int,
+    future_hours: int,
+) -> bool:
+    """Trim a wider cached trajectory to the exact requested window."""
+    samples = _extract_orbit_samples(
+        payload,
+        epoch_fallback=epoch,
+        past_hours=past_hours,
+        future_hours=future_hours,
+    )
+    if len(samples) < 2:
+        return False
+
+    ordered = sorted(samples, key=lambda item: item[0])
+    window_start = epoch - timedelta(hours=int(past_hours))
+    window_end = epoch + timedelta(hours=int(future_hours))
+    start_position = _interpolate_position_from_samples(ordered, window_start)
+    end_position = _interpolate_position_from_samples(ordered, window_end)
+    if start_position is None or end_position is None:
+        return False
+
+    # Interpolated boundary samples prevent a coarse cached interval from
+    # visibly shortening or extending the requested path.
+    trimmed = [(window_start, start_position)]
+    trimmed.extend(
+        (sample_time, position)
+        for sample_time, position in ordered
+        if window_start < sample_time < window_end
+    )
+    trimmed.append((window_end, end_position))
+    payload["orbit_sample_times_utc"] = [
+        sample_time.astimezone(timezone.utc).isoformat() for sample_time, _position in trimmed
+    ]
+    payload["orbit_samples_xyz_au"] = [position for _sample_time, position in trimmed]
+    return True
 
 
 def _payload_covers_projection_window(
@@ -1818,18 +1860,30 @@ async def _get_vectors_snapshot(
         )
         if cached and isinstance(cached.get("payload"), dict):
             payload = dict(cached["payload"])
-            _refresh_payload_dynamics_at_epoch(
-                payload=payload,
+            if _payload_covers_projection_window(
+                payload,
                 epoch=epoch,
                 past_hours=past_hours,
                 future_hours=future_hours,
-            )
-            return {
-                "payload": payload,
-                "cache": "db-hit",
-                "stale": False,
-                "error": None,
-            }
+            ):
+                _refresh_payload_dynamics_at_epoch(
+                    payload=payload,
+                    epoch=epoch,
+                    past_hours=past_hours,
+                    future_hours=future_hours,
+                )
+                _trim_payload_to_projection_window(
+                    payload=payload,
+                    epoch=epoch,
+                    past_hours=past_hours,
+                    future_hours=future_hours,
+                )
+                return {
+                    "payload": payload,
+                    "cache": "db-hit",
+                    "stale": False,
+                    "error": None,
+                }
         # The scene loop runs more frequently than Horizons fetches. If the
         # exact epoch bucket is missing, use the newest cached snapshot for the
         # same projection and recompute the current vector from its samples.
@@ -1844,18 +1898,30 @@ async def _get_vectors_snapshot(
         )
         if latest_cached and isinstance(latest_cached.get("payload"), dict):
             payload = dict(latest_cached["payload"])
-            _refresh_payload_dynamics_at_epoch(
-                payload=payload,
+            if _payload_covers_projection_window(
+                payload,
                 epoch=epoch,
                 past_hours=past_hours,
                 future_hours=future_hours,
-            )
-            return {
-                "payload": payload,
-                "cache": "db-latest-hit",
-                "stale": False,
-                "error": None,
-            }
+            ):
+                _refresh_payload_dynamics_at_epoch(
+                    payload=payload,
+                    epoch=epoch,
+                    past_hours=past_hours,
+                    future_hours=future_hours,
+                )
+                _trim_payload_to_projection_window(
+                    payload=payload,
+                    epoch=epoch,
+                    past_hours=past_hours,
+                    future_hours=future_hours,
+                )
+                return {
+                    "payload": payload,
+                    "cache": "db-latest-hit",
+                    "stale": False,
+                    "error": None,
+                }
         # A differently keyed snapshot is reusable for a trajectory only when
         # its window is at least as wide and its samples are at least as dense.
         # A shorter snapshot may still provide the live marker, but it must not
@@ -1871,6 +1937,11 @@ async def _get_vectors_snapshot(
                 past_hours=past_hours,
                 future_hours=future_hours,
                 step_minutes=step_minutes,
+            ) and _payload_covers_projection_window(
+                payload,
+                epoch=epoch,
+                past_hours=past_hours,
+                future_hours=future_hours,
             )
             current_position_usable = _payload_covers_current_epoch(payload, epoch=epoch)
             if projection_is_compatible or (not allow_network_fetch and current_position_usable):
@@ -1880,6 +1951,13 @@ async def _get_vectors_snapshot(
                     past_hours=past_hours,
                     future_hours=future_hours,
                 )
+                if projection_is_compatible:
+                    _trim_payload_to_projection_window(
+                        payload=payload,
+                        epoch=epoch,
+                        past_hours=past_hours,
+                        future_hours=future_hours,
+                    )
                 return {
                     "payload": payload,
                     "cache": (
@@ -2052,6 +2130,11 @@ async def _fetch_celestial_with_cache(
                 body_payload["source"] = body_payload.get("source") or "horizons"
                 body_payload["stale"] = bool(body_payload.get("stale"))
                 body_payload["cache"] = body_payload.get("cache") or "scene-base-hit"
+                body_payload["orbit_sampling"] = {
+                    "past_hours": past_hours,
+                    "future_hours": future_hours,
+                    "step_minutes": step_minutes,
+                }
                 _refresh_payload_dynamics_at_epoch(
                     payload=body_payload,
                     epoch=epoch,
@@ -2132,6 +2215,11 @@ async def _fetch_celestial_with_cache(
                     "current_position_usable", True
                 )
                 row_payload["cache"] = snapshot.get("cache")
+                row_payload["orbit_sampling"] = {
+                    "past_hours": past_hours,
+                    "future_hours": future_hours,
+                    "step_minutes": step_minutes,
+                }
                 if snapshot.get("error"):
                     row_payload["error"] = snapshot.get("error")
                 if snapshot.get("error_code"):
@@ -2223,6 +2311,11 @@ async def _fetch_celestial_with_cache(
             cached_payload["color"] = color
             cached_payload["stale"] = bool(cached_payload.get("stale"))
             cached_payload["cache"] = "computed-hit"
+            cached_payload["orbit_sampling"] = {
+                "past_hours": past_hours,
+                "future_hours": future_hours,
+                "step_minutes": step_minutes,
+            }
             rows.append(cached_payload)
             if per_row_callback:
                 await per_row_callback(dict(cached_payload), index + 1, total_targets)
@@ -2255,6 +2348,11 @@ async def _fetch_celestial_with_cache(
             row_payload["calculation_usable"] = snapshot.get("calculation_usable", True)
             row_payload["current_position_usable"] = snapshot.get("current_position_usable", True)
             row_payload["cache"] = snapshot.get("cache")
+            row_payload["orbit_sampling"] = {
+                "past_hours": past_hours,
+                "future_hours": future_hours,
+                "step_minutes": step_minutes,
+            }
             if snapshot.get("error"):
                 row_payload["error"] = snapshot.get("error")
             if snapshot.get("error_code"):
@@ -2477,7 +2575,7 @@ async def build_solar_system_scene(
     }
 
 
-async def build_celestial_tracks(
+async def _build_celestial_tracks_single_projection(
     data: Optional[Dict[str, Any]],
     logger,
     force_refresh: bool = False,
@@ -2485,6 +2583,7 @@ async def build_celestial_tracks(
     per_row_callback: Optional[Any] = None,
     register_targets: bool = True,
     use_computed_cache: bool = True,
+    force_refresh_earth: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Build only Horizons-backed tracked celestial objects."""
     epoch = _parse_epoch(data)
@@ -2500,7 +2599,7 @@ async def build_celestial_tracks(
         future_hours=future_hours,
         step_minutes=step_minutes,
         observer_location=observer_location,
-        force_refresh=force_refresh,
+        force_refresh=force_refresh if force_refresh_earth is None else force_refresh_earth,
         allow_network_fetch=allow_network_fetch,
         logger=logger,
         retry_horizons=retry_horizons,
@@ -2585,6 +2684,165 @@ async def build_celestial_tracks(
     }
 
 
+async def build_celestial_tracks(
+    data: Optional[Dict[str, Any]],
+    logger,
+    force_refresh: bool = False,
+    allow_network_fetch: bool = True,
+    per_row_callback: Optional[Any] = None,
+    register_targets: bool = True,
+    use_computed_cache: bool = True,
+) -> Dict[str, Any]:
+    """Build tracked objects, honoring optional projection settings on each target."""
+    targets = _normalize_targets(data)
+    has_target_projections = any(
+        any(target.get(name) is not None for name in ("past_hours", "future_hours", "step_minutes"))
+        for target in targets
+    )
+    if not has_target_projections:
+        return await _build_celestial_tracks_single_projection(
+            data=data,
+            logger=logger,
+            force_refresh=force_refresh,
+            allow_network_fetch=allow_network_fetch,
+            per_row_callback=per_row_callback,
+            register_targets=register_targets,
+            use_computed_cache=use_computed_cache,
+        )
+
+    fallback_past, fallback_future, fallback_step = _parse_projection_options(data)
+    groups: Dict[Tuple[int, int, int], List[Dict[str, Any]]] = {}
+    projection_by_target: Dict[str, Dict[str, int]] = {}
+    for target in targets:
+        projection_payload = {
+            "past_hours": target.get("past_hours", fallback_past),
+            "future_hours": target.get("future_hours", fallback_future),
+            "step_minutes": target.get("step_minutes", fallback_step),
+        }
+        projection = _parse_projection_options(projection_payload)
+        groups.setdefault(projection, []).append(target)
+        target_key = str(target.get("target_key") or "").strip()
+        if target_key:
+            projection_by_target[target_key] = {
+                "past_hours": projection[0],
+                "future_hours": projection[1],
+                "step_minutes": projection[2],
+            }
+
+    if register_targets:
+        await _ensure_scene_targets_registered(targets, logger)
+
+    # Fetch the broadest, densest projection first. Its Earth snapshot can then
+    # satisfy narrower groups through the compatible-snapshot cache path.
+    ordered_groups = sorted(
+        groups.items(),
+        key=lambda item: (item[0][0] + item[0][1], -item[0][2]),
+        reverse=True,
+    )
+    combined_rows: List[Dict[str, Any]] = []
+    combined_passes: List[Dict[str, Any]] = []
+    combined_payload: Optional[Dict[str, Any]] = None
+    processed_targets = 0
+    total_targets = len(targets)
+
+    for group_index, (
+        (past_hours, future_hours, step_minutes),
+        group_targets,
+    ) in enumerate(ordered_groups):
+        group_data = dict(data) if isinstance(data, dict) else {}
+        group_data.update(
+            {
+                "past_hours": past_hours,
+                "future_hours": future_hours,
+                "step_minutes": step_minutes,
+                "celestial": group_targets,
+            }
+        )
+
+        group_callback = None
+        if per_row_callback:
+
+            async def emit_group_row(
+                row: Dict[str, Any],
+                index: int,
+                _group_total: int,
+                *,
+                offset: int = processed_targets,
+            ) -> None:
+                await per_row_callback(row, offset + index, total_targets)
+
+            group_callback = emit_group_row
+
+        result = await _build_celestial_tracks_single_projection(
+            data=group_data,
+            logger=logger,
+            force_refresh=force_refresh,
+            allow_network_fetch=allow_network_fetch,
+            per_row_callback=group_callback,
+            register_targets=False,
+            use_computed_cache=use_computed_cache,
+            # One fresh Earth trajectory is enough. Later groups reuse it when
+            # compatible while their own target vectors still force-refresh.
+            force_refresh_earth=force_refresh if group_index == 0 else False,
+        )
+        if not result.get("success"):
+            return result
+
+        result_data_obj = result.get("data")
+        result_data = result_data_obj if isinstance(result_data_obj, dict) else {}
+        if combined_payload is None:
+            combined_payload = dict(result_data)
+        rows_obj = result_data.get("celestial")
+        passes_obj = result_data.get("celestial_passes")
+        combined_rows.extend(rows_obj if isinstance(rows_obj, list) else [])
+        combined_passes.extend(passes_obj if isinstance(passes_obj, list) else [])
+        processed_targets += len(group_targets)
+
+    if combined_payload is None:
+        return await _build_celestial_tracks_single_projection(
+            data=data,
+            logger=logger,
+            force_refresh=force_refresh,
+            allow_network_fetch=allow_network_fetch,
+            per_row_callback=per_row_callback,
+            register_targets=False,
+            use_computed_cache=use_computed_cache,
+        )
+
+    target_order = {
+        str(target.get("target_key") or "").strip(): index for index, target in enumerate(targets)
+    }
+    combined_rows.sort(
+        key=lambda row: target_order.get(str(row.get("target_key") or "").strip(), len(targets))
+    )
+    combined_passes.sort(key=lambda item: str(item.get("event_start") or ""))
+    combined_payload["celestial"] = combined_rows
+    combined_payload["celestial_passes"] = combined_passes
+
+    meta_obj = combined_payload.get("meta")
+    meta = dict(meta_obj) if isinstance(meta_obj, dict) else {}
+    meta["projection"] = {
+        "past_hours": max(projection[0] for projection in groups),
+        "future_hours": max(projection[1] for projection in groups),
+        "step_minutes": min(projection[2] for projection in groups),
+    }
+    meta["projection_by_target"] = projection_by_target
+    horizons_obj = meta.get("horizons")
+    horizons = dict(horizons_obj) if isinstance(horizons_obj, dict) else {}
+    horizons["stale_count"] = sum(1 for row in combined_rows if row.get("stale"))
+    horizons["missing_count"] = sum(
+        1 for row in combined_rows if not isinstance(row.get("position_xyz_au"), list)
+    )
+    meta["horizons"] = horizons
+    passes_meta_obj = meta.get("passes")
+    passes_meta = dict(passes_meta_obj) if isinstance(passes_meta_obj, dict) else {}
+    passes_meta["count"] = len(combined_passes)
+    meta["passes"] = passes_meta
+    combined_payload["meta"] = meta
+
+    return {"success": True, "data": combined_payload}
+
+
 async def _refresh_celestial_vector_snapshots_cache(
     logger: Any,
     *,
@@ -2632,15 +2890,37 @@ async def _refresh_celestial_vector_snapshots_cache(
 
         rows_obj = monitored_result.get("data")
         rows: List[Dict[str, Any]] = rows_obj if isinstance(rows_obj, list) else []
-        mission_targets: List[Dict[str, Any]] = []
+        monitored_targets: List[Dict[str, Any]] = []
         for row in rows:
             target_type = str(row.get("target_type") or "mission").strip().lower()
-            if target_type != "mission":
+            target_projection = _parse_projection_options(
+                {
+                    "past_hours": row.get("projection_past_hours"),
+                    "future_hours": row.get("projection_future_hours"),
+                    "step_minutes": row.get("projection_step_minutes"),
+                }
+            )
+            if target_type == "body":
+                body_id = str(row.get("body_id") or "").strip().lower()
+                body_target = _build_body_target_payload(
+                    body_id=body_id,
+                    name=str(row.get("display_name") or body_id).strip(),
+                    target_key=_target_key_from_parts("body", body_id=body_id),
+                )
+                if body_target:
+                    body_target.update(
+                        {
+                            "past_hours": target_projection[0],
+                            "future_hours": target_projection[1],
+                            "step_minutes": target_projection[2],
+                        }
+                    )
+                    monitored_targets.append(body_target)
                 continue
             command = str(row.get("command") or "").strip()
             if not command:
                 continue
-            mission_targets.append(
+            monitored_targets.append(
                 {
                     "target_type": "mission",
                     "target_key": _target_key_from_parts("mission", command=command),
@@ -2648,18 +2928,38 @@ async def _refresh_celestial_vector_snapshots_cache(
                     "command": command,
                     "horizons_command": command,
                     "always_in_scene": False,
+                    "past_hours": target_projection[0],
+                    "future_hours": target_projection[1],
+                    "step_minutes": target_projection[2],
                 }
             )
 
         builtin_targets = _build_builtin_body_targets()
-        all_targets_by_key: Dict[str, Dict[str, Any]] = {}
-        for target in builtin_targets + mission_targets:
+        all_targets_by_projection: Dict[Tuple[str, int, int, int], Dict[str, Any]] = {}
+        for target in builtin_targets + monitored_targets:
             target_key = str(target.get("target_key") or "").strip()
             if not target_key:
                 continue
-            all_targets_by_key[target_key] = target
+            target_past_hours, target_future_hours, target_step_minutes = (
+                _parse_projection_options(target)
+                if any(
+                    target.get(name) is not None
+                    for name in ("past_hours", "future_hours", "step_minutes")
+                )
+                else (past_hours, future_hours, step_minutes)
+            )
+            target["past_hours"] = target_past_hours
+            target["future_hours"] = target_future_hours
+            target["step_minutes"] = target_step_minutes
+            projection_key = (
+                target_key,
+                target_past_hours,
+                target_future_hours,
+                target_step_minutes,
+            )
+            all_targets_by_projection[projection_key] = target
 
-        all_targets = list(all_targets_by_key.values())
+        all_targets = list(all_targets_by_projection.values())
         if not all_targets:
             return {
                 "success": True,
@@ -2746,9 +3046,9 @@ async def _refresh_celestial_vector_snapshots_cache(
                 target_key=target_key,
                 command=command,
                 epoch=epoch,
-                past_hours=past_hours,
-                future_hours=future_hours,
-                step_minutes=step_minutes,
+                past_hours=int(target["past_hours"]),
+                future_hours=int(target["future_hours"]),
+                step_minutes=int(target["step_minutes"]),
                 observer_location=None,
                 force_refresh=False,
                 logger=logger,
@@ -2786,7 +3086,10 @@ async def _refresh_celestial_vector_snapshots_cache(
             "count": len(all_targets),
             "refreshed": refreshed,
             "failed": failed,
-            "mission_count": len(mission_targets),
+            "mission_count": sum(
+                1 for target in monitored_targets if target.get("target_type") == "mission"
+            ),
+            "monitored_count": len(monitored_targets),
             "always_in_scene_count": len(builtin_targets),
             "errors": errors,
             "projection": {

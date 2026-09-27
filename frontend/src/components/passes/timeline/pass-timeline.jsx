@@ -217,6 +217,7 @@ const PassTimelineComponent = ({
   const lastRequestedTimeWindowHoursRef = useRef(
     nextPassesHours !== null ? Number(nextPassesHours) : Number(initialTimeWindowHours),
   );
+  const lastRequestedPastOffsetHoursRef = useRef(Number(pastOffsetHours));
 
   // Keep internal timeline window state in sync with parent period changes.
   // This is required for celestial period switches (e.g. 6m -> 7d), while preserving
@@ -225,6 +226,7 @@ const PassTimelineComponent = ({
     if (forceTimeWindowStart && forceTimeWindowEnd) {
       // Force a re-sync when we later exit forced-window mode.
       lastRequestedTimeWindowHoursRef.current = Number.NaN;
+      lastRequestedPastOffsetHoursRef.current = Number.NaN;
       return;
     }
 
@@ -236,10 +238,16 @@ const PassTimelineComponent = ({
     }
 
     const previousWindowHours = Number(lastRequestedTimeWindowHoursRef.current);
-    if (Math.abs(previousWindowHours - requestedWindowHours) < 1e-6) {
+    const requestedPastOffsetHours = Number(pastOffsetHours);
+    const previousPastOffsetHours = Number(lastRequestedPastOffsetHoursRef.current);
+    if (
+      Math.abs(previousWindowHours - requestedWindowHours) < 1e-6
+      && Math.abs(previousPastOffsetHours - requestedPastOffsetHours) < 1e-6
+    ) {
       return;
     }
     lastRequestedTimeWindowHoursRef.current = requestedWindowHours;
+    lastRequestedPastOffsetHoursRef.current = requestedPastOffsetHours;
 
     const now = Date.now();
     const nextStart = now - (pastOffsetHours * 60 * 60 * 1000);

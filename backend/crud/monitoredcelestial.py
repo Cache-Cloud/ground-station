@@ -42,6 +42,13 @@ DEFAULT_CELESTIAL_COLOR_PALETTE = [
     "#3A86FF",
     "#8338EC",
 ]
+DEFAULT_PROJECTION_PAST_HOURS = 1
+DEFAULT_PROJECTION_FUTURE_HOURS = 24
+DEFAULT_PROJECTION_STEP_MINUTES = 60
+MAX_PROJECTION_PAST_HOURS = 168
+MAX_PROJECTION_FUTURE_HOURS = 720
+MIN_PROJECTION_STEP_MINUTES = 5
+MAX_PROJECTION_STEP_MINUTES = 24 * 60
 
 
 def _normalize_color(value: Any) -> Optional[str]:
@@ -67,6 +74,25 @@ def _normalize_datetime(value: Any) -> Any:
     if not normalized:
         return None
     return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+
+
+def _projection_value(
+    data: Dict[str, Any],
+    snake_name: str,
+    camel_name: str,
+    *,
+    fallback: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    value = data.get(snake_name, data.get(camel_name, fallback))
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{snake_name} must be an integer") from exc
+    if parsed < minimum or parsed > maximum:
+        raise ValueError(f"{snake_name} must be between {minimum} and {maximum}")
+    return parsed
 
 
 def _hsl_to_hex(hue: float, saturation: float, lightness: float) -> str:
@@ -116,6 +142,15 @@ def _normalize_entry(row: dict) -> dict:
         "body_id": body_id or "",
         "color": row.get("color"),
         "enabled": bool(row.get("enabled", True)),
+        "projection_past_hours": int(
+            row.get("projection_past_hours") or DEFAULT_PROJECTION_PAST_HOURS
+        ),
+        "projection_future_hours": int(
+            row.get("projection_future_hours") or DEFAULT_PROJECTION_FUTURE_HOURS
+        ),
+        "projection_step_minutes": int(
+            row.get("projection_step_minutes") or DEFAULT_PROJECTION_STEP_MINUTES
+        ),
         "last_refresh_at": row.get("last_refresh_at"),
         "last_error": row.get("last_error"),
         "created_at": row.get("created_at"),
@@ -238,6 +273,33 @@ async def add_monitored_celestial(session: AsyncSession, data: dict) -> dict:
         color_seed_key = command if target_type == "mission" else body_id
         if not color:
             color = await _pick_color_for_new_target(session, color_seed_key)
+        try:
+            projection_past_hours = _projection_value(
+                data,
+                "projection_past_hours",
+                "projectionPastHours",
+                fallback=DEFAULT_PROJECTION_PAST_HOURS,
+                minimum=1,
+                maximum=MAX_PROJECTION_PAST_HOURS,
+            )
+            projection_future_hours = _projection_value(
+                data,
+                "projection_future_hours",
+                "projectionFutureHours",
+                fallback=DEFAULT_PROJECTION_FUTURE_HOURS,
+                minimum=1,
+                maximum=MAX_PROJECTION_FUTURE_HOURS,
+            )
+            projection_step_minutes = _projection_value(
+                data,
+                "projection_step_minutes",
+                "projectionStepMinutes",
+                fallback=DEFAULT_PROJECTION_STEP_MINUTES,
+                minimum=MIN_PROJECTION_STEP_MINUTES,
+                maximum=MAX_PROJECTION_STEP_MINUTES,
+            )
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
 
         payload = {
             "id": target_id,
@@ -248,6 +310,9 @@ async def add_monitored_celestial(session: AsyncSession, data: dict) -> dict:
             "body_id": body_id if target_type == "body" else None,
             "color": color,
             "enabled": bool(data.get("enabled", True)),
+            "projection_past_hours": projection_past_hours,
+            "projection_future_hours": projection_future_hours,
+            "projection_step_minutes": projection_step_minutes,
             "last_refresh_at": _normalize_datetime(data.get("last_refresh_at")),
             "last_error": data.get("last_error"),
             "created_at": datetime.now(timezone.utc),
@@ -342,6 +407,43 @@ async def edit_monitored_celestial(session: AsyncSession, data: dict) -> dict:
                 return {"success": False, "error": str(exc)}
         if "enabled" in data:
             update_data["enabled"] = bool(data.get("enabled"))
+        projection_fields = (
+            (
+                "projection_past_hours",
+                "projectionPastHours",
+                DEFAULT_PROJECTION_PAST_HOURS,
+                1,
+                MAX_PROJECTION_PAST_HOURS,
+            ),
+            (
+                "projection_future_hours",
+                "projectionFutureHours",
+                DEFAULT_PROJECTION_FUTURE_HOURS,
+                1,
+                MAX_PROJECTION_FUTURE_HOURS,
+            ),
+            (
+                "projection_step_minutes",
+                "projectionStepMinutes",
+                DEFAULT_PROJECTION_STEP_MINUTES,
+                MIN_PROJECTION_STEP_MINUTES,
+                MAX_PROJECTION_STEP_MINUTES,
+            ),
+        )
+        for snake_name, camel_name, fallback, minimum, maximum in projection_fields:
+            if snake_name not in data and camel_name not in data:
+                continue
+            try:
+                update_data[snake_name] = _projection_value(
+                    data,
+                    snake_name,
+                    camel_name,
+                    fallback=fallback,
+                    minimum=minimum,
+                    maximum=maximum,
+                )
+            except ValueError as exc:
+                return {"success": False, "error": str(exc)}
         if "last_refresh_at" in data:
             update_data["last_refresh_at"] = _normalize_datetime(data.get("last_refresh_at"))
         if "last_error" in data:

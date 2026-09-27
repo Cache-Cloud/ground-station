@@ -8,17 +8,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 import crud.monitoredcelestial as crud_monitored
-import crud.preferences as crud_preferences
 import observations.events as obs_events
-from celestial.scene import (
-    MAX_CELESTIAL_FUTURE_HOURS,
-    MAX_CELESTIAL_PAST_HOURS,
-    SCHEDULED_SYNC_FUTURE_HOURS,
-    SCHEDULED_SYNC_PAST_HOURS,
-    SCHEDULED_SYNC_STEP_MINUTES,
-    build_celestial_tracks,
-    refresh_celestial_vector_snapshots_cache,
-)
+from celestial.scene import build_celestial_tracks, refresh_celestial_vector_snapshots_cache
 from celestial.status import emit_celestial_ephemeris_status
 from common import auth as authsvc
 from common.arguments import arguments
@@ -37,7 +28,6 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 scheduler: Optional[AsyncIOScheduler] = None
 CELESTIAL_TRACKS_BROADCAST_JOB_ID = "emit_cached_celestial_tracks"
 CELESTIAL_TRACKS_BROADCAST_INTERVAL_SECONDS = 5
-CELESTIAL_MAP_SETTINGS_NAME = "celestial-map-settings"
 _celestial_sync_warmup_task: Optional[asyncio.Task] = None
 _ORBITAL_SYNC_TASK_PATTERNS = (
     "orbital data sync",
@@ -57,48 +47,12 @@ def _is_orbital_sync_task(task: Dict[str, Any]) -> bool:
     )
 
 
-def _coerce_int_setting(value: Any, fallback: int, minimum: int, maximum: int) -> int:
-    try:
-        parsed = int(float(value))
-    except (TypeError, ValueError):
-        return int(fallback)
-    return max(int(minimum), min(parsed, int(maximum)))
-
-
-def _projection_payload_from_map_settings(settings: Dict[str, Any]) -> Dict[str, int]:
-    """Return the global celestial projection window saved by the UI."""
-    return {
-        "past_hours": _coerce_int_setting(
-            settings.get("pastHours", settings.get("past_hours")),
-            SCHEDULED_SYNC_PAST_HOURS,
-            1,
-            MAX_CELESTIAL_PAST_HOURS,
-        ),
-        "future_hours": _coerce_int_setting(
-            settings.get("futureHours", settings.get("future_hours")),
-            SCHEDULED_SYNC_FUTURE_HOURS,
-            1,
-            MAX_CELESTIAL_FUTURE_HOURS,
-        ),
-        "step_minutes": _coerce_int_setting(
-            settings.get("stepMinutes", settings.get("step_minutes")),
-            SCHEDULED_SYNC_STEP_MINUTES,
-            1,
-            24 * 60,
-        ),
-    }
-
-
 async def _build_enabled_monitored_celestial_payload() -> Dict[str, Any]:
     """Build a scene payload from enabled monitored celestial rows."""
     async with AsyncSessionLocal() as dbsession:
         monitored_result = await crud_monitored.fetch_monitored_celestial(
             dbsession,
             enabled_only=True,
-        )
-        map_settings_result = await crud_preferences.get_map_settings(
-            dbsession,
-            name=CELESTIAL_MAP_SETTINGS_NAME,
         )
 
     if not monitored_result.get("success"):
@@ -108,15 +62,7 @@ async def _build_enabled_monitored_celestial_payload() -> Dict[str, Any]:
 
     entries_obj = monitored_result.get("data")
     entries = entries_obj if isinstance(entries_obj, list) else []
-    settings_row = map_settings_result.get("data") if map_settings_result.get("success") else {}
-    settings_value = settings_row.get("value") if isinstance(settings_row, dict) else {}
-    projection_payload = _projection_payload_from_map_settings(
-        settings_value if isinstance(settings_value, dict) else {}
-    )
-    payload: Dict[str, Any] = {
-        **projection_payload,
-        "celestial": [],
-    }
+    payload: Dict[str, Any] = {"celestial": []}
 
     for item in entries:
         target_type = str(item.get("target_type") or "mission").strip().lower()
@@ -130,6 +76,9 @@ async def _build_enabled_monitored_celestial_payload() -> Dict[str, Any]:
                     "body_id": body_id,
                     "name": item.get("display_name") or body_id,
                     "color": item.get("color"),
+                    "past_hours": item.get("projection_past_hours"),
+                    "future_hours": item.get("projection_future_hours"),
+                    "step_minutes": item.get("projection_step_minutes"),
                 }
             )
             continue
@@ -143,6 +92,9 @@ async def _build_enabled_monitored_celestial_payload() -> Dict[str, Any]:
                 "command": command,
                 "name": item.get("display_name") or command,
                 "color": item.get("color"),
+                "past_hours": item.get("projection_past_hours"),
+                "future_hours": item.get("projection_future_hours"),
+                "step_minutes": item.get("projection_step_minutes"),
             }
         )
 

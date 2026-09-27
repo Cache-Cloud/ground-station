@@ -158,6 +158,9 @@ async def _build_scene_payload(data: Optional[Dict], logger: Any) -> Dict[str, A
                     "body_id": body_id,
                     "name": item.get("display_name") or body_id,
                     "color": item.get("color"),
+                    "past_hours": item.get("projection_past_hours"),
+                    "future_hours": item.get("projection_future_hours"),
+                    "step_minutes": item.get("projection_step_minutes"),
                 }
             )
             continue
@@ -170,6 +173,9 @@ async def _build_scene_payload(data: Optional[Dict], logger: Any) -> Dict[str, A
                 "command": item.get("command"),
                 "name": item.get("display_name") or item.get("command"),
                 "color": item.get("color"),
+                "past_hours": item.get("projection_past_hours"),
+                "future_hours": item.get("projection_future_hours"),
+                "step_minutes": item.get("projection_step_minutes"),
             }
         )
 
@@ -404,6 +410,9 @@ async def refresh_monitored_celestial_now(
                         "body_id": body_id,
                         "name": item.get("display_name") or body_id,
                         "color": item.get("color"),
+                        "past_hours": item.get("projection_past_hours"),
+                        "future_hours": item.get("projection_future_hours"),
+                        "step_minutes": item.get("projection_step_minutes"),
                     }
                 )
                 continue
@@ -416,6 +425,9 @@ async def refresh_monitored_celestial_now(
                     "command": command,
                     "name": item.get("display_name") or command,
                     "color": item.get("color"),
+                    "past_hours": item.get("projection_past_hours"),
+                    "future_hours": item.get("projection_future_hours"),
+                    "step_minutes": item.get("projection_step_minutes"),
                 }
             )
 

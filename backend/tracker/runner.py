@@ -229,10 +229,48 @@ class TrackerSupervisor:
 
         return runtime
 
-    def _force_stop_tracker(self, runtime: TrackerRuntime) -> bool:
-        """Stop a worker only while no process can be writing to the shared output pipe."""
+    @staticmethod
+    def _terminate_tracker_process(runtime: TrackerRuntime) -> bool:
+        """Terminate a tracker process and escalate to kill when necessary."""
+        if not runtime.process.is_alive():
+            return True
+
+        try:
+            runtime.process.terminate()
+        except Exception:
+            logger.exception("Failed terminating tracker process '%s'", runtime.tracker_id)
+        runtime.process.join(timeout=0.3)
+
+        if runtime.process.is_alive():
+            try:
+                runtime.process.kill()
+            except Exception:
+                logger.exception("Failed killing tracker process '%s'", runtime.tracker_id)
+            runtime.process.join(timeout=0.3)
+
+        if runtime.process.is_alive():
+            logger.error(
+                "Tracker process '%s' is still alive after kill; deferring cleanup",
+                runtime.tracker_id,
+            )
+            return False
+        return True
+
+    def _force_stop_tracker(
+        self,
+        runtime: TrackerRuntime,
+        *,
+        defer_if_writer_busy: bool = True,
+    ) -> bool:
+        """Force-stop a worker while preserving its output pipe when still in use."""
         write_lock = getattr(self.output_queue, "_wlock", None)
         if write_lock is None:
+            if not defer_if_writer_busy:
+                logger.warning(
+                    "Tracker output queue has no writer lock; forcing shutdown of '%s'",
+                    runtime.tracker_id,
+                )
+                return self._terminate_tracker_process(runtime)
             logger.error(
                 "Tracker process '%s' cannot be stopped safely: output queue has no writer lock",
                 runtime.tracker_id,
@@ -240,12 +278,15 @@ class TrackerSupervisor:
             return False
 
         try:
-            lock_acquired = write_lock.acquire(timeout=self.OUTPUT_QUEUE_LOCK_TIMEOUT_SECONDS)
+            lock_timeout = self.OUTPUT_QUEUE_LOCK_TIMEOUT_SECONDS if defer_if_writer_busy else 0
+            lock_acquired = write_lock.acquire(timeout=lock_timeout)
         except Exception:
             logger.exception(
                 "Failed acquiring the tracker output queue lock for '%s'",
                 runtime.tracker_id,
             )
+            if not defer_if_writer_busy:
+                return self._terminate_tracker_process(runtime)
             return False
 
         if not lock_acquired:
@@ -254,40 +295,34 @@ class TrackerSupervisor:
             # the next reader then blocks the main event loop waiting for bytes that will
             # never arrive. Leaving one stopping worker alive is safer than corrupting the
             # output channel shared by every tracker.
-            logger.error(
-                "Tracker process '%s' still owns the output queue writer; deferring forced stop",
-                runtime.tracker_id,
-            )
-            return False
-
-        try:
-            if not runtime.process.is_alive():
-                return True
-
-            try:
-                runtime.process.terminate()
-            except Exception:
-                logger.exception("Failed terminating tracker process '%s'", runtime.tracker_id)
-            runtime.process.join(timeout=0.3)
-
-            if runtime.process.is_alive():
-                try:
-                    runtime.process.kill()
-                except Exception:
-                    logger.exception("Failed killing tracker process '%s'", runtime.tracker_id)
-                runtime.process.join(timeout=0.3)
-
-            if runtime.process.is_alive():
+            if defer_if_writer_busy:
                 logger.error(
-                    "Tracker process '%s' is still alive after kill; deferring cleanup",
+                    "Tracker process '%s' still owns the output queue writer; deferring forced stop",
                     runtime.tracker_id,
                 )
                 return False
-            return True
+
+            # During application shutdown there will be no future queue reader to
+            # protect. The child must exit so multiprocessing cannot hold the
+            # interpreter open after cleanup has completed.
+            logger.warning(
+                "Tracker process '%s' still owns the output queue writer; forcing shutdown",
+                runtime.tracker_id,
+            )
+            return self._terminate_tracker_process(runtime)
+
+        try:
+            return self._terminate_tracker_process(runtime)
         finally:
             write_lock.release()
 
-    def stop_tracker(self, tracker_id: str, timeout: float = 3.0) -> bool:
+    def stop_tracker(
+        self,
+        tracker_id: str,
+        timeout: float = 3.0,
+        *,
+        defer_if_writer_busy: bool = True,
+    ) -> bool:
         normalized_id = require_tracker_id(tracker_id)
         runtime = self.runtimes.get(normalized_id)
         if not runtime:
@@ -306,7 +341,10 @@ class TrackerSupervisor:
                     normalized_id,
                     timeout,
                 )
-                stopped = self._force_stop_tracker(runtime)
+                stopped = self._force_stop_tracker(
+                    runtime,
+                    defer_if_writer_busy=defer_if_writer_busy,
+                )
 
         if not stopped:
             return False
@@ -322,8 +360,20 @@ class TrackerSupervisor:
         return True
 
     def stop_all(self, timeout: float = 3.0) -> None:
+        # Let every worker begin its graceful shutdown before waiting on any one
+        # of them. This prevents later workers from losing the whole timeout while
+        # an earlier worker is stuck.
+        for runtime in self.runtimes.values():
+            runtime.stop_event.set()
+
         for tracker_id in list(self.runtimes.keys()):
-            self.stop_tracker(tracker_id, timeout=timeout)
+            # The shared output queue is discarded after global shutdown. Never
+            # leave a non-daemon child alive merely to preserve that queue.
+            self.stop_tracker(
+                tracker_id,
+                timeout=timeout,
+                defer_if_writer_busy=False,
+            )
 
     def remove_tracker(self, tracker_id: str, timeout: float = 3.0) -> Dict[str, Any]:
         normalized_id = require_tracker_id(tracker_id)

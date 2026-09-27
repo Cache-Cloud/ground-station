@@ -112,6 +112,28 @@ def test_forced_stop_is_deferred_when_output_queue_writer_is_busy():
     assert supervisor.runtimes["target-1"].process is process
 
 
+def test_stop_all_forces_shutdown_when_output_queue_writer_is_busy():
+    supervisor = TrackerSupervisor()
+    write_lock = _WriteLockStub(acquired=False)
+    process = _ProcessStub(write_lock)
+    stop_event = _EventStub()
+    supervisor.output_queue = SimpleNamespace(_wlock=write_lock)
+    supervisor.runtimes["target-1"] = SimpleNamespace(
+        tracker_id="target-1",
+        process=process,
+        queue_to_tracker=_QueueStub(),
+        stop_event=stop_event,
+    )
+
+    supervisor.stop_all(timeout=0)
+
+    assert stop_event.was_set is True
+    assert process.terminated_with_lock is False
+    assert process.killed_with_lock is False
+    assert process.alive is False
+    assert "target-1" not in supervisor.runtimes
+
+
 def test_target_slot_allocator_reuses_lowest_free_slot(monkeypatch):
     _set_target_limit(monkeypatch, 10)
     supervisor = TrackerSupervisor()

@@ -10,6 +10,9 @@ const normalizeMonitoredEntry = (entry) => ({
     color: entry?.color ?? null,
     sourceMode: entry?.source_mode ?? entry?.sourceMode ?? null,
     enabled: entry?.enabled !== false,
+    projectionPastHours: Number(entry?.projection_past_hours ?? entry?.projectionPastHours ?? 1),
+    projectionFutureHours: Number(entry?.projection_future_hours ?? entry?.projectionFutureHours ?? 24),
+    projectionStepMinutes: Number(entry?.projection_step_minutes ?? entry?.projectionStepMinutes ?? 60),
     lastRefreshAt: entry?.last_refresh_at ?? entry?.lastRefreshAt ?? null,
     lastError: entry?.last_error ?? entry?.lastError ?? null,
 });
@@ -28,7 +31,7 @@ export const MONITORED_TABLE_DEFAULT_COLUMN_VISIBILITY = {
     lightTimeMinutes: false,
     lastRefreshAt: false,
     lastRefreshAge: true,
-    projectionSpan: false,
+    projectionSpan: true,
     cacheStatus: false,
     stale: false,
     sampleCount: false,
@@ -72,7 +75,10 @@ export const createMonitoredCelestial = createAsyncThunk(
     command: entry.targetType === 'mission' ? entry.command : null,
     body_id: entry.targetType === 'body' ? entry.bodyId : null,
     enabled: entry.enabled ?? true,
-    source_mode: entry.sourceMode || 'catalog'
+    source_mode: entry.sourceMode || 'catalog',
+    projection_past_hours: entry.projectionPastHours ?? 1,
+    projection_future_hours: entry.projectionFutureHours ?? 24,
+    projection_step_minutes: entry.projectionStepMinutes ?? 60
   }
 }, response => {
   if (response?.success) {
@@ -102,7 +108,16 @@ export const updateMonitoredCelestial = createAsyncThunk(
     command: entry.targetType === 'mission' ? entry.command : null,
     body_id: entry.targetType === 'body' ? entry.bodyId : null,
     color: entry.color ?? null,
-    enabled: entry.enabled
+    enabled: entry.enabled,
+    ...(entry.projectionPastHours != null
+      ? { projection_past_hours: entry.projectionPastHours }
+      : {}),
+    ...(entry.projectionFutureHours != null
+      ? { projection_future_hours: entry.projectionFutureHours }
+      : {}),
+    ...(entry.projectionStepMinutes != null
+      ? { projection_step_minutes: entry.projectionStepMinutes }
+      : {})
   }
 }, response => {
   if (response?.success) {
@@ -182,13 +197,16 @@ const monitoredSlice = createSlice({
             displayName: '',
             command: '',
             bodyId: '',
+            projectionPastHours: 1,
+            projectionFutureHours: 24,
+            projectionStepMinutes: 60,
         },
         formError: '',
         loading: false,
         saveLoading: false,
         error: null,
         openGridSettingsDialog: false,
-        tableDefaultsVersion: 4,
+        tableDefaultsVersion: 5,
         tableColumnVisibility: { ...MONITORED_TABLE_DEFAULT_COLUMN_VISIBILITY },
         tablePageSize: MONITORED_TABLE_DEFAULT_PAGE_SIZE,
         tableSortModel: [...MONITORED_TABLE_DEFAULT_SORT_MODEL],
@@ -205,6 +223,9 @@ const monitoredSlice = createSlice({
             state.form.displayName = '';
             state.form.command = '';
             state.form.bodyId = '';
+            state.form.projectionPastHours = 1;
+            state.form.projectionFutureHours = 24;
+            state.form.projectionStepMinutes = 60;
         },
         openManageDialog: (state) => {
             state.manageDialogOpen = true;
@@ -266,6 +287,9 @@ const monitoredSlice = createSlice({
                 state.form.displayName = '';
                 state.form.command = '';
                 state.form.bodyId = '';
+                state.form.projectionPastHours = 1;
+                state.form.projectionFutureHours = 24;
+                state.form.projectionStepMinutes = 60;
                 state.formError = '';
             })
             .addCase(createMonitoredCelestial.rejected, (state, action) => {

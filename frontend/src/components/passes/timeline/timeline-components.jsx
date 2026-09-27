@@ -124,6 +124,38 @@ export const PassCurve = ({
     })()
     : null;
 
+  const buildProjectionBoundaryMarker = (curvePoint, isEstimatedBoundary) => {
+    if (!hasElevationCurve || !isEstimatedBoundary || totalDuration <= 0) return null;
+
+    const boundaryMs = new Date(curvePoint?.time).getTime();
+    const boundaryElevation = Number(curvePoint?.elevation);
+    if (
+      !Number.isFinite(boundaryMs)
+      || !Number.isFinite(boundaryElevation)
+      || boundaryMs < chartStartMs
+      || boundaryMs > chartEndMs
+    ) {
+      return null;
+    }
+
+    return {
+      x: ((boundaryMs - chartStartMs) / totalDuration) * 100,
+      y: Math.max(0, Math.min(100, elevationToYPercent(boundaryElevation))),
+    };
+  };
+
+  // Estimated boundaries mean the pass is already above the horizon where
+  // this target's projection begins or ends. Join each cutoff to the time axis
+  // so it cannot be mistaken for a normal horizon crossing.
+  const projectionStartMarker = buildProjectionBoundaryMarker(
+    pass.elevation_curve?.[0],
+    pass?.estimated_start,
+  );
+  const projectionEndMarker = buildProjectionBoundaryMarker(
+    pass.elevation_curve?.[pass.elevation_curve.length - 1],
+    pass?.estimated_end,
+  );
+
   if (!estimatedPathData && computedPathDataSegments.length === 0) {
     return null;
   }
@@ -292,6 +324,28 @@ export const PassCurve = ({
             </g>
           );
         })}
+
+        {[projectionStartMarker, projectionEndMarker].map((marker, markerIndex) => (
+          marker && marker.y < 100 ? (
+            <line
+              key={markerIndex === 0 ? 'projection-start' : 'projection-end'}
+              x1={marker.x}
+              y1={marker.y}
+              x2={marker.x}
+              y2="100"
+              stroke={theme.palette.grey[500]}
+              strokeWidth={shouldEmphasizeForSelection ? '0.8' : '0.65'}
+              strokeDasharray="2,2"
+              opacity={
+                isTargetSelectionActive
+                  ? (isSelectedTarget ? 1 : 0.3)
+                  : (highlightActivePasses ? (pass.isCurrent ? 1 : 0.8) : 0.8)
+              }
+              vectorEffect="non-scaling-stroke"
+              style={{ pointerEvents: 'none' }}
+            />
+          ) : null
+        ))}
       </svg>
 
       {/* Label at peak - force a label for selected target even when labelType is disabled */}

@@ -83,6 +83,9 @@ class TestMonitoredCelestialCrud:
         assert added["data"]["target_type"] == "mission"
         assert added["data"]["target_key"] == "mission:voyager_1"
         assert added["data"]["color"] == "#FF6B6B"
+        assert added["data"]["projection_past_hours"] == 1
+        assert added["data"]["projection_future_hours"] == 24
+        assert added["data"]["projection_step_minutes"] == 60
 
         target_id = added["data"]["id"]
         toggled = await toggle_monitored_celestial_enabled(db_session, target_id, False)
@@ -127,6 +130,9 @@ class TestMonitoredCelestialCrud:
                 "command": "Pioneer 10 Extended",
                 "displayName": "Pioneer Extended",
                 "color": "#abcdef",
+                "projectionPastHours": 12,
+                "projectionFutureHours": 72,
+                "projectionStepMinutes": 15,
             },
         )
         refreshed = await update_monitored_celestial_refresh_state(
@@ -147,6 +153,9 @@ class TestMonitoredCelestialCrud:
         assert edited["data"]["body_id"] == ""
         assert edited["data"]["target_key"] == "mission:pioneer_10"
         assert edited["data"]["color"] == "#ABCDEF"
+        assert edited["data"]["projection_past_hours"] == 12
+        assert edited["data"]["projection_future_hours"] == 72
+        assert edited["data"]["projection_step_minutes"] == 15
         assert refreshed == {"success": True, "error": None}
         assert fetched["data"]["last_error"] == "timeout"
 
@@ -160,6 +169,22 @@ class TestMonitoredCelestialCrud:
 
         assert edited["success"] is False
         assert "target_type is immutable" in edited["error"]
+
+    async def test_edit_rejects_invalid_projection_settings(self, db_session):
+        added = await add_monitored_celestial(db_session, {"command": "Pioneer 10"})
+
+        edited = await edit_monitored_celestial(
+            db_session,
+            {
+                "id": added["data"]["id"],
+                "target_type": "mission",
+                "command": "Pioneer 10",
+                "projectionStepMinutes": 2,
+            },
+        )
+
+        assert edited["success"] is False
+        assert "projection_step_minutes must be between 5 and 1440" in edited["error"]
 
     async def test_delete_requires_ids_and_reports_deleted_rows(self, db_session):
         added = await add_monitored_celestial(db_session, {"command": "Voyager 2"})

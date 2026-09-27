@@ -56,21 +56,10 @@ import ProjectionSelector, {
     FUTURE_HOUR_OPTIONS,
     PAST_HOUR_OPTIONS,
 } from './projectionselector.jsx';
+import TargetProjectionFields from './targetprojectionfields.jsx';
 
 const STALE_MS = 5 * 60 * 1000;
 const HEX_COLOR_PATTERN = /^#[0-9A-F]{6}$/;
-const MAX_PAST_PROJECTION_HOURS = 168;
-const MAX_FUTURE_PROJECTION_HOURS = 720;
-const coercePastHours = (value) => {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed < 1) return 1;
-    return Math.min(parsed, MAX_PAST_PROJECTION_HOURS);
-};
-const coerceFutureHours = (value) => {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) return 24;
-    return Math.min(parsed, MAX_FUTURE_PROJECTION_HOURS);
-};
 const DIALOG_PAPER_SX = {
     bgcolor: 'background.paper',
     border: (theme) => `1px solid ${theme.palette.divider}`,
@@ -156,6 +145,7 @@ const CelestialTopBar = ({
     projectionFutureHours = 24,
     onProjectionPastHoursChange,
     onProjectionFutureHoursChange,
+    onTargetAdded,
 }) => {
     const dispatch = useDispatch();
     const navigate = useNavigate();
@@ -180,6 +170,9 @@ const CelestialTopBar = ({
         displayName: String(rawForm?.displayName || ''),
         command: String(rawForm?.command || ''),
         bodyId: String(rawForm?.bodyId || ''),
+        projectionPastHours: Number(rawForm?.projectionPastHours ?? 1),
+        projectionFutureHours: Number(rawForm?.projectionFutureHours ?? 24),
+        projectionStepMinutes: Number(rawForm?.projectionStepMinutes ?? 60),
     };
 
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -440,6 +433,9 @@ const CelestialTopBar = ({
                     bodyId: targetType === 'body' ? bodyId : '',
                     enabled: true,
                     sourceMode: inferredSourceMode,
+                    projectionPastHours: form.projectionPastHours,
+                    projectionFutureHours: form.projectionFutureHours,
+                    projectionStepMinutes: form.projectionStepMinutes,
                 },
             }),
         );
@@ -453,18 +449,20 @@ const CelestialTopBar = ({
             setSelectedCatalogEntry(null);
 
             if (createdId) {
-                await dispatch(
+                const refreshResult = await dispatch(
                     refreshMonitoredCelestialNow({
                         socket,
                         ids: [createdId],
-                        payload: {
-                            past_hours: coercePastHours(projectionPastHours),
-                            future_hours: coerceFutureHours(projectionFutureHours),
-                            step_minutes: 60,
-                        },
                     }),
                 );
                 await dispatch(fetchMonitoredCelestial({ socket }));
+
+                // Focus only after the first target refresh has populated the
+                // shared scene, so the canvas can calculate a real viewport.
+                if (refreshMonitoredCelestialNow.fulfilled.match(refreshResult)) {
+                    const targetKey = String(result?.payload?.targetKey || '').trim();
+                    if (targetKey) onTargetAdded?.(targetKey);
+                }
             }
         }
     };
@@ -888,6 +886,12 @@ const CelestialTopBar = ({
                                         labelId="body-target-label"
                                         label={tCelestial('topbar.fields.target_body')}
                                         value={form.bodyId || ''}
+                                        renderValue={(selectedValue) => {
+                                            const selectedBody = safeBodyCatalogEntries.find(
+                                                (entry) => String(entry?.body_id || '').toLowerCase() === selectedValue,
+                                            );
+                                            return selectedBody?.name || selectedValue;
+                                        }}
                                         onChange={(event) => {
                                             const bodyId = String(event.target.value || '').toLowerCase();
                                             const selectedBody = safeBodyCatalogEntries.find(
@@ -904,9 +908,32 @@ const CelestialTopBar = ({
                                             const isDisabled = monitoredBodies.has(value);
                                             return (
                                                 <MenuItem key={value} value={value} disabled={isDisabled}>
-                                                    {entry?.name || value}
-                                                    {entry?.body_type ? ` (${entry.body_type})` : ''}
-                                                    {entry?.parent_body_id ? ` · ${entry.parent_body_id}` : ''}
+                                                    <Box
+                                                        sx={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 1,
+                                                            width: '100%',
+                                                            minWidth: 0,
+                                                        }}
+                                                    >
+                                                        <Typography
+                                                            component="span"
+                                                            variant="body2"
+                                                            sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                                        >
+                                                            {entry?.name || value}
+                                                            {entry?.body_type ? ` (${entry.body_type})` : ''}
+                                                        </Typography>
+                                                        {entry?.parent_body_id ? (
+                                                            <Chip
+                                                                size="small"
+                                                                variant="outlined"
+                                                                label={`${tCelestial('topbar.fields.parent')}: ${entry.parent_body_id}`}
+                                                                sx={{ ml: 'auto', height: 22, flexShrink: 0 }}
+                                                            />
+                                                        ) : null}
+                                                    </Box>
                                                 </MenuItem>
                                             );
                                         })}
@@ -933,6 +960,16 @@ const CelestialTopBar = ({
                             }
                             fullWidth
                             size="small"
+                        />
+                        <TargetProjectionFields
+                            values={form}
+                            disabled={saveLoading}
+                            showHeading
+                            idPrefix="add-target-projection"
+                            onChange={(field, value) => {
+                                dispatch(setMonitoredFormField({ field, value }));
+                                dispatch(setMonitoredFormError(''));
+                            }}
                         />
                         {(form.targetType || 'mission') === 'mission' && catalogError ? (
                             <Typography variant="body2" color="error">

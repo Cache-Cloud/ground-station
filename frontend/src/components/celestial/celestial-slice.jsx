@@ -604,11 +604,18 @@ const celestialSlice = createSlice({
                 if (isPartialRefresh) {
                     const payload = normalizeScenePayload(action.payload) || {};
                     const incomingRows = Array.isArray(payload?.celestial) ? payload.celestial : [];
+                    const incomingPasses = Array.isArray(payload?.celestial_passes)
+                        ? payload.celestial_passes
+                        : [];
                     const currentTracks = state.celestialTracks ? { ...state.celestialTracks } : {};
                     const existingRows = Array.isArray(currentTracks?.celestial)
                         ? [...currentTracks.celestial]
                         : [];
+                    const existingPasses = Array.isArray(currentTracks?.celestial_passes)
+                        ? currentTracks.celestial_passes
+                        : [];
                     const rowIndexByTargetKey = new Map();
+                    const refreshedTargetKeys = new Set();
 
                     existingRows.forEach((item, index) => {
                         const existingKey = String(item?.target_key || '').trim();
@@ -618,6 +625,7 @@ const celestialSlice = createSlice({
                     incomingRows.forEach((row) => {
                         const targetKey = String(row?.target_key || '').trim();
                         if (!targetKey) return;
+                        refreshedTargetKeys.add(targetKey);
 
                         const existingIndex = rowIndexByTargetKey.get(targetKey);
                         if (existingIndex !== undefined) {
@@ -628,10 +636,59 @@ const celestialSlice = createSlice({
                         }
                     });
 
+                    incomingPasses.forEach((pass) => {
+                        const targetKey = String(pass?.target_key || '').trim();
+                        if (targetKey) refreshedTargetKeys.add(targetKey);
+                    });
+
+                    // A one-target refresh owns only that target's rows and passes.
+                    // Keep every other target intact while replacing stale passes for
+                    // the refreshed target, including the valid empty-pass result.
+                    const mergedPasses = existingPasses
+                        .filter((pass) => {
+                            const targetKey = String(pass?.target_key || '').trim();
+                            return !refreshedTargetKeys.has(targetKey);
+                        })
+                        .concat(incomingPasses)
+                        .sort((left, right) => (
+                            new Date(left?.event_start || 0).getTime()
+                            - new Date(right?.event_start || 0).getTime()
+                        ));
+
+                    const currentMeta = currentTracks?.meta || {};
+                    const incomingMeta = payload?.meta || {};
+                    const projectionByTarget = {
+                        ...(currentMeta?.projection_by_target || {}),
+                        ...(incomingMeta?.projection_by_target || {}),
+                    };
+                    const mergedMeta = {
+                        ...currentMeta,
+                        ...incomingMeta,
+                        // A target-specific response must not resize the shared
+                        // timeline. Its viewport is controlled by the global setting.
+                        projection: currentMeta?.projection || incomingMeta?.projection,
+                        projection_by_target: projectionByTarget,
+                        passes: {
+                            ...(currentMeta?.passes || {}),
+                            ...(incomingMeta?.passes || {}),
+                            count: mergedPasses.length,
+                        },
+                        horizons: {
+                            ...(currentMeta?.horizons || {}),
+                            ...(incomingMeta?.horizons || {}),
+                            stale_count: existingRows.filter((row) => row?.stale).length,
+                            missing_count: existingRows.filter(
+                                (row) => !Array.isArray(row?.position_xyz_au),
+                            ).length,
+                        },
+                    };
+
                     state.celestialTracks = {
                         ...currentTracks,
                         ...payload,
                         celestial: existingRows,
+                        celestial_passes: mergedPasses,
+                        meta: mergedMeta,
                     };
                 } else {
                     state.celestialTracks = normalizeScenePayload(action.payload);

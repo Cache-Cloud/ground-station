@@ -24,12 +24,16 @@ import {
     MONITORED_TABLE_DEFAULT_COLUMN_VISIBILITY,
     MONITORED_TABLE_DEFAULT_PAGE_SIZE,
     MONITORED_TABLE_DEFAULT_SORT_MODEL,
+    deleteMonitoredCelestial,
+    fetchMonitoredCelestial,
     setSelectedMonitoredIds,
     setMonitoredTableColumnVisibility,
     setMonitoredTablePageSize,
     setMonitoredTableSortModel,
     setOpenGridSettingsDialog,
+    updateMonitoredCelestial,
 } from './monitored-slice.jsx';
+import { refreshMonitoredCelestialNow } from './celestial-slice.jsx';
 import { toRowSelectionModel, toSelectedIds } from '../../utils/datagrid-selection.js';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
 import TargetNumberIcon from '../common/target-number-icon.jsx';
@@ -49,6 +53,7 @@ import {
     pruneElevationHistory,
     updateElevationHistory,
 } from '../../utils/elevationtrend.js';
+import TargetProjectionFields from './targetprojectionfields.jsx';
 
 const AU_IN_KM = 149597870.7;
 const SECONDS_PER_DAY = 86400;
@@ -340,6 +345,38 @@ const SettingsDialog = ({ open, onClose }) => {
     );
 };
 
+const ProjectionDialog = ({ open, target, saving, onChange, onClose, onSave }) => {
+    const { t } = useTranslation('celestial');
+    if (!target) return null;
+
+    return (
+        <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth PaperProps={{ sx: DIALOG_PAPER_SX }}>
+            <DialogTitle sx={DIALOG_TITLE_SX}>
+                {t('monitored.projection.edit_title', { defaultValue: 'Edit projection' })}
+            </DialogTitle>
+            <DialogContent sx={DIALOG_CONTENT_SX}>
+                <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
+                    {target.displayName}
+                </Typography>
+                <TargetProjectionFields
+                    values={target}
+                    onChange={onChange}
+                    disabled={saving}
+                    idPrefix="edit-target-projection"
+                />
+            </DialogContent>
+            <DialogActions sx={DIALOG_ACTIONS_SX}>
+                <Button onClick={onClose} disabled={saving}>
+                    {t('common.cancel', { defaultValue: 'Cancel' })}
+                </Button>
+                <Button onClick={onSave} variant="contained" disabled={saving}>
+                    {t('common.save', { defaultValue: 'Save and refresh' })}
+                </Button>
+            </DialogActions>
+        </Dialog>
+    );
+};
+
 const MonitoredCelestialGridIsland = ({
     rows = [],
     loading = false,
@@ -369,6 +406,10 @@ const MonitoredCelestialGridIsland = ({
     const [rowContextMenu, setRowContextMenu] = useState(null);
     const [transmittersDialogOpen, setTransmittersDialogOpen] = useState(false);
     const [transmittersDialogData, setTransmittersDialogData] = useState(null);
+    const [projectionTarget, setProjectionTarget] = useState(null);
+    const [projectionSaving, setProjectionSaving] = useState(false);
+    const [unmonitorTarget, setUnmonitorTarget] = useState(null);
+    const [unmonitoring, setUnmonitoring] = useState(false);
     const elevationHistoryByTargetKeyRef = useRef({});
     const rowSelectionModel = useMemo(() => toRowSelectionModel(selectedIds), [selectedIds]);
     const currentlyTrackedTargetKey = useMemo(() => buildTrackingTargetKey(trackingState), [trackingState]);
@@ -452,7 +493,14 @@ const MonitoredCelestialGridIsland = ({
                     speedKmS,
                     lightTimeMinutes: lightTimeMin,
                     lastRefreshAge: formatAge(row.lastRefreshAt, nowMs, tCelestial),
-                    projectionSpan: computeProjectionSpan(track.orbit_sampling, tCelestial),
+                    projectionSpan: computeProjectionSpan(
+                        {
+                            past_hours: row.projectionPastHours,
+                            future_hours: row.projectionFutureHours,
+                            step_minutes: row.projectionStepMinutes,
+                        },
+                        tCelestial,
+                    ),
                     cacheStatus: track.cache || '-',
                     stale: track.stale ? tCelestial('common.yes') : tCelestial('common.no'),
                     sampleCount,
@@ -469,6 +517,55 @@ const MonitoredCelestialGridIsland = ({
             onTargetSelected(selectedRow);
         }
     }, [dispatch, enrichedRows, onTargetSelected]);
+
+    const openProjectionDialog = useCallback((row) => {
+        setProjectionTarget({
+            ...row,
+            projectionPastHours: Number(row.projectionPastHours || 1),
+            projectionFutureHours: Number(row.projectionFutureHours || 24),
+            projectionStepMinutes: Number(row.projectionStepMinutes || 60),
+        });
+    }, []);
+
+    const saveProjection = useCallback(async () => {
+        if (!socket || !projectionTarget) return;
+        setProjectionSaving(true);
+        try {
+            await dispatch(updateMonitoredCelestial({
+                socket,
+                entry: projectionTarget,
+            })).unwrap();
+            await dispatch(refreshMonitoredCelestialNow({
+                socket,
+                ids: [projectionTarget.id],
+            })).unwrap();
+            await dispatch(fetchMonitoredCelestial({ socket })).unwrap();
+            setProjectionTarget(null);
+        } catch (error) {
+            toast.error(error?.message || error?.error || tCelestial('errors.unknown_error'));
+        } finally {
+            setProjectionSaving(false);
+        }
+    }, [dispatch, projectionTarget, socket, tCelestial]);
+
+    const confirmUnmonitor = useCallback(async () => {
+        if (!socket || !unmonitorTarget?.id || unmonitoring) return;
+        setUnmonitoring(true);
+        try {
+            await dispatch(deleteMonitoredCelestial({
+                socket,
+                ids: [unmonitorTarget.id],
+            })).unwrap();
+            toast.success(tCelestial('admin.catalog.feedback.unmonitored', {
+                name: unmonitorTarget.displayName || unmonitorTarget.targetIdentifier || '',
+            }));
+            setUnmonitorTarget(null);
+        } catch (error) {
+            toast.error(error?.message || error?.error || tCelestial('errors.unknown_error'));
+        } finally {
+            setUnmonitoring(false);
+        }
+    }, [dispatch, socket, tCelestial, unmonitorTarget, unmonitoring]);
 
     const columns = useMemo(
         () => [
@@ -611,7 +708,24 @@ const MonitoredCelestialGridIsland = ({
                 valueGetter: (value) => formatNumeric(value, 2),
             },
             { field: 'lastRefreshAge', headerName: tCelestial('monitored.columns.refresh_age'), width: 70, minWidth: 70 },
-            { field: 'projectionSpan', headerName: tCelestial('monitored.columns.projection_span'), minWidth: 150 },
+            {
+                field: 'projectionSpan',
+                headerName: tCelestial('monitored.columns.projection_span'),
+                minWidth: 170,
+                renderCell: (params) => (
+                    <Button
+                        size="small"
+                        variant="text"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            openProjectionDialog(params.row);
+                        }}
+                        sx={{ fontFamily: 'monospace', textTransform: 'none' }}
+                    >
+                        {params.value}
+                    </Button>
+                ),
+            },
             { field: 'cacheStatus', headerName: tCelestial('monitored.columns.cache'), minWidth: 90 },
             { field: 'stale', headerName: tCelestial('monitored.columns.stale'), minWidth: 80 },
             { field: 'sampleCount', headerName: tCelestial('monitored.columns.samples'), minWidth: 90, type: 'number' },
@@ -629,7 +743,7 @@ const MonitoredCelestialGridIsland = ({
                 valueGetter: (value) => formatLastRefresh(value, timezone, locale, tCelestial),
             },
         ],
-        [timezone, locale, targetNumberByTargetKey, tCelestial],
+        [timezone, locale, openProjectionDialog, targetNumberByTargetKey, tCelestial],
     );
 
     const copyTextToClipboard = useCallback(async (text) => {
@@ -781,6 +895,14 @@ const MonitoredCelestialGridIsland = ({
                 setTransmittersDialogOpen(true);
                 return;
             }
+            if (action === 'projection-settings') {
+                openProjectionDialog(row);
+                return;
+            }
+            if (action === 'unmonitor') {
+                setUnmonitorTarget(row);
+                return;
+            }
             if (action === 'copy-identifier') {
                 await copyTextToClipboard(row.targetIdentifier || '-');
                 return;
@@ -809,6 +931,7 @@ const MonitoredCelestialGridIsland = ({
         applyTargetSelection,
         copyTextToClipboard,
         dispatch,
+        openProjectionDialog,
         requestRotatorForTarget,
         rowContextMenu?.row,
         socket,
@@ -839,6 +962,12 @@ const MonitoredCelestialGridIsland = ({
                 disabled: !row?.targetKey,
                 onClick: () => handleRowMenuAction('edit-transmitters'),
             },
+            {
+                key: 'projection-settings',
+                label: tCelestial('monitored.projection.edit_title', { defaultValue: 'Edit projection' }),
+                disabled: !socket,
+                onClick: () => handleRowMenuAction('projection-settings'),
+            },
             { type: 'divider', key: 'divider-copy' },
             {
                 key: 'copy-identifier',
@@ -849,8 +978,15 @@ const MonitoredCelestialGridIsland = ({
             },
             { key: 'copy-target-key', label: tCelestial('context.copy_target_key'), onClick: () => handleRowMenuAction('copy-target-key') },
             { key: 'copy-summary', label: tCelestial('context.copy_target_summary'), onClick: () => handleRowMenuAction('copy-summary') },
+            { type: 'divider', key: 'divider-unmonitor' },
+            {
+                key: 'unmonitor',
+                label: tCelestial('admin.catalog.actions.unmonitor'),
+                disabled: !socket || unmonitoring,
+                onClick: () => handleRowMenuAction('unmonitor'),
+            },
         ];
-    }, [currentlyTrackedTargetKey, handleRowMenuAction, rowContextMenu?.row, socket, t, tCelestial]);
+    }, [currentlyTrackedTargetKey, handleRowMenuAction, rowContextMenu?.row, socket, t, tCelestial, unmonitoring]);
 
     return (
         <>
@@ -962,6 +1098,60 @@ const MonitoredCelestialGridIsland = ({
                 open={openGridSettingsDialog}
                 onClose={() => dispatch(setOpenGridSettingsDialog(false))}
             />
+            <ProjectionDialog
+                open={Boolean(projectionTarget)}
+                target={projectionTarget}
+                saving={projectionSaving}
+                onChange={(field, value) => {
+                    setProjectionTarget((current) => (
+                        current ? { ...current, [field]: value } : current
+                    ));
+                }}
+                onClose={() => setProjectionTarget(null)}
+                onSave={saveProjection}
+            />
+            <Dialog
+                open={Boolean(unmonitorTarget)}
+                onClose={() => {
+                    if (!unmonitoring) setUnmonitorTarget(null);
+                }}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{ sx: DIALOG_PAPER_SX }}
+            >
+                <DialogTitle sx={DIALOG_TITLE_SX}>
+                    {tCelestial('admin.catalog.confirm.title')}
+                </DialogTitle>
+                <DialogContent sx={DIALOG_CONTENT_SX}>
+                    <Typography variant="body1" sx={{ mt: 1, mb: 1 }}>
+                        {tCelestial('admin.catalog.confirm.question', {
+                            target: unmonitorTarget?.displayName
+                                || unmonitorTarget?.targetIdentifier
+                                || tCelestial('admin.catalog.confirm.this_target'),
+                        })}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        {tCelestial('admin.catalog.confirm.description')}
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={DIALOG_ACTIONS_SX}>
+                    <Button
+                        variant="outlined"
+                        onClick={() => setUnmonitorTarget(null)}
+                        disabled={unmonitoring}
+                    >
+                        {tCelestial('admin.common.cancel')}
+                    </Button>
+                    <Button
+                        variant="contained"
+                        color="error"
+                        onClick={confirmUnmonitor}
+                        disabled={!socket || !unmonitorTarget?.id || unmonitoring}
+                    >
+                        {tCelestial('admin.catalog.actions.unmonitor')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
             </Box>
         </>
     );

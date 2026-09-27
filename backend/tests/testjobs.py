@@ -239,6 +239,75 @@ async def test_cached_celestial_broadcast_clears_clients_without_targets(monkeyp
     ]
 
 
+@pytest.mark.asyncio
+async def test_cached_celestial_payload_uses_each_targets_projection(monkeypatch):
+    class _SessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    async def fetch_monitored(_session, *, enabled_only):
+        assert enabled_only is True
+        return {
+            "success": True,
+            "data": [
+                {
+                    "target_type": "body",
+                    "body_id": "moon",
+                    "display_name": "Moon",
+                    "color": "#FFFFFF",
+                    "projection_past_hours": 12,
+                    "projection_future_hours": 72,
+                    "projection_step_minutes": 10,
+                },
+                {
+                    "target_type": "mission",
+                    "command": "-170",
+                    "display_name": "JWST",
+                    "color": "#00FFFF",
+                    "projection_past_hours": 6,
+                    "projection_future_hours": 168,
+                    "projection_step_minutes": 30,
+                },
+            ],
+        }
+
+    monkeypatch.setattr(scheduler_module, "AsyncSessionLocal", _SessionContext)
+    monkeypatch.setattr(
+        scheduler_module.crud_monitored,
+        "fetch_monitored_celestial",
+        fetch_monitored,
+    )
+
+    payload = await scheduler_module._build_enabled_monitored_celestial_payload()
+
+    assert "past_hours" not in payload
+    assert "future_hours" not in payload
+    assert "step_minutes" not in payload
+    assert payload["celestial"] == [
+        {
+            "target_type": "body",
+            "body_id": "moon",
+            "name": "Moon",
+            "color": "#FFFFFF",
+            "past_hours": 12,
+            "future_hours": 72,
+            "step_minutes": 10,
+        },
+        {
+            "target_type": "mission",
+            "command": "-170",
+            "name": "JWST",
+            "color": "#00FFFF",
+            "past_hours": 6,
+            "future_hours": 168,
+            "step_minutes": 30,
+        },
+    ]
+
+
 def test_start_and_stop_scheduler_register_expected_jobs(monkeypatch):
     references = []
     monkeypatch.setattr(scheduler_module, "AsyncIOScheduler", _Scheduler)

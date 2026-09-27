@@ -390,7 +390,7 @@ const CelestialMainLayout = () => {
         };
     }, []);
 
-    const handleRefreshCelestial = React.useCallback(async () => {
+    const handleRefreshSolarSystem = React.useCallback(async () => {
         if (!socket) return;
         await dispatch(fetchSolarSystemScene({
             socket,
@@ -400,15 +400,17 @@ const CelestialMainLayout = () => {
                 retry_horizons: true,
             },
         }));
+    }, [socket, dispatch, sceneRequestPayload]);
+    const handleRefreshMonitored = React.useCallback(async () => {
+        if (!socket) return;
         await dispatch(refreshMonitoredCelestialNow({
             socket,
             payload: {
-                ...sceneRequestPayload,
                 retry_horizons: true,
             },
         }));
         await dispatch(fetchMonitoredCelestial({ socket }));
-    }, [socket, dispatch, sceneRequestPayload]);
+    }, [socket, dispatch]);
     const handleToggleSolarSystemFullscreen = React.useCallback(() => {
         const viewportElement = solarSystemViewportRef.current;
         if (!viewportElement) return;
@@ -475,14 +477,6 @@ const CelestialMainLayout = () => {
             },
         };
     }, [celestialState.solarScene, celestialState.celestialTracks]);
-    const timelineFutureHours = React.useMemo(() => {
-        // The live scene-manager stream may be produced with a different projection
-        // than the currently saved UI preference. Use the payload's projection for
-        // the timeline so the axis does not extend beyond the curve data.
-        const sceneProjection = combinedScene?.meta?.projection || {};
-        return parseFutureProjectionHours(sceneProjection.future_hours, projectionSettings.future_hours);
-    }, [combinedScene?.meta?.projection, projectionSettings.future_hours]);
-
     const solarBodies = Array.isArray(combinedScene?.planets) ? combinedScene.planets : [];
     const bodyTypeCounts = combinedScene?.meta?.solar_system?.body_type_counts || {};
     const inferredCounts = solarBodies.reduce(
@@ -691,17 +685,6 @@ const CelestialMainLayout = () => {
                 },
             }),
         );
-        await dispatch(
-            refreshMonitoredCelestialNow({
-                socket,
-                payload: {
-                    past_hours: parsePastProjectionHours(nextSettings.pastHours, DEFAULT_PAST_HOURS),
-                    future_hours: parseFutureProjectionHours(nextSettings.futureHours, DEFAULT_FUTURE_HOURS),
-                    step_minutes: parsePositiveNumber(nextSettings.stepMinutes, DEFAULT_STEP_MINUTES),
-                },
-            }),
-        );
-        await dispatch(fetchMonitoredCelestial({ socket }));
     }, [socket, celestialState.mapSettings, dispatch]);
     const updateViewMode = React.useCallback((nextViewMode) => {
         if (!socket) return;
@@ -729,6 +712,13 @@ const CelestialMainLayout = () => {
             enableMapZooming: !interactionSettings.enableMapZooming,
         });
     }, [interactionSettings.enableMapZooming, updateProjectionSetting]);
+    const handleTargetAdded = React.useCallback((targetKey) => {
+        const normalizedTargetKey = String(targetKey || '').trim();
+        if (!normalizedTargetKey) return;
+        autoFocusedTargetKeyRef.current = normalizedTargetKey;
+        setFocusTargetKey(normalizedTargetKey);
+        setFocusTargetSignal((value) => value + 1);
+    }, []);
 
     const gridContents = [
         <StyledIslandParentNoScrollbar key="solar-system">
@@ -779,7 +769,7 @@ const CelestialMainLayout = () => {
                         onZoomOut={() => setZoomOutSignal((value) => value + 1)}
                         onZoomReset={() => setResetZoomSignal((value) => value + 1)}
                         onCenterSun={() => setCenterSunSignal((value) => value + 1)}
-                        onRefresh={handleRefreshCelestial}
+                        onRefresh={handleRefreshSolarSystem}
                         loading={solarSystemLoading}
                         loadingText={solarToolbarLoadingText}
                         disabled={!socket}
@@ -802,7 +792,7 @@ const CelestialMainLayout = () => {
                             <Button
                                 color="inherit"
                                 size="small"
-                                onClick={handleRefreshCelestial}
+                                onClick={handleRefreshSolarSystem}
                                 disabled={!socket || solarSystemLoading}
                             >
                                 {tCelestial('horizons.retry_now', { defaultValue: 'Retry now' })}
@@ -982,9 +972,10 @@ const CelestialMainLayout = () => {
                 passes={combinedScene?.celestial_passes || []}
                 loading={Boolean(celestialState.tracksLoading)}
                 gridEditable={isEditing}
-                projectionFutureHours={timelineFutureHours}
+                projectionPastHours={projectionSettings.past_hours}
+                projectionFutureHours={projectionSettings.future_hours}
                 selectedTargetKey={selectedInfoTargetKey}
-                onRefresh={handleRefreshCelestial}
+                onRefresh={handleRefreshMonitored}
             />
         </StyledIslandParentNoScrollbar>,
         <StyledIslandParentNoScrollbar key="celestial-passes">
@@ -1000,7 +991,7 @@ const CelestialMainLayout = () => {
                         setFocusTargetKey(targetKey);
                         setFocusTargetSignal((value) => value + 1);
                     }}
-                    onRefresh={handleRefreshCelestial}
+                    onRefresh={handleRefreshMonitored}
                     refreshDisabled={!socket || Boolean(celestialState.tracksLoading)}
                 />
             </Box>
@@ -1029,6 +1020,7 @@ const CelestialMainLayout = () => {
                 projectionFutureHours={projectionSettings.future_hours}
                 onProjectionPastHoursChange={(value) => updateProjectionSetting({ pastHours: value })}
                 onProjectionFutureHoursChange={(value) => updateProjectionSetting({ futureHours: value })}
+                onTargetAdded={handleTargetAdded}
             />
             <div ref={containerRef}>
                 {mounted ? (

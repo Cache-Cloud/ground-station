@@ -36,6 +36,65 @@ def test_projection_options_use_operational_defaults_and_limits():
 
 
 @pytest.mark.asyncio
+async def test_build_tracks_groups_targets_by_their_persisted_projection(monkeypatch):
+    calls = []
+
+    async def _register(*_args, **_kwargs):
+        return None
+
+    async def _build_group(*, data, **_kwargs):
+        calls.append((data["past_hours"], data["future_hours"], data["step_minutes"]))
+        target = data["celestial"][0]
+        return {
+            "success": True,
+            "data": {
+                "timestamp_utc": "2026-01-01T12:00:00+00:00",
+                "celestial": [{"target_key": target["target_key"]}],
+                "celestial_passes": [],
+                "observer_bodies": [],
+                "meta": {"passes": {"count": 0}},
+            },
+        }
+
+    monkeypatch.setattr(scene, "_ensure_scene_targets_registered", _register)
+    monkeypatch.setattr(scene, "_build_celestial_tracks_single_projection", _build_group)
+
+    result = await scene.build_celestial_tracks(
+        data={
+            "celestial": [
+                {
+                    "target_type": "mission",
+                    "target_key": "mission:short",
+                    "command": "Short",
+                    "past_hours": 1,
+                    "future_hours": 24,
+                    "step_minutes": 60,
+                },
+                {
+                    "target_type": "mission",
+                    "target_key": "mission:long",
+                    "command": "Long",
+                    "past_hours": 24,
+                    "future_hours": 168,
+                    "step_minutes": 15,
+                },
+            ]
+        },
+        logger=_DummyLogger(),
+    )
+
+    assert calls == [(24, 168, 15), (1, 24, 60)]
+    assert [row["target_key"] for row in result["data"]["celestial"]] == [
+        "mission:short",
+        "mission:long",
+    ]
+    assert result["data"]["meta"]["projection_by_target"] == {
+        "mission:short": {"past_hours": 1, "future_hours": 24, "step_minutes": 60},
+        "mission:long": {"past_hours": 24, "future_hours": 168, "step_minutes": 15},
+    }
+
+
+@pytest.mark.asyncio
 async def test_earth_cannot_be_created_as_a_monitored_target():
     result = await celestial_handlers._validate_monitored_target_payload(
         {
@@ -153,7 +212,15 @@ def _reset_horizons_availability():
 @pytest.mark.asyncio
 async def test_get_vectors_snapshot_returns_exact_cache_hit(monkeypatch):
     epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-    payload = {"command": "Voyager 1", "position_xyz_au": [1.0, 0.0, 0.0]}
+    payload = {
+        "command": "Voyager 1",
+        "position_xyz_au": [1.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=1)).isoformat(),
+            (epoch + timedelta(hours=24)).isoformat(),
+        ],
+    }
 
     async def _stub_load_vectors_from_db(*_args, **_kwargs):
         return {"payload": payload}
@@ -179,6 +246,70 @@ async def test_get_vectors_snapshot_returns_exact_cache_hit(monkeypatch):
     assert result["cache"] == "db-hit"
     assert result["stale"] is False
     assert result["payload"]["command"] == "Voyager 1"
+
+
+@pytest.mark.asyncio
+async def test_get_vectors_snapshot_refetches_shifted_exact_projection(monkeypatch):
+    epoch = datetime(2026, 1, 1, 13, 0, tzinfo=timezone.utc)
+    old_payload = {
+        "command": "301",
+        "position_xyz_au": [1.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=2)).isoformat(),
+            epoch.isoformat(),
+        ],
+    }
+    fetched_payload = {
+        "command": "301",
+        "position_xyz_au": [2.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [[1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=1)).isoformat(),
+            (epoch + timedelta(hours=1)).isoformat(),
+        ],
+    }
+    calls = {"fetch": 0, "store": 0}
+
+    async def _old_projection(*_args, **_kwargs):
+        return {"payload": old_payload}
+
+    async def _no_compatible_projection(*_args, **_kwargs):
+        return None
+
+    def _fetch(*_args, **_kwargs):
+        calls["fetch"] += 1
+        return fetched_payload
+
+    async def _store(*_args, **_kwargs):
+        calls["store"] += 1
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _old_projection)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _old_projection)
+    monkeypatch.setattr(
+        scene,
+        "_load_latest_vectors_for_target_from_db",
+        _no_compatible_projection,
+    )
+    monkeypatch.setattr(scene, "fetch_celestial_vectors", _fetch)
+    monkeypatch.setattr(scene, "_store_vectors_in_db", _store)
+
+    result = await scene._get_vectors_snapshot(
+        command="301",
+        target_key="body:moon",
+        epoch=epoch,
+        past_hours=1,
+        future_hours=1,
+        step_minutes=60,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        force_refresh=False,
+        logger=_DummyLogger(),
+        allow_network_fetch=True,
+    )
+
+    assert calls == {"fetch": 1, "store": 1}
+    assert result["cache"] == "db-miss"
+    assert result["payload"] == fetched_payload
 
 
 async def test_get_vectors_snapshot_cache_only_returns_miss_without_exact_cache(monkeypatch):
@@ -217,10 +348,17 @@ async def test_get_vectors_snapshot_uses_fresh_snapshot_with_different_projectio
     compatible_payload = {
         "command": "Venus",
         "position_xyz_au": [0.0, 0.0, 0.0],
-        "orbit_samples_xyz_au": [[1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        "orbit_samples_xyz_au": [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [3.0, 0.0, 0.0],
+            [7.0, 0.0, 0.0],
+        ],
         "orbit_sample_times_utc": [
-            datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc).isoformat(),
-            datetime(2026, 1, 1, 13, 0, tzinfo=timezone.utc).isoformat(),
+            (epoch - timedelta(hours=24)).isoformat(),
+            epoch.isoformat(),
+            (epoch + timedelta(hours=24)).isoformat(),
+            (epoch + timedelta(hours=72)).isoformat(),
         ],
     }
 
@@ -258,7 +396,52 @@ async def test_get_vectors_snapshot_uses_fresh_snapshot_with_different_projectio
 
     assert result["cache"] == "db-compatible-hit"
     assert result["stale"] is False
-    assert result["payload"]["position_xyz_au"] == [2.0, 0.0, 0.0]
+    assert result["payload"]["position_xyz_au"] == [1.0, 0.0, 0.0]
+    assert result["payload"]["orbit_sample_times_utc"] == [
+        epoch.isoformat(),
+        (epoch + timedelta(hours=24)).isoformat(),
+    ]
+    assert result["payload"]["orbit_samples_xyz_au"] == [
+        [1.0, 0.0, 0.0],
+        [3.0, 0.0, 0.0],
+    ]
+
+
+def test_wider_cached_trajectory_is_trimmed_to_requested_window():
+    epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    payload = {
+        "orbit_samples_xyz_au": [
+            [0.0, 0.0, 0.0],
+            [6.0, 0.0, 0.0],
+            [18.0, 0.0, 0.0],
+            [30.0, 0.0, 0.0],
+        ],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=6)).isoformat(),
+            epoch.isoformat(),
+            (epoch + timedelta(hours=12)).isoformat(),
+            (epoch + timedelta(hours=24)).isoformat(),
+        ],
+    }
+
+    trimmed = scene._trim_payload_to_projection_window(
+        payload=payload,
+        epoch=epoch,
+        past_hours=1,
+        future_hours=12,
+    )
+
+    assert trimmed is True
+    assert payload["orbit_sample_times_utc"] == [
+        (epoch - timedelta(hours=1)).isoformat(),
+        epoch.isoformat(),
+        (epoch + timedelta(hours=12)).isoformat(),
+    ]
+    assert payload["orbit_samples_xyz_au"] == [
+        [5.0, 0.0, 0.0],
+        [6.0, 0.0, 0.0],
+        [18.0, 0.0, 0.0],
+    ]
 
 
 @pytest.mark.asyncio
@@ -925,6 +1108,65 @@ async def test_cache_refresh_reports_per_target_progress(monkeypatch):
     assert progress[-1]["processed"] == 2
     assert progress[-1]["percent"] == 100.0
     assert progress[-1]["failed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_refresh_uses_each_monitored_target_projection(monkeypatch):
+    class _SessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    async def fetch_monitored(*_args, **_kwargs):
+        return {
+            "success": True,
+            "data": [
+                {
+                    "target_type": "mission",
+                    "target_key": "mission:voyager_1",
+                    "command": "Voyager 1",
+                    "display_name": "Voyager 1",
+                    "projection_past_hours": 12,
+                    "projection_future_hours": 168,
+                    "projection_step_minutes": 15,
+                }
+            ],
+        }
+
+    async def fetch_settings(*_args, **_kwargs):
+        return {
+            "success": True,
+            "data": {"value": {"pastHours": 1, "futureHours": 24, "stepMinutes": 60}},
+        }
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    requested_projections = []
+
+    async def snapshot(*_args, **kwargs):
+        requested_projections.append(
+            (kwargs["past_hours"], kwargs["future_hours"], kwargs["step_minutes"])
+        )
+        return {"payload": {"position_xyz_au": [1, 0, 0]}, "error": None}
+
+    async def finish_without_database(result):
+        return result
+
+    monkeypatch.setattr(scene, "AsyncSessionLocal", lambda: _SessionContext())
+    monkeypatch.setattr(scene.crud_monitored, "fetch_monitored_celestial", fetch_monitored)
+    monkeypatch.setattr(scene.crud_preferences, "get_map_settings", fetch_settings)
+    monkeypatch.setattr(scene, "_build_builtin_body_targets", lambda: [])
+    monkeypatch.setattr(scene, "_ensure_scene_targets_registered", noop)
+    monkeypatch.setattr(scene, "_get_vectors_snapshot", snapshot)
+    monkeypatch.setattr(scene, "finish_celestial_sync", finish_without_database)
+
+    result = await scene.refresh_celestial_vector_snapshots_cache(_DummyLogger())
+
+    assert result["success"] is True
+    assert requested_projections == [(12, 168, 15)]
 
 
 @pytest.mark.asyncio

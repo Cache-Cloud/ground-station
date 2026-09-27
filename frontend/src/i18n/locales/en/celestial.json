@@ -249,6 +249,7 @@
       "target": "Target",
       "target_placeholder": "Type command or pick from catalog",
       "target_body": "Target Body",
+      "parent": "Parent",
       "horizons_command": "Horizons Command",
       "display_name": "Display Name",
       "color": "Color",
@@ -396,6 +397,16 @@
         "metrics": "Metrics",
         "projection": "Projection"
       }
+    },
+    "projection": {
+      "title": "Time projection",
+      "edit_title": "Edit projection",
+      "description": "Choose how far to calculate before and after now.",
+      "exact_settings": "Exact settings",
+      "past": "Past duration",
+      "future": "Future duration",
+      "step": "Sample interval",
+      "help": "Smaller intervals produce denser paths. Very long windows are capped at 1,000 samples."
     },
     "summary": {
       "source": "Source",
