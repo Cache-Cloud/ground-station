@@ -1860,29 +1860,37 @@ async def _get_vectors_snapshot(
         )
         if cached and isinstance(cached.get("payload"), dict):
             payload = dict(cached["payload"])
-            if _payload_covers_projection_window(
+            projection_covered = _payload_covers_projection_window(
                 payload,
                 epoch=epoch,
                 past_hours=past_hours,
                 future_hours=future_hours,
-            ):
+            )
+            current_position_usable = _payload_covers_current_epoch(payload, epoch=epoch)
+            if projection_covered or (not allow_network_fetch and current_position_usable):
                 _refresh_payload_dynamics_at_epoch(
                     payload=payload,
                     epoch=epoch,
                     past_hours=past_hours,
                     future_hours=future_hours,
                 )
-                _trim_payload_to_projection_window(
-                    payload=payload,
-                    epoch=epoch,
-                    past_hours=past_hours,
-                    future_hours=future_hours,
-                )
+                if projection_covered:
+                    _trim_payload_to_projection_window(
+                        payload=payload,
+                        epoch=epoch,
+                        past_hours=past_hours,
+                        future_hours=future_hours,
+                    )
                 return {
                     "payload": payload,
-                    "cache": "db-hit",
+                    "cache": "db-hit" if projection_covered else "db-hit-partial",
                     "stale": False,
                     "error": None,
+                    "current_position_usable": current_position_usable,
+                    # Cache-only broadcasts keep the remaining portion of this
+                    # target's own projection. Pass curves then end at its real
+                    # cached boundary instead of inheriting another target's span.
+                    "calculation_usable": True,
                 }
         # The scene loop runs more frequently than Horizons fetches. If the
         # exact epoch bucket is missing, use the newest cached snapshot for the
@@ -1898,29 +1906,34 @@ async def _get_vectors_snapshot(
         )
         if latest_cached and isinstance(latest_cached.get("payload"), dict):
             payload = dict(latest_cached["payload"])
-            if _payload_covers_projection_window(
+            projection_covered = _payload_covers_projection_window(
                 payload,
                 epoch=epoch,
                 past_hours=past_hours,
                 future_hours=future_hours,
-            ):
+            )
+            current_position_usable = _payload_covers_current_epoch(payload, epoch=epoch)
+            if projection_covered or (not allow_network_fetch and current_position_usable):
                 _refresh_payload_dynamics_at_epoch(
                     payload=payload,
                     epoch=epoch,
                     past_hours=past_hours,
                     future_hours=future_hours,
                 )
-                _trim_payload_to_projection_window(
-                    payload=payload,
-                    epoch=epoch,
-                    past_hours=past_hours,
-                    future_hours=future_hours,
-                )
+                if projection_covered:
+                    _trim_payload_to_projection_window(
+                        payload=payload,
+                        epoch=epoch,
+                        past_hours=past_hours,
+                        future_hours=future_hours,
+                    )
                 return {
                     "payload": payload,
-                    "cache": "db-latest-hit",
+                    "cache": ("db-latest-hit" if projection_covered else "db-latest-hit-partial"),
                     "stale": False,
                     "error": None,
+                    "current_position_usable": current_position_usable,
+                    "calculation_usable": True,
                 }
         # A differently keyed snapshot is reusable for a trajectory only when
         # its window is at least as wide and its samples are at least as dense.

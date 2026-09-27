@@ -312,6 +312,51 @@ async def test_get_vectors_snapshot_refetches_shifted_exact_projection(monkeypat
     assert result["payload"] == fetched_payload
 
 
+@pytest.mark.asyncio
+async def test_cache_only_snapshot_keeps_its_matching_projection_when_window_shifts(
+    monkeypatch,
+):
+    epoch = datetime(2026, 1, 1, 13, 5, tzinfo=timezone.utc)
+    matching_payload = {
+        "command": "399",
+        "position_xyz_au": [1.0, 0.0, 0.0],
+        "orbit_samples_xyz_au": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        "orbit_sample_times_utc": [
+            (epoch - timedelta(hours=1, minutes=5)).isoformat(),
+            (epoch + timedelta(hours=23, minutes=55)).isoformat(),
+        ],
+    }
+
+    async def _matching_projection(*_args, **_kwargs):
+        return {"payload": matching_payload}
+
+    async def _unexpected_latest(*_args, **_kwargs):
+        raise AssertionError("A matching cache-only projection should be used first")
+
+    monkeypatch.setattr(scene, "_load_vectors_from_db", _matching_projection)
+    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _unexpected_latest)
+
+    result = await scene._get_vectors_snapshot(
+        command="399",
+        target_key="body:earth",
+        epoch=epoch,
+        past_hours=1,
+        future_hours=24,
+        step_minutes=60,
+        observer_location={"lat": 40.0, "lon": 22.0},
+        force_refresh=False,
+        logger=_DummyLogger(),
+        allow_network_fetch=False,
+    )
+
+    assert result["cache"] == "db-hit-partial"
+    assert result["current_position_usable"] is True
+    assert result["calculation_usable"] is True
+    assert result["payload"]["orbit_sample_times_utc"] == (
+        matching_payload["orbit_sample_times_utc"]
+    )
+
+
 async def test_get_vectors_snapshot_cache_only_returns_miss_without_exact_cache(monkeypatch):
     epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
