@@ -308,6 +308,11 @@ export const calculateProjectionRemainingSeconds = (row, nowMs) => {
     return Math.max(0, Math.ceil((endMs - currentMs) / 1000));
 };
 
+export const resolvePassBoundaryNowMs = (sceneTimestampUtc, fallbackNowMs) => {
+    const sceneTimestampMs = new Date(sceneTimestampUtc || '').getTime();
+    return Number.isFinite(sceneTimestampMs) ? sceneTimestampMs : Number(fallbackNowMs);
+};
+
 const ProjectionProgress = ({ row, nowMs, t }) => {
     return (
         <Tooltip title={t('passes.projection_window_progress', { defaultValue: 'Projection window progress' })}>
@@ -317,6 +322,29 @@ const ProjectionProgress = ({ row, nowMs, t }) => {
         </Tooltip>
     );
 };
+
+const ProjectionLimitMarker = ({ title }) => (
+    <Tooltip title={title}>
+        <Box
+            component="span"
+            aria-label={title}
+            sx={{
+                width: 17,
+                height: 17,
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: '50%',
+                color: 'text.secondary',
+            }}
+        >
+            <AccessTimeFilledIcon sx={{ fontSize: 11 }} />
+        </Box>
+    </Tooltip>
+);
 
 const getStatusPriority = (status) => {
     if (status === 'live') return 0;
@@ -561,6 +589,7 @@ const PassesTableSettingsDialog = ({ open, onClose }) => {
 const CelestialPasses = ({
     passes = [],
     tracks = [],
+    sceneTimestampUtc = '',
     loading = false,
     gridEditable = false,
     targetNumberByTargetKey = {},
@@ -583,6 +612,9 @@ const CelestialPasses = ({
     const [quickFilterPreset, setQuickFilterPreset] = useState('all');
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [nowMs, setNowMs] = useState(() => Date.now());
+    // Pass boundaries and this timestamp are produced by the same backend
+    // snapshot, so relative Start/End labels cannot straddle a client timer tick.
+    const boundaryNowMs = resolvePassBoundaryNowMs(sceneTimestampUtc, nowMs);
     const [page, setPage] = useState(0);
     const [selectedIds, setSelectedIds] = useState([]);
     const [rowContextMenu, setRowContextMenu] = useState(null);
@@ -655,6 +687,7 @@ const CelestialPasses = ({
         const rawCurrentElevationDeg = Number(track?.sky_position?.el_deg);
         const currentElevationDeg = Number.isFinite(rawCurrentElevationDeg) ? rawCurrentElevationDeg : null;
         const estimatedEnd = Boolean(pass.estimated_end ?? pass.estimatedEnd);
+        const estimatedStart = Boolean(pass.estimated_start ?? pass.estimatedStart);
         const status = getCelestialPassStatus({ eventStartMs, eventEndMs, estimatedEnd }, nowMs);
         const elevationTrend = elevationTrendByTargetKey[normalizedTargetKey] || {};
         const peakTimeMs = new Date(pass.peak_time).getTime();
@@ -683,7 +716,9 @@ const CelestialPasses = ({
             eventStart: pass.event_start,
             eventEnd: pass.event_end,
             estimatedEnd,
+            estimatedStart,
             projectionEnd: pass.projection_end || pass.projectionEnd || null,
+            projectionStart: pass.projection_start || pass.projectionStart || null,
             event_start: pass.event_start,
             event_end: pass.event_end,
             peak_time: pass.peak_time,
@@ -765,8 +800,8 @@ const CelestialPasses = ({
         {
             field: 'name',
             headerName: tCelestial('passes.columns.name'),
-            minWidth: 150,
-            flex: 1.2,
+            minWidth: 110,
+            flex: 0.8,
             renderCell: (params) => (
                 <Typography
                     component="span"
@@ -859,13 +894,16 @@ const CelestialPasses = ({
         {
             field: 'eventStart',
             headerName: tCelestial('passes.columns.start'),
-            minWidth: 180,
+            minWidth: 240,
             renderCell: (params) => (
-                <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <Typography component="span" variant="caption" sx={{ fontWeight: 700, color: 'text.primary' }}>
-                        {formatRelativeTime(params.value, nowMs, tCelestial)}
+                <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                    <Typography component="span" variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1.2, fontWeight: 700, color: 'text.primary' }}>
+                        {formatRelativeTime(params.value, boundaryNowMs, tCelestial)}
                     </Typography>
-                    <Typography component="span" className="passes-time-absolute" variant="caption" sx={{ color: 'text.secondary', ml: 0.5 }}>
+                    {params.row?.estimatedStart && (
+                        <ProjectionLimitMarker title={tCelestial('passes.projection_limit')} />
+                    )}
+                    <Typography component="span" className="passes-time-absolute" variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1.2, color: 'text.secondary', ml: 0.5 }}>
                         · {formatAbsoluteTime(params.value, timezone, locale)}
                     </Typography>
                 </Box>
@@ -878,35 +916,14 @@ const CelestialPasses = ({
             renderCell: (params) => (
                 <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     <Typography component="span" variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1.2, fontWeight: 700, color: 'text.primary' }}>
-                        {params.row?.estimatedEnd && params.row?.eventEndMs < nowMs
+                        {params.row?.estimatedEnd && params.row?.eventEndMs < boundaryNowMs
                             ? tCelestial('passes.projection_expired', { defaultValue: 'Projection expired' })
-                            : formatRelativeTime(params.value, nowMs, tCelestial)}
+                            : formatRelativeTime(params.value, boundaryNowMs, tCelestial)}
                     </Typography>
                     {params.row?.estimatedEnd && (
-                        <Tooltip title={params.row?.eventEndMs < nowMs
+                        <ProjectionLimitMarker title={params.row?.eventEndMs < boundaryNowMs
                             ? tCelestial('passes.projection_expired', { defaultValue: 'Projection expired' })
-                            : tCelestial('passes.projection_limit')}>
-                            <Box
-                                component="span"
-                                aria-label={params.row?.eventEndMs < nowMs
-                                    ? tCelestial('passes.projection_expired', { defaultValue: 'Projection expired' })
-                                    : tCelestial('passes.projection_limit')}
-                                sx={{
-                                    width: 17,
-                                    height: 17,
-                                    flexShrink: 0,
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    border: 1,
-                                    borderColor: 'divider',
-                                    borderRadius: '50%',
-                                    color: 'text.secondary',
-                                }}
-                            >
-                                <AccessTimeFilledIcon sx={{ fontSize: 11 }} />
-                            </Box>
-                        </Tooltip>
+                            : tCelestial('passes.projection_limit')} />
                     )}
                     <Typography component="span" className="passes-time-absolute" variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1.2, color: 'text.secondary', ml: 0.5 }}>
                         · {formatAbsoluteTime(params.value, timezone, locale)}
@@ -920,7 +937,7 @@ const CelestialPasses = ({
         { field: 'cacheStatus', headerName: tCelestial('passes.columns.cache'), width: 90, minWidth: 90 },
         { field: 'stale', headerName: tCelestial('passes.columns.stale'), width: 80, minWidth: 80 },
         { field: 'source', headerName: tCelestial('passes.columns.source'), width: 110, minWidth: 110 },
-    ], [nowMs, timezone, locale, targetNumberByTargetKey, tCelestial]);
+    ], [boundaryNowMs, nowMs, timezone, locale, targetNumberByTargetKey, tCelestial]);
 
     const handleQuickPreset = useCallback((preset) => {
         setQuickFilterPreset(preset);

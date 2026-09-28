@@ -1022,6 +1022,7 @@ const CelestialMainLayout = () => {
                 <CelestialPasses
                     passes={combinedScene?.celestial_passes || []}
                     tracks={combinedScene?.celestial || []}
+                    sceneTimestampUtc={combinedScene?.timestamp_utc || ''}
                     loading={Boolean(celestialState.tracksLoading)}
                     gridEditable={isEditing}
                     targetNumberByTargetKey={targetNumberByTargetKey}

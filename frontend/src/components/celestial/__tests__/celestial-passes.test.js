@@ -4,6 +4,7 @@ import {
     calculateProjectionProgress,
     calculateProjectionRemainingSeconds,
     getCelestialPassStatus,
+    resolvePassBoundaryNowMs,
 } from '../celestial-passes.jsx';
 
 describe('getCelestialPassStatus', () => {
@@ -55,5 +56,17 @@ describe('calculateProjectionRemainingSeconds', () => {
 
     it('stops at zero after the projection boundary', () => {
         expect(calculateProjectionRemainingSeconds({ eventEndMs: 100_000 }, 105_000)).toBe(0);
+    });
+});
+
+describe('resolvePassBoundaryNowMs', () => {
+    it('uses the backend scene timestamp for pass-boundary labels', () => {
+        expect(resolvePassBoundaryNowMs('2026-01-01T12:00:05Z', 123)).toBe(
+            Date.parse('2026-01-01T12:00:05Z'),
+        );
+    });
+
+    it('falls back to the browser clock when the scene timestamp is unavailable', () => {
+        expect(resolvePassBoundaryNowMs('', 456)).toBe(456);
     });
 });
