@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from celestial import scene
+from celestial import observer, scene, snapshots, tracks
 
 
 @pytest.fixture(autouse=True)
@@ -12,8 +12,9 @@ def _block_external_io(monkeypatch):
     def _unexpected_io(*_args, **_kwargs):
         pytest.fail("Sun scene unit tests must not access the database or Horizons API")
 
-    monkeypatch.setattr(scene, "AsyncSessionLocal", _unexpected_io)
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _unexpected_io)
+    monkeypatch.setattr(observer, "AsyncSessionLocal", _unexpected_io)
+    monkeypatch.setattr(snapshots, "AsyncSessionLocal", _unexpected_io)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _unexpected_io)
 
 
 class _DummyLogger:
@@ -50,9 +51,9 @@ async def test_load_earth_observer_vectors_interpolates_to_scene_epoch(monkeypat
             "error": None,
         }
 
-    monkeypatch.setattr(scene, "_get_vectors_snapshot", _stub_vectors_snapshot)
+    monkeypatch.setattr(observer, "_get_vectors_snapshot", _stub_vectors_snapshot)
 
-    position, samples = await scene._load_earth_observer_vectors(
+    position, samples = await observer._load_earth_observer_vectors(
         epoch=epoch,
         past_hours=1,
         future_hours=1,
@@ -87,9 +88,9 @@ async def test_load_earth_observer_vectors_allows_current_stale_samples(monkeypa
             "error": None,
         }
 
-    monkeypatch.setattr(scene, "_get_vectors_snapshot", _stub_vectors_snapshot)
+    monkeypatch.setattr(observer, "_get_vectors_snapshot", _stub_vectors_snapshot)
 
-    position, samples = await scene._load_earth_observer_vectors(
+    position, samples = await observer._load_earth_observer_vectors(
         epoch=epoch,
         past_hours=24,
         future_hours=24,
@@ -133,14 +134,14 @@ async def test_load_earth_observer_vectors_prefers_broad_coverage_for_passes(mon
             }
         }
 
-    monkeypatch.setattr(scene, "_get_vectors_snapshot", _partial_snapshot)
+    monkeypatch.setattr(observer, "_get_vectors_snapshot", _partial_snapshot)
     monkeypatch.setattr(
-        scene,
+        observer,
         "_load_covering_vectors_for_target_from_db",
         _broad_snapshot,
     )
 
-    _position, samples = await scene._load_earth_observer_vectors(
+    _position, samples = await observer._load_earth_observer_vectors(
         epoch=epoch,
         past_hours=1,
         future_hours=1,
@@ -170,8 +171,8 @@ async def test_build_celestial_tracks_supports_sun_body_target(monkeypatch):
         # Sun coordinates need Earth's position even though the Sun is the origin.
         return [0.0, -1.0, 0.0], []
 
-    monkeypatch.setattr(scene, "_load_observer_location", _stub_observer_location)
-    monkeypatch.setattr(scene, "_load_earth_observer_vectors", _stub_earth_observer_vectors)
+    monkeypatch.setattr(tracks, "_load_observer_location", _stub_observer_location)
+    monkeypatch.setattr(tracks, "_load_earth_observer_vectors", _stub_earth_observer_vectors)
 
     payload = {
         "epoch": datetime(2026, 6, 21, 10, 0, tzinfo=timezone.utc).isoformat(),
@@ -224,8 +225,8 @@ async def test_build_celestial_tracks_uses_synthetic_sun_origin_cache_only(monke
     async def _stub_earth_observer_vectors(**_kwargs):
         return [0.0, -1.0, 0.0], []
 
-    monkeypatch.setattr(scene, "_load_observer_location", _stub_observer_location)
-    monkeypatch.setattr(scene, "_load_earth_observer_vectors", _stub_earth_observer_vectors)
+    monkeypatch.setattr(tracks, "_load_observer_location", _stub_observer_location)
+    monkeypatch.setattr(tracks, "_load_earth_observer_vectors", _stub_earth_observer_vectors)
 
     payload = {
         "epoch": datetime(2026, 6, 21, 10, 0, tzinfo=timezone.utc).isoformat(),

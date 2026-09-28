@@ -1,7 +1,7 @@
 import pytest
 
 from celestial.bodycatalog import get_celestial_body, list_celestial_bodies
-from celestial.scene import BODY_HORIZONS_COMMANDS
+from celestial.targets import BODY_HORIZONS_COMMANDS
 from handlers.entities.celestial import (
     get_celestial_body_catalog,
     get_spacecraft_index_entries,

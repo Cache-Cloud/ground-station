@@ -4,7 +4,18 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from celestial import horizons, scene, syncstate
+from celestial import (
+    bodies,
+    horizons,
+    observer,
+    scene,
+    settings,
+    snapshots,
+    sync,
+    syncstate,
+    tracks,
+    trajectory,
+)
 from crud.celestialvectors import fetch_celestial_vector_snapshot_stats
 from db.models import CelestialTargets, CelestialVectorSnapshots
 from handlers.entities import celestial as celestial_handlers
@@ -22,9 +33,9 @@ class _DummyLogger:
 
 
 def test_projection_options_use_operational_defaults_and_limits():
-    assert scene._parse_projection_options(None) == (1, 24, 60)
+    assert settings._parse_projection_options(None) == (1, 24, 60)
 
-    past_hours, future_hours, _step_minutes = scene._parse_projection_options(
+    past_hours, future_hours, _step_minutes = settings._parse_projection_options(
         {
             "past_hours": 4320,
             "future_hours": 4320,
@@ -57,8 +68,8 @@ async def test_build_tracks_groups_targets_by_their_persisted_projection(monkeyp
             },
         }
 
-    monkeypatch.setattr(scene, "_ensure_scene_targets_registered", _register)
-    monkeypatch.setattr(scene, "_build_celestial_tracks_single_projection", _build_group)
+    monkeypatch.setattr(tracks, "_ensure_scene_targets_registered", _register)
+    monkeypatch.setattr(tracks, "_build_celestial_tracks_single_projection", _build_group)
 
     result = await scene.build_celestial_tracks(
         data={
@@ -205,9 +216,9 @@ async def test_monitored_refresh_waits_for_an_active_refresh(monkeypatch):
 def _reset_horizons_availability():
     horizons.reset_horizons_circuit()
     syncstate.reset_celestial_sync_state()
-    scene._VECTOR_FETCH_TASKS.clear()
+    snapshots._VECTOR_FETCH_TASKS.clear()
     yield
-    scene._VECTOR_FETCH_TASKS.clear()
+    snapshots._VECTOR_FETCH_TASKS.clear()
     horizons.reset_horizons_circuit()
     syncstate.reset_celestial_sync_state()
 
@@ -231,10 +242,10 @@ async def test_get_vectors_snapshot_returns_exact_cache_hit(monkeypatch):
     def _unexpected_fetch(*_args, **_kwargs):
         raise AssertionError("Network fetch should not run on exact cache hit")
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _stub_load_vectors_from_db)
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _unexpected_fetch)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _unexpected_fetch)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="Voyager 1",
         epoch=epoch,
         past_hours=1,
@@ -302,17 +313,17 @@ async def test_get_vectors_snapshot_refetches_shifted_exact_projection(monkeypat
     async def _store(**kwargs):
         stored.append(kwargs)
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _old_projection)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _old_projection)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _old_projection)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _old_projection)
     monkeypatch.setattr(
-        scene,
+        snapshots,
         "_load_latest_vectors_for_target_from_db",
         _no_compatible_projection,
     )
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _fetch)
-    monkeypatch.setattr(scene, "_store_vectors_in_db", _store)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _fetch)
+    monkeypatch.setattr(snapshots, "_store_vectors_in_db", _store)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="301",
         target_key="body:moon",
         epoch=epoch,
@@ -352,10 +363,10 @@ async def test_get_vectors_snapshot_refetches_shifted_exact_projection(monkeypat
     def _unexpected_fetch(*_args, **_kwargs):
         raise AssertionError("The padded snapshot should cover the shifted window")
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _padded_projection)
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _unexpected_fetch)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _padded_projection)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _unexpected_fetch)
     shifted_epoch = epoch + timedelta(minutes=5)
-    shifted_result = await scene._get_vectors_snapshot(
+    shifted_result = await snapshots._get_vectors_snapshot(
         command="301",
         target_key="body:moon",
         epoch=shifted_epoch,
@@ -412,8 +423,8 @@ async def test_get_vectors_snapshot_coalesces_identical_network_misses(monkeypat
         nonlocal store_calls
         store_calls += 1
 
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _fetch)
-    monkeypatch.setattr(scene, "_store_vectors_in_db", _store)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _fetch)
+    monkeypatch.setattr(snapshots, "_store_vectors_in_db", _store)
 
     request = {
         "command": "501",
@@ -427,9 +438,9 @@ async def test_get_vectors_snapshot_coalesces_identical_network_misses(monkeypat
         "logger": _DummyLogger(),
         "allow_network_fetch": True,
     }
-    first = asyncio.create_task(scene._get_vectors_snapshot(**request))
+    first = asyncio.create_task(snapshots._get_vectors_snapshot(**request))
     assert await asyncio.to_thread(fetch_started.wait, 2)
-    second = asyncio.create_task(scene._get_vectors_snapshot(**request))
+    second = asyncio.create_task(snapshots._get_vectors_snapshot(**request))
     await asyncio.sleep(0)
     release_fetch.set()
 
@@ -461,10 +472,10 @@ async def test_cache_only_snapshot_keeps_its_matching_projection_when_window_shi
     async def _unexpected_latest(*_args, **_kwargs):
         raise AssertionError("A matching cache-only projection should be used first")
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _matching_projection)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _unexpected_latest)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _matching_projection)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _unexpected_latest)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="399",
         target_key="body:earth",
         epoch=epoch,
@@ -491,13 +502,13 @@ async def test_get_vectors_snapshot_cache_only_returns_miss_without_exact_cache(
     async def _stub_load_vectors_from_db(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _stub_load_vectors_from_db)
     # Cache-only mode falls back to the newest stale snapshot after its exact
     # lookup. Stub both database lookups so this test does not observe data
     # created by another test or an already-running temporary database.
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _stub_load_vectors_from_db)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="Voyager 1",
         epoch=epoch,
         past_hours=1,
@@ -546,15 +557,15 @@ async def test_get_vectors_snapshot_uses_fresh_snapshot_with_different_projectio
             "step_minutes": 60,
         }
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_projection_match)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _no_projection_match)
     monkeypatch.setattr(
-        scene,
+        snapshots,
         "_load_latest_vectors_for_target_from_db",
         _fresh_compatible_snapshot,
     )
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="Venus",
         target_key="body:venus",
         epoch=epoch,
@@ -618,17 +629,17 @@ async def test_network_sync_materializes_compatible_snapshot_as_fixed_projection
     def _unexpected_fetch(*_args, **_kwargs):
         raise AssertionError("The compatible Horizons snapshot should avoid a network fetch")
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_projection_match)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _no_projection_match)
     monkeypatch.setattr(
-        scene,
+        snapshots,
         "_load_latest_vectors_for_target_from_db",
         _compatible_snapshot,
     )
-    monkeypatch.setattr(scene, "_store_vectors_in_db", _store)
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _unexpected_fetch)
+    monkeypatch.setattr(snapshots, "_store_vectors_in_db", _store)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _unexpected_fetch)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="501",
         target_key="body:io",
         epoch=epoch,
@@ -659,10 +670,10 @@ async def test_network_sync_materializes_compatible_snapshot_as_fixed_projection
     async def _unexpected_fallback(*_args, **_kwargs):
         raise AssertionError("The materialized projection should satisfy the cache-only broadcast")
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _materialized_projection)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _unexpected_fallback)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _materialized_projection)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _unexpected_fallback)
 
-    broadcast_result = await scene._get_vectors_snapshot(
+    broadcast_result = await snapshots._get_vectors_snapshot(
         command="501",
         target_key="body:io",
         epoch=epoch + timedelta(seconds=5),
@@ -699,7 +710,7 @@ def test_wider_cached_trajectory_is_trimmed_to_requested_window():
         ],
     }
 
-    trimmed = scene._trim_payload_to_projection_window(
+    trimmed = trajectory._trim_payload_to_projection_window(
         payload=payload,
         epoch=epoch,
         past_hours=1,
@@ -758,13 +769,13 @@ async def test_get_vectors_snapshot_fetches_when_fresh_projection_is_too_short(m
     async def _store(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_projection_match)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_projection_match)
-    monkeypatch.setattr(scene, "_load_latest_vectors_for_target_from_db", _short_snapshot)
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _fetch)
-    monkeypatch.setattr(scene, "_store_vectors_in_db", _store)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_for_target_from_db", _short_snapshot)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _fetch)
+    monkeypatch.setattr(snapshots, "_store_vectors_in_db", _store)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="301",
         target_key="body:moon",
         epoch=epoch,
@@ -809,11 +820,11 @@ async def test_cache_only_short_projection_is_current_position_only(monkeypatch)
             "step_minutes": 60,
         }
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_projection_match)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_projection_match)
-    monkeypatch.setattr(scene, "_load_latest_vectors_for_target_from_db", _short_snapshot)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _no_projection_match)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_for_target_from_db", _short_snapshot)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="301",
         target_key="body:moon",
         epoch=epoch,
@@ -857,16 +868,17 @@ async def test_get_vectors_snapshot_fetches_and_stores_on_cache_miss(monkeypatch
         calls["store"] += 1
         return None
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _stub_load_vectors_from_db)
     monkeypatch.setattr(
-        scene,
+        snapshots,
         "_load_latest_vectors_for_target_from_db",
         _stub_load_vectors_from_db,
     )
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _stub_fetch_celestial_vectors)
-    monkeypatch.setattr(scene, "_store_vectors_in_db", _stub_store_vectors_in_db)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _stub_fetch_celestial_vectors)
+    monkeypatch.setattr(snapshots, "_store_vectors_in_db", _stub_store_vectors_in_db)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="Voyager 1",
         epoch=epoch,
         past_hours=1,
@@ -895,16 +907,16 @@ async def test_get_vectors_snapshot_returns_miss_on_fetch_error_without_fallback
     def _failing_fetch(*_args, **_kwargs):
         raise RuntimeError("network down")
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _stub_load_vectors_from_db)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _stub_load_vectors_from_db)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _stub_load_vectors_from_db)
     monkeypatch.setattr(
-        scene,
+        snapshots,
         "_load_latest_vectors_for_target_from_db",
         _stub_load_vectors_from_db,
     )
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _failing_fetch)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _failing_fetch)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="Voyager 1",
         epoch=epoch,
         past_hours=1,
@@ -942,16 +954,16 @@ async def test_get_vectors_snapshot_uses_expired_snapshot_after_fetch_error(monk
     def _failing_fetch(*_args, **_kwargs):
         raise RuntimeError("network down")
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_cache)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _no_cache)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _no_cache)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _no_cache)
     monkeypatch.setattr(
-        scene,
+        snapshots,
         "_load_latest_vectors_for_target_from_db",
         _stale_target_cache,
     )
-    monkeypatch.setattr(scene, "fetch_celestial_vectors", _failing_fetch)
+    monkeypatch.setattr(snapshots, "fetch_celestial_vectors", _failing_fetch)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="Voyager 1",
         epoch=epoch,
         past_hours=1,
@@ -987,11 +999,11 @@ async def test_cache_only_stale_snapshot_keeps_current_pointing_capability(monke
     async def _latest_projection_cache(*_args, **kwargs):
         return {"payload": stale_payload} if kwargs.get("valid_only") is False else None
 
-    monkeypatch.setattr(scene, "_load_vectors_from_db", _no_cache)
-    monkeypatch.setattr(scene, "_load_latest_vectors_from_db", _latest_projection_cache)
-    monkeypatch.setattr(scene, "_load_latest_vectors_for_target_from_db", _no_cache)
+    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _no_cache)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _latest_projection_cache)
+    monkeypatch.setattr(snapshots, "_load_latest_vectors_for_target_from_db", _no_cache)
 
-    result = await scene._get_vectors_snapshot(
+    result = await snapshots._get_vectors_snapshot(
         command="Voyager 1",
         epoch=epoch,
         past_hours=24,
@@ -1034,7 +1046,7 @@ async def test_network_request_does_not_reuse_cache_only_computed_result(monkeyp
             "calculation_usable": network_enabled,
         }
 
-    monkeypatch.setattr(scene, "_get_vectors_snapshot", _snapshot)
+    monkeypatch.setattr(tracks, "_get_vectors_snapshot", _snapshot)
     target = {
         "target_type": "mission",
         "target_key": "mission:voyager_1",
@@ -1042,10 +1054,10 @@ async def test_network_request_does_not_reuse_cache_only_computed_result(monkeyp
         "name": "Voyager 1",
     }
 
-    with scene._computed_cache_lock:
-        scene._computed_cache.clear()
+    with tracks._computed_cache_lock:
+        tracks._computed_cache.clear()
     try:
-        cache_only_rows = await scene._fetch_celestial_with_cache(
+        cache_only_rows = await tracks._fetch_celestial_with_cache(
             targets=[target],
             epoch=epoch,
             past_hours=1,
@@ -1058,7 +1070,7 @@ async def test_network_request_does_not_reuse_cache_only_computed_result(monkeyp
             allow_network_fetch=False,
             logger=_DummyLogger(),
         )
-        network_rows = await scene._fetch_celestial_with_cache(
+        network_rows = await tracks._fetch_celestial_with_cache(
             targets=[target],
             epoch=epoch,
             past_hours=1,
@@ -1072,8 +1084,8 @@ async def test_network_request_does_not_reuse_cache_only_computed_result(monkeyp
             logger=_DummyLogger(),
         )
     finally:
-        with scene._computed_cache_lock:
-            scene._computed_cache.clear()
+        with tracks._computed_cache_lock:
+            tracks._computed_cache.clear()
 
     assert calls == [False, True]
     assert cache_only_rows[0]["calculation_usable"] is False
@@ -1089,7 +1101,7 @@ def test_current_pointing_survives_incomplete_projection_window():
         "current_position_usable": True,
     }
 
-    scene._attach_observer_view_local(
+    observer._attach_observer_view_local(
         row=row,
         epoch=epoch,
         observer_location={"lat": 40.0, "lon": 22.0},
@@ -1131,13 +1143,13 @@ async def test_build_horizons_solar_system_bodies_keeps_missing_rows_without_ori
             "error": "No data returned",
         }
 
-    monkeypatch.setattr(scene, "_build_builtin_body_targets", _stub_build_builtin_body_targets)
+    monkeypatch.setattr(bodies, "_build_builtin_body_targets", _stub_build_builtin_body_targets)
     monkeypatch.setattr(
-        scene, "_ensure_scene_targets_registered", _stub_ensure_scene_targets_registered
+        bodies, "_ensure_scene_targets_registered", _stub_ensure_scene_targets_registered
     )
-    monkeypatch.setattr(scene, "_get_vectors_snapshot", _stub_get_vectors_snapshot)
+    monkeypatch.setattr(bodies, "_get_vectors_snapshot", _stub_get_vectors_snapshot)
 
-    solar_meta, planets = await scene._build_horizons_solar_system_bodies(
+    solar_meta, planets = await bodies._build_horizons_solar_system_bodies(
         epoch=epoch,
         past_hours=6,
         future_hours=6,
@@ -1163,7 +1175,7 @@ async def test_build_horizons_solar_system_bodies_uses_offline_visual_fallback(m
     epoch = datetime(2026, 6, 5, 12, 0, tzinfo=timezone.utc)
 
     monkeypatch.setattr(
-        scene,
+        bodies,
         "_build_builtin_body_targets",
         lambda: [
             {
@@ -1189,10 +1201,10 @@ async def test_build_horizons_solar_system_bodies_uses_offline_visual_fallback(m
             "error_code": "connect_timeout",
         }
 
-    monkeypatch.setattr(scene, "_ensure_scene_targets_registered", _noop)
-    monkeypatch.setattr(scene, "_get_vectors_snapshot", _missing)
+    monkeypatch.setattr(bodies, "_ensure_scene_targets_registered", _noop)
+    monkeypatch.setattr(bodies, "_get_vectors_snapshot", _missing)
 
-    solar_meta, planets = await scene._build_horizons_solar_system_bodies(
+    solar_meta, planets = await bodies._build_horizons_solar_system_bodies(
         epoch=epoch,
         past_hours=6,
         future_hours=6,
@@ -1357,15 +1369,15 @@ async def test_cache_refresh_reports_per_target_progress(monkeypatch):
     async def finish_without_database(result):
         return result
 
-    monkeypatch.setattr(scene, "AsyncSessionLocal", lambda: _SessionContext())
-    monkeypatch.setattr(scene.crud_monitored, "fetch_monitored_celestial", fetch_monitored)
-    monkeypatch.setattr(scene.crud_preferences, "get_map_settings", fetch_settings)
-    monkeypatch.setattr(scene, "_build_builtin_body_targets", lambda: targets)
-    monkeypatch.setattr(scene, "_ensure_scene_targets_registered", noop)
-    monkeypatch.setattr(scene, "_get_vectors_snapshot", snapshot)
-    monkeypatch.setattr(scene, "finish_celestial_sync", finish_without_database)
+    monkeypatch.setattr(sync, "AsyncSessionLocal", lambda: _SessionContext())
+    monkeypatch.setattr(sync.crud_monitored, "fetch_monitored_celestial", fetch_monitored)
+    monkeypatch.setattr(sync.crud_preferences, "get_map_settings", fetch_settings)
+    monkeypatch.setattr(sync, "_build_builtin_body_targets", lambda: targets)
+    monkeypatch.setattr(sync, "_ensure_scene_targets_registered", noop)
+    monkeypatch.setattr(sync, "_get_vectors_snapshot", snapshot)
+    monkeypatch.setattr(sync, "finish_celestial_sync", finish_without_database)
 
-    result = await scene.refresh_celestial_vector_snapshots_cache(
+    result = await sync.refresh_celestial_vector_snapshots_cache(
         _DummyLogger(),
         progress_callback=collect_progress,
     )
@@ -1437,15 +1449,15 @@ async def test_cache_refresh_uses_each_monitored_target_projection(monkeypatch):
     async def finish_without_database(result):
         return result
 
-    monkeypatch.setattr(scene, "AsyncSessionLocal", lambda: _SessionContext())
-    monkeypatch.setattr(scene.crud_monitored, "fetch_monitored_celestial", fetch_monitored)
-    monkeypatch.setattr(scene.crud_preferences, "get_map_settings", fetch_settings)
-    monkeypatch.setattr(scene, "_build_builtin_body_targets", lambda: [])
-    monkeypatch.setattr(scene, "_ensure_scene_targets_registered", noop)
-    monkeypatch.setattr(scene, "_get_vectors_snapshot", snapshot)
-    monkeypatch.setattr(scene, "finish_celestial_sync", finish_without_database)
+    monkeypatch.setattr(sync, "AsyncSessionLocal", lambda: _SessionContext())
+    monkeypatch.setattr(sync.crud_monitored, "fetch_monitored_celestial", fetch_monitored)
+    monkeypatch.setattr(sync.crud_preferences, "get_map_settings", fetch_settings)
+    monkeypatch.setattr(sync, "_build_builtin_body_targets", lambda: [])
+    monkeypatch.setattr(sync, "_ensure_scene_targets_registered", noop)
+    monkeypatch.setattr(sync, "_get_vectors_snapshot", snapshot)
+    monkeypatch.setattr(sync, "finish_celestial_sync", finish_without_database)
 
-    result = await scene.refresh_celestial_vector_snapshots_cache(_DummyLogger())
+    result = await sync.refresh_celestial_vector_snapshots_cache(_DummyLogger())
 
     assert result["success"] is True
     assert requested_projections == [(12, 168, 15)]

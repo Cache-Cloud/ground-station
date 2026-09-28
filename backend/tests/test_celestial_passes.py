@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from celestial import scene
-from celestial.scene import _build_pass_events_from_samples
+from celestial import passes, trajectory
+from celestial.passes import _build_pass_events_from_samples
 
 
 def test_position_interpolation_rejects_times_outside_sample_interval():
@@ -11,13 +11,17 @@ def test_position_interpolation_rejects_times_outside_sample_interval():
         (start + timedelta(hours=1), [2.0, 3.0, 4.0]),
     ]
 
-    assert scene._interpolate_position_from_samples(samples, start - timedelta(seconds=1)) is None
     assert (
-        scene._interpolate_position_from_samples(samples, start + timedelta(hours=1, seconds=1))
+        trajectory._interpolate_position_from_samples(samples, start - timedelta(seconds=1)) is None
+    )
+    assert (
+        trajectory._interpolate_position_from_samples(
+            samples, start + timedelta(hours=1, seconds=1)
+        )
         is None
     )
-    assert scene._interpolate_position_from_samples(samples, start) == [1.0, 2.0, 3.0]
-    assert scene._interpolate_position_from_samples(samples, start + timedelta(hours=1)) == [
+    assert trajectory._interpolate_position_from_samples(samples, start) == [1.0, 2.0, 3.0]
+    assert trajectory._interpolate_position_from_samples(samples, start + timedelta(hours=1)) == [
         2.0,
         3.0,
         4.0,
@@ -107,13 +111,13 @@ def test_observer_samples_keep_fixed_snapshot_boundaries_when_epoch_moves(monkey
         (snapshot_end, [0.999, 0.0005, 0.0]),
     ]
     monkeypatch.setattr(
-        scene,
+        passes,
         "compute_observer_sky_position",
         lambda **_kwargs: {"sky_position": {"az_deg": 180.0, "el_deg": 30.0}},
     )
 
     def extract(epoch):
-        return scene._extract_row_observer_samples(
+        return passes._extract_row_observer_samples(
             row=row,
             epoch=epoch,
             past_hours=1,
@@ -131,8 +135,8 @@ def test_observer_samples_keep_fixed_snapshot_boundaries_when_epoch_moves(monkey
     assert [sample["time"] for sample in first] == [sample["time"] for sample in second]
     assert first[0]["time"] == snapshot_start
     assert first[-1]["time"] == snapshot_end
-    first_event = scene._build_pass_events_from_samples(row, first, horizon_deg=0.0)[0]
-    second_event = scene._build_pass_events_from_samples(row, second, horizon_deg=0.0)[0]
+    first_event = passes._build_pass_events_from_samples(row, first, horizon_deg=0.0)[0]
+    second_event = passes._build_pass_events_from_samples(row, second, horizon_deg=0.0)[0]
     assert first_event["id"] == second_event["id"] == "body:io_projection-open"
     assert first_event["event_end"] == second_event["event_end"] == snapshot_end.isoformat()
 
@@ -193,13 +197,13 @@ def test_extract_row_observer_samples_prefers_supplied_earth_orbit_samples(monke
         )
 
     monkeypatch.setattr(
-        scene,
+        passes,
         "compute_body_position_heliocentric_au",
         _unexpected_earth_fallback,
         raising=False,
     )
 
-    samples = scene._extract_row_observer_samples(
+    samples = passes._extract_row_observer_samples(
         row=row,
         epoch=start,
         past_hours=0,
@@ -228,7 +232,7 @@ def test_extract_row_observer_samples_requires_horizons_target_samples_for_bodie
         "orbit_sample_times_utc": [],
     }
 
-    samples = scene._extract_row_observer_samples(
+    samples = passes._extract_row_observer_samples(
         row=row,
         epoch=start,
         past_hours=0,
@@ -264,13 +268,13 @@ def test_extract_row_observer_samples_does_not_call_local_earth_fallback(monkeyp
         raise AssertionError("Local Earth ephemeris fallback should not be called")
 
     monkeypatch.setattr(
-        scene,
+        passes,
         "compute_body_position_heliocentric_au",
         _unexpected_earth_fallback,
         raising=False,
     )
 
-    samples = scene._extract_row_observer_samples(
+    samples = passes._extract_row_observer_samples(
         row=row,
         epoch=start,
         past_hours=0,
@@ -307,12 +311,12 @@ def test_extract_row_observer_samples_stops_when_earth_samples_end(monkeypatch):
     ]
 
     monkeypatch.setattr(
-        scene,
+        passes,
         "compute_observer_sky_position",
         lambda **_kwargs: {"sky_position": {"az_deg": 180.0, "el_deg": 30.0}},
     )
 
-    samples = scene._extract_row_observer_samples(
+    samples = passes._extract_row_observer_samples(
         row=row,
         epoch=start,
         past_hours=0,
