@@ -26,9 +26,16 @@ def _config_int(name: str, default: int, minimum: int) -> int:
 
 # Celestial cache policy is fixed by code, not by app config.
 CACHE_TTL_SECONDS = 120
-VECTOR_DB_TTL_SECONDS = 2 * 60 * 60
+# Snapshot expiry is the provider refresh deadline. Coverage checks remain the
+# final authority, so a projection is never served beyond its stored samples.
+VECTOR_DB_TTL_SECONDS = 24 * 60 * 60
 VECTOR_EPOCH_BUCKET_MINUTES = 60
 VECTOR_FETCH_PADDING_HOURS = 1
+VECTOR_BODY_FUTURE_HEADROOM_HOURS = 48
+VECTOR_BODY_REFRESH_RESERVE_HOURS = 24
+VECTOR_MISSION_FUTURE_HEADROOM_HOURS = 12
+VECTOR_MISSION_REFRESH_RESERVE_HOURS = 6
+VECTOR_EXPIRED_RETENTION_DAYS = 7
 COMPUTED_EPOCH_BUCKET_SECONDS = 60
 SCHEDULED_SYNC_PAST_HOURS = _config_int("celestial_sync_past_hours", 1, 1)
 SCHEDULED_SYNC_FUTURE_HOURS = 24
@@ -45,6 +52,22 @@ OBSERVER_SKY_TARGET_STEP_MINUTES = 5
 MAX_OBSERVER_SKY_SAMPLES_PER_TARGET = 1500
 DEFAULT_FRAME = "heliocentric-ecliptic"
 DEFAULT_CENTER = "sun"
+
+
+def vector_cache_policy(target_key: str) -> Dict[str, int]:
+    """Return provider-envelope and refresh policy for a canonical target."""
+    is_body = str(target_key or "").startswith("body:")
+    if is_body:
+        return {
+            "future_headroom_hours": VECTOR_BODY_FUTURE_HEADROOM_HOURS,
+            "refresh_reserve_hours": VECTOR_BODY_REFRESH_RESERVE_HOURS,
+            "ttl_seconds": VECTOR_BODY_REFRESH_RESERVE_HOURS * 60 * 60,
+        }
+    return {
+        "future_headroom_hours": VECTOR_MISSION_FUTURE_HEADROOM_HOURS,
+        "refresh_reserve_hours": VECTOR_MISSION_REFRESH_RESERVE_HOURS,
+        "ttl_seconds": VECTOR_MISSION_REFRESH_RESERVE_HOURS * 60 * 60,
+    }
 
 
 def _parse_epoch(data: Optional[Dict[str, Any]]) -> datetime:

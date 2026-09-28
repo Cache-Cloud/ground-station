@@ -336,10 +336,10 @@ async def test_get_vectors_snapshot_refetches_shifted_exact_projection(monkeypat
         allow_network_fetch=True,
     )
 
-    assert fetch_calls == [("301", epoch, 2, 2, 60, False)]
+    assert fetch_calls == [("301", epoch, 2, 49, 60, False)]
     assert len(stored) == 1
-    assert stored[0]["past_hours"] == 1
-    assert stored[0]["future_hours"] == 1
+    assert stored[0]["past_hours"] == 2
+    assert stored[0]["future_hours"] == 49
     assert stored[0]["payload"]["orbit_sample_times_utc"] == [
         (epoch - timedelta(hours=2)).isoformat(),
         epoch.isoformat(),
@@ -592,7 +592,7 @@ async def test_get_vectors_snapshot_uses_fresh_snapshot_with_different_projectio
 
 
 @pytest.mark.asyncio
-async def test_network_sync_materializes_compatible_snapshot_as_fixed_projection(monkeypatch):
+async def test_network_sync_reuses_compatible_snapshot_without_derived_database_row(monkeypatch):
     epoch = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     compatible_payload = {
         "command": "501",
@@ -653,25 +653,7 @@ async def test_network_sync_materializes_compatible_snapshot_as_fixed_projection
     )
 
     assert result["cache"] == "db-compatible-hit"
-    assert len(stored) == 1
-    assert stored[0]["target_key"] == "body:io"
-    assert stored[0]["past_hours"] == 1
-    assert stored[0]["future_hours"] == 1
-    assert stored[0]["step_minutes"] == 60
-    assert stored[0]["payload"]["orbit_sample_times_utc"] == [
-        (epoch - timedelta(hours=1)).isoformat(),
-        epoch.isoformat(),
-        (epoch + timedelta(hours=1)).isoformat(),
-    ]
-
-    async def _materialized_projection(*_args, **_kwargs):
-        return {"payload": stored[0]["payload"]}
-
-    async def _unexpected_fallback(*_args, **_kwargs):
-        raise AssertionError("The materialized projection should satisfy the cache-only broadcast")
-
-    monkeypatch.setattr(snapshots, "_load_vectors_from_db", _materialized_projection)
-    monkeypatch.setattr(snapshots, "_load_latest_vectors_from_db", _unexpected_fallback)
+    assert stored == []
 
     broadcast_result = await snapshots._get_vectors_snapshot(
         command="501",
@@ -686,10 +668,10 @@ async def test_network_sync_materializes_compatible_snapshot_as_fixed_projection
         allow_network_fetch=False,
     )
 
-    assert broadcast_result["cache"] == "db-hit-partial"
+    assert broadcast_result["cache"] == "db-compatible-hit"
     assert (
         broadcast_result["payload"]["orbit_sample_times_utc"][-1]
-        == (epoch + timedelta(hours=1)).isoformat()
+        == (epoch + timedelta(hours=1, seconds=5)).isoformat()
     )
 
 
@@ -1285,6 +1267,7 @@ async def test_vector_snapshot_stats_report_cache_health(db_session):
             target_type="mission",
             display_name="Voyager 1",
             horizons_command="Voyager 1",
+            always_in_scene=True,
         )
     )
     common = {
@@ -1328,6 +1311,10 @@ async def test_vector_snapshot_stats_report_cache_health(db_session):
     assert result["data"]["fresh_snapshots"] == 1
     assert result["data"]["expired_snapshots"] == 1
     assert result["data"]["error_snapshots"] == 1
+    assert result["data"]["operational_targets"] == 1
+    assert result["data"]["ready_targets"] == 0
+    assert result["data"]["refresh_due_targets"] == 1
+    assert result["data"]["targets"][0]["status"] == "refresh_due"
 
 
 @pytest.mark.asyncio
@@ -1383,6 +1370,9 @@ async def test_cache_refresh_reports_per_target_progress(monkeypatch):
     )
 
     assert result["refreshed"] == 1
+    assert result["provider_fetched"] == 1
+    assert result["cache_reused"] == 0
+    assert result["stale_fallback"] == 0
     assert result["failed"] == 1
     assert result["errors"] == [
         {
@@ -1461,6 +1451,45 @@ async def test_cache_refresh_uses_each_monitored_target_projection(monkeypatch):
 
     assert result["success"] is True
     assert requested_projections == [(12, 168, 15)]
+
+
+@pytest.mark.asyncio
+async def test_solar_body_progress_is_scoped_to_requesting_client(monkeypatch):
+    emitted = []
+
+    class _Sio:
+        async def emit(self, event, payload, to=None):
+            emitted.append((event, payload, to))
+
+    async def build_scene(*, per_body_callback=None, **_kwargs):
+        await per_body_callback(
+            {"target_key": "body:mars", "name": "Mars"},
+            1,
+            2,
+        )
+        return {"success": True, "data": {"planets": []}}
+
+    monkeypatch.setattr(celestial_handlers, "build_solar_system_scene", build_scene)
+
+    result = await celestial_handlers.get_solar_system_scene(
+        _Sio(),
+        {"allow_network_fetch": True, "request_id": "batch-1"},
+        _DummyLogger(),
+        "requesting-client",
+    )
+
+    assert result["success"] is True
+    assert emitted == [
+        (
+            "solar-system-body-update",
+            {
+                "request_id": "batch-1",
+                "body": {"target_key": "body:mars", "name": "Mars"},
+                "progress": {"current": 1, "total": 2, "percent": 50.0},
+            },
+            "requesting-client",
+        )
+    ]
 
 
 @pytest.mark.asyncio

@@ -540,7 +540,8 @@
       "title": "Synchronize Celestial Ephemeris",
       "subtitle": "Refresh celestial vectors from {{provider}}.",
       "actions": {
-        "synchronize_now": "Synchronize now"
+        "synchronize_now": "Synchronize now",
+        "prune_expired": "Prune expired history"
       },
       "labels": {
         "status": "Status",
@@ -553,7 +554,10 @@
         "next_connection_attempt": "Next connection attempt:",
         "last_failed_attempt": "Last failed attempt:",
         "failed_targets_one": "Failed targets ({{count}})",
-        "failed_targets_other": "Failed targets ({{count}})"
+        "failed_targets_other": "Failed targets ({{count}})",
+        "provider_fetched": "Provider fetched: {{count}}",
+        "cache_reused": "Cache reused: {{count}}",
+        "stale_fallback": "Stale fallback: {{count}}"
       },
       "status": {
         "running": "Running",
@@ -568,7 +572,9 @@
         "stopped_with_errors": "Synchronization stopped with errors. See details below.",
         "cache_ready": "Ephemeris cache is ready.",
         "using_cached_data": "Using cached ephemeris data while Horizons is unavailable.",
-        "ready": "Ready to synchronize ephemeris data."
+        "ready": "Ready to synchronize ephemeris data.",
+        "pruned_one": "Removed {{count}} expired snapshot.",
+        "pruned_other": "Removed {{count}} expired snapshots."
       },
       "horizons_unavailable": {
         "title": "NASA JPL Horizons is unavailable",
@@ -582,7 +588,10 @@
         "newest": "Newest: {{value}}",
         "expired_snapshots": "Expired snapshots",
         "with_errors_one": "{{count}} with errors",
-        "with_errors_other": "{{count}} with errors"
+        "with_errors_other": "{{count}} with errors",
+        "ready_targets": "Ready targets",
+        "refresh_due_one": "{{count}} refresh due",
+        "refresh_due_other": "{{count}} refresh due"
       },
       "periodic": {
         "title": "Periodic synchronization",
@@ -595,7 +604,13 @@
         "hours_one": "{{count}} hour",
         "hours_other": "{{count}} hours",
         "next_cache_expiry": "Next cache expiry",
-        "last_failure": "Last failure"
+        "last_failure": "Last failure",
+        "effective_projection": "Effective projection",
+        "next_provider_refresh": "Next provider refresh",
+        "next_scheduler_run": "Next scheduler check"
+      },
+      "targets": {
+        "title": "Target cache inspection"
       },
       "failure": {
         "default_summary": "The ephemeris synchronization could not be completed.",
@@ -771,6 +786,7 @@
         "latest_snapshot": "Latest snapshot",
         "coverage": "Sample coverage",
         "required_window": "Window required now",
+        "provider_envelope": "Provider envelope",
         "cache_expiry": "Cache expiry",
         "delete_snapshot": "Delete snapshot",
         "clear_expired": "Clear expired",

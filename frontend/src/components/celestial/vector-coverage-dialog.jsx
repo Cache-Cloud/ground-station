@@ -247,7 +247,13 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
         setError('');
         socket.emit('api.call', {
             cmd: 'get-celestial-vector-snapshot-history',
-            data: { target_key: target.targetKey, limit: 24 },
+            data: {
+                target_key: target.targetKey,
+                limit: 24,
+                past_hours: target.projectionPastHours,
+                future_hours: target.projectionFutureHours,
+                step_minutes: target.projectionStepMinutes,
+            },
         }, (response) => {
             // A target can change while its Socket.IO acknowledgement is in
             // flight. Ignore late data instead of showing it under a new name.
@@ -260,7 +266,15 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
             if (!background) setLoading(false);
             resolve(Boolean(response?.success));
         });
-    }), [open, socket, t, target?.targetKey]);
+    }), [
+        open,
+        socket,
+        t,
+        target?.targetKey,
+        target?.projectionPastHours,
+        target?.projectionFutureHours,
+        target?.projectionStepMinutes,
+    ]);
 
     useEffect(() => {
         if (open) {
@@ -374,7 +388,7 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
                         <StatusCard icon={latest.vector_available ? <CheckCircleOutlineIcon /> : <ErrorOutlineIcon />} color={latest.vector_available ? 'success' : 'error'} label={t('admin.targets.vectors.available')} value={latest.vector_available ? t('common.yes') : t('common.no')} detail={latest.error || undefined} />
                         <StatusCard icon={<CachedIcon />} color={latest.cache_fresh ? 'success' : 'warning'} label={t('admin.targets.vectors.cache')} value={latest.cache_fresh ? t('admin.targets.vectors.fresh') : t('admin.targets.vectors.expired')} detail={formatTime(latest.expires_at, timezone, locale)} />
                         <StatusCard icon={<AccessTimeIcon />} color={latest.covers_now ? 'success' : 'error'} label={t('admin.targets.vectors.current_time_covered')} value={latest.covers_now ? t('common.yes') : t('common.no')} />
-                        <StatusCard icon={<TimelineIcon />} color={latest.covers_projection_window ? 'success' : 'error'} label={t('admin.targets.vectors.requested_window_covered')} value={latest.covers_projection_window ? t('common.yes') : t('common.no')} detail={`-${latest.past_hours}h / +${latest.future_hours}h · ${latest.step_minutes} min`} />
+                        <StatusCard icon={<TimelineIcon />} color={latest.covers_projection_window ? 'success' : 'error'} label={t('admin.targets.vectors.requested_window_covered')} value={latest.covers_projection_window ? t('common.yes') : t('common.no')} detail={`-${latest.requested_past_hours}h / +${latest.requested_future_hours}h · ${latest.requested_step_minutes} min`} />
                     </Box>
                     {!latest.covers_now ? <Alert severity="error">{t('admin.targets.vectors.diagnosis.current_missing')}</Alert>
                         : !latest.covers_projection_window ? <Alert severity="warning">{t('admin.targets.vectors.diagnosis.window_short')}</Alert>
@@ -412,7 +426,8 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
                             <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} justifyContent="space-between">
                                 <Box><Typography variant="body2" fontWeight={700}>{index === 0 ? t('admin.targets.vectors.latest_snapshot') : formatTime(snapshot.epoch_bucket_utc, timezone, locale)}</Typography>
                                     <Typography variant="caption" color="text.secondary" display="block">{t('admin.targets.vectors.coverage')}: {formatTime(snapshot.sample_start_utc, timezone, locale)} → {formatTime(snapshot.sample_end_utc, timezone, locale)}</Typography>
-                                    <Typography variant="caption" color="text.secondary" display="block">{t('admin.targets.vectors.required_window')}: {formatTime(snapshot.requested_start_utc, timezone, locale)} → {formatTime(snapshot.requested_end_utc, timezone, locale)}</Typography></Box>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('admin.targets.vectors.required_window')}: {formatTime(snapshot.requested_start_utc, timezone, locale)} → {formatTime(snapshot.requested_end_utc, timezone, locale)}</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('admin.targets.vectors.provider_envelope', { defaultValue: 'Provider envelope' })}: -{snapshot.past_hours}h / +{snapshot.future_hours}h · {snapshot.step_minutes} min</Typography></Box>
                                 <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
                                     <Chip size="small" label={`${snapshot.sample_count} ${t('admin.targets.vectors.samples')}`} />
                                     <Chip size="small" color={snapshot.cache_fresh ? 'success' : 'warning'} label={snapshot.cache_fresh ? t('admin.targets.vectors.fresh') : t('admin.targets.vectors.expired')} />
@@ -438,7 +453,7 @@ export default function VectorCoverageDialog({ open, target, socket, timezone, l
                 </> : null}
             </Stack></DialogContent>
             <DialogActions><Button onClick={onClose}>{t('admin.targets.vectors.close')}</Button>
-                <Button variant="contained" startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />} disabled={!socket || refreshing || deleting} onClick={handleRefresh}>{t('admin.targets.actions.refresh')}</Button>
+                {onRefresh ? <Button variant="contained" startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />} disabled={!socket || refreshing || deleting} onClick={handleRefresh}>{t('admin.targets.actions.refresh')}</Button> : null}
             </DialogActions>
         </Dialog>
         <Dialog open={Boolean(pendingDelete)} onClose={deleting ? undefined : () => setPendingDelete(null)} maxWidth="sm" fullWidth>

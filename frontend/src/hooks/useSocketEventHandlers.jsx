@@ -107,6 +107,7 @@ import {
     setCelestialTracksLive,
     setSolarSceneLive,
     upsertCelestialTrackRowLive,
+    upsertSolarSystemBodyLive,
 } from '../components/celestial/celestial-slice.jsx';
 
 /**
@@ -905,6 +906,9 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
         socket.on('celestial-track-row-update', (data) => {
             dispatch(upsertCelestialTrackRowLive(data));
         });
+        socket.on('solar-system-body-update', (data) => {
+            dispatch(upsertSolarSystemBodyLive(data));
+        });
         socket.on('celestial-ephemeris-status-update', (response) => {
             if (response?.success && response.data) {
                 dispatch(setCelestialEphemerisStatus(response.data));
@@ -1014,6 +1018,7 @@ export const useSocketEventHandlers = (socket, enabled = true) => {
             socket.off("solar-system-scene-update");
             socket.off("celestial-tracks-update");
             socket.off("celestial-track-row-update");
+            socket.off("solar-system-body-update");
             socket.off("celestial-ephemeris-status-update");
             socket.off("observation-status-update");
             socket.off("scheduled-observations-changed");

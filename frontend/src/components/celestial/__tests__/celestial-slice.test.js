@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import celestialReducer, {
   fetchTargetCelestialScene,
+  fetchSolarSystemScene,
   setCelestialEphemerisStatus,
   setCelestialEphemerisSyncCompleted,
   setCelestialEphemerisSyncFailed,
@@ -9,9 +10,41 @@ import celestialReducer, {
   setTargetCelestialLivePointing,
   setCelestialTracksLive,
   refreshMonitoredCelestialNow,
+  upsertSolarSystemBodyLive,
 } from '../celestial-slice';
 
 describe('target celestial scenes', () => {
+  it('applies progressive solar rows only to the active request', () => {
+    const requestArgs = { socket: {}, payload: { allow_network_fetch: true } };
+    let state = celestialReducer(
+      undefined,
+      fetchSolarSystemScene.pending('solar-request', requestArgs),
+    );
+
+    state = celestialReducer(state, upsertSolarSystemBodyLive({
+      request_id: 'older-request',
+      body: { target_key: 'body:mars', name: 'Wrong Mars' },
+      progress: { current: 1, total: 2 },
+    }));
+    expect(state.solarScene).toBeNull();
+
+    state = celestialReducer(state, upsertSolarSystemBodyLive({
+      request_id: 'solar-request',
+      body: { target_key: 'body:mars', name: 'Mars' },
+      progress: { current: 1, total: 2 },
+    }));
+    state = celestialReducer(state, upsertSolarSystemBodyLive({
+      request_id: 'solar-request',
+      body: { target_key: 'body:mars', stale: false },
+      progress: { current: 2, total: 2 },
+    }));
+
+    expect(state.solarScene.planets).toEqual([
+      { target_key: 'body:mars', name: 'Mars', stale: false },
+    ]);
+    expect(state.solarProgress).toEqual({ current: 2, total: 2 });
+  });
+
   it('clears live tracks and passes when the backend broadcasts an empty state', () => {
     let state = celestialReducer(undefined, setCelestialTracksLive({
       celestial: [{ target_key: 'body:mars', name: 'Mars' }],

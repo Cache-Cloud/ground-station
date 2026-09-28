@@ -96,11 +96,11 @@ export const fetchCelestialScene = createAsyncThunk(
 
 export const fetchSolarSystemScene = createAsyncThunk(
     'celestial/fetchSolarSystemScene',
-    async ({ socket, payload = {} }, { rejectWithValue }) => {
+    async ({ socket, payload = {} }, { rejectWithValue, requestId }) => {
         return await new Promise((resolve, reject) => {
             socket.emit("api.call", {
   cmd: 'get-solar-system-scene',
-  data: payload
+  data: { ...payload, request_id: requestId }
 }, response => {
   if (response?.success) {
     resolve(response.data);
@@ -276,6 +276,8 @@ const celestialSlice = createSlice({
         // Target-page requests are isolated from the live monitored-target broadcast.
         targetScenesByKey: {},
         tracksProgress: null,
+        solarProgress: null,
+        activeSolarRequestId: null,
         mapSettings: null,
         passesTableColumnVisibility: { ...CELESTIAL_PASSES_DEFAULT_COLUMN_VISIBILITY },
         passesTablePageSize: CELESTIAL_PASSES_DEFAULT_PAGE_SIZE,
@@ -352,6 +354,25 @@ const celestialSlice = createSlice({
             state.error = null;
             state.lastUpdated = new Date().toISOString();
         },
+        upsertSolarSystemBodyLive: (state, action) => {
+            const payload = action.payload || {};
+            if (!payload.request_id || payload.request_id !== state.activeSolarRequestId) return;
+            const body = payload.body;
+            const targetKey = String(body?.target_key || '').trim();
+            if (!targetKey) return;
+
+            const nextScene = state.solarScene ? { ...state.solarScene } : { planets: [] };
+            const planets = Array.isArray(nextScene.planets) ? [...nextScene.planets] : [];
+            const existingIndex = planets.findIndex(
+                (item) => String(item?.target_key || '').trim() === targetKey,
+            );
+            if (existingIndex >= 0) planets[existingIndex] = { ...planets[existingIndex], ...body };
+            else planets.push(body);
+            nextScene.planets = planets;
+            state.solarScene = nextScene;
+            state.solarProgress = payload.progress || state.solarProgress;
+            state.lastUpdated = new Date().toISOString();
+        },
         setTargetCelestialLivePointing: (state, action) => {
             const payload = action.payload || {};
             const targetKey = String(payload.targetKey || '').trim();
@@ -426,6 +447,9 @@ const celestialSlice = createSlice({
                 processed: Number(progress.processed || 0),
                 total: Number(progress.total || 0),
                 refreshed: Number(progress.refreshed || 0),
+                providerFetched: Number(progress.provider_fetched || 0),
+                cacheReused: Number(progress.cache_reused || 0),
+                staleFallback: Number(progress.stale_fallback || 0),
                 failed: Number(progress.failed || 0),
                 currentTarget: progress.current_target || null,
             };
@@ -438,6 +462,9 @@ const celestialSlice = createSlice({
                 processed: Number(result.count || 0),
                 total: Number(result.count || 0),
                 refreshed: Number(result.refreshed || 0),
+                providerFetched: Number(result.provider_fetched || 0),
+                cacheReused: Number(result.cache_reused || 0),
+                staleFallback: Number(result.stale_fallback || 0),
                 failed: Number(result.failed || 0),
                 currentTarget: null,
                 error: null,
@@ -454,6 +481,9 @@ const celestialSlice = createSlice({
                 processed: Number(result.count || state.ephemerisSync?.processed || 0),
                 total: Number(result.count || state.ephemerisSync?.total || 0),
                 refreshed: Number(result.refreshed || 0),
+                providerFetched: Number(result.provider_fetched || 0),
+                cacheReused: Number(result.cache_reused || 0),
+                staleFallback: Number(result.stale_fallback || 0),
                 failed: Number(result.failed || 0),
                 currentTarget: null,
                 error: payload.error || result.error || 'Ephemeris synchronization failed',
@@ -479,6 +509,9 @@ const celestialSlice = createSlice({
                 processed: Number(sharedState.processed || 0),
                 total: Number(sharedState.count || 0),
                 refreshed: Number(sharedState.refreshed || 0),
+                providerFetched: Number(sharedState.provider_fetched || 0),
+                cacheReused: Number(sharedState.cache_reused || 0),
+                staleFallback: Number(sharedState.stale_fallback || 0),
                 failed: Number(sharedState.failed || 0),
                 currentTarget: sharedState.current_target || null,
                 error: hasFailed
@@ -508,17 +541,25 @@ const celestialSlice = createSlice({
                 state.tracksLoading = false;
                 state.error = action.payload || action.error?.message || 'Unknown error';
             })
-            .addCase(fetchSolarSystemScene.pending, (state) => {
+            .addCase(fetchSolarSystemScene.pending, (state, action) => {
                 state.solarLoading = true;
+                state.activeSolarRequestId = action.meta.requestId;
+                state.solarProgress = null;
                 state.error = null;
             })
             .addCase(fetchSolarSystemScene.fulfilled, (state, action) => {
+                if (state.activeSolarRequestId !== action.meta.requestId) return;
                 state.solarLoading = false;
                 state.solarScene = normalizeScenePayload(action.payload);
+                state.activeSolarRequestId = null;
+                state.solarProgress = null;
                 state.lastUpdated = new Date().toISOString();
             })
             .addCase(fetchSolarSystemScene.rejected, (state, action) => {
+                if (state.activeSolarRequestId !== action.meta.requestId) return;
                 state.solarLoading = false;
+                state.activeSolarRequestId = null;
+                state.solarProgress = null;
                 state.error = action.payload || action.error?.message || 'Unknown error';
             })
             .addCase(fetchCelestialTracks.pending, (state) => {
@@ -716,6 +757,7 @@ export const {
     setSolarSceneLive,
     setCelestialTracksLive,
     upsertCelestialTrackRowLive,
+    upsertSolarSystemBodyLive,
     setTargetCelestialLivePointing,
     setObserverSkyBodies,
     setCelestialPassesTableColumnVisibility,

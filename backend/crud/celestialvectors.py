@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.common import logger, serialize_object
 from common.targetkey import normalize_target_key
-from db.models import CelestialTargets, CelestialVectorSnapshots
+from db.models import CelestialTargets, CelestialVectorSnapshots, MonitoredCelestial
 
 _SNAPSHOT_UPSERT_CONFLICT_MISSING_CONSTRAINT_ERROR = (
     "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint"
@@ -267,6 +267,133 @@ async def fetch_celestial_vector_snapshot_stats(
         result = await session.execute(stmt)
         row = result.mappings().one()
 
+        latest_ranked = select(
+            CelestialVectorSnapshots.target_id.label("target_id"),
+            CelestialVectorSnapshots.expires_at.label("expires_at"),
+            CelestialVectorSnapshots.error.label("error"),
+            CelestialVectorSnapshots.orbit_sample_times_utc.label("sample_times"),
+            func.row_number()
+            .over(
+                partition_by=CelestialVectorSnapshots.target_id,
+                order_by=(
+                    CelestialVectorSnapshots.fetched_at.desc(),
+                    CelestialVectorSnapshots.epoch_bucket_utc.desc(),
+                ),
+            )
+            .label("rank"),
+        ).subquery()
+        latest_result = await session.execute(
+            select(latest_ranked).where(latest_ranked.c.rank == 1)
+        )
+        latest_rows = latest_result.mappings().all()
+        target_result = await session.execute(
+            select(
+                CelestialTargets.id,
+                CelestialTargets.display_name,
+                CelestialTargets.target_type,
+                CelestialTargets.body_id,
+                CelestialTargets.horizons_command,
+            ).where(
+                CelestialTargets.enabled.is_(True),
+                (
+                    CelestialTargets.always_in_scene.is_(True)
+                    | CelestialTargets.id.in_(
+                        select(MonitoredCelestial.target_key).where(
+                            MonitoredCelestial.enabled.is_(True)
+                        )
+                    )
+                ),
+            )
+        )
+        target_rows = {row.id: row for row in target_result.all()}
+        # Historical snapshots can outlive a disabled or removed target. Keep
+        # storage totals global while operational health follows enabled targets.
+        latest_rows = [row for row in latest_rows if row["target_id"] in target_rows]
+        ready_targets = 0
+        refresh_due_targets = 0
+        failed_targets = 0
+        next_refresh_at: Optional[datetime] = None
+        next_coverage_exhaustion_at: Optional[datetime] = None
+        target_statuses = []
+        for latest in latest_rows:
+            expires_at = latest["expires_at"]
+            if isinstance(expires_at, datetime) and expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            parsed_times = [
+                parsed
+                for parsed in (
+                    _parse_sample_time(value) for value in (latest["sample_times"] or [])
+                )
+                if parsed is not None
+            ]
+            sample_end = max(parsed_times) if parsed_times else None
+            covers_now = bool(
+                parsed_times
+                and sample_end is not None
+                and min(parsed_times) <= now_utc <= sample_end
+            )
+            if latest["error"]:
+                failed_targets += 1
+            if isinstance(expires_at, datetime) and expires_at > now_utc and covers_now:
+                ready_targets += 1
+                if next_refresh_at is None or expires_at < next_refresh_at:
+                    next_refresh_at = expires_at
+            else:
+                refresh_due_targets += 1
+            if sample_end and sample_end > now_utc:
+                if next_coverage_exhaustion_at is None or sample_end < next_coverage_exhaustion_at:
+                    next_coverage_exhaustion_at = sample_end
+            target = target_rows.get(latest["target_id"])
+            target_statuses.append(
+                {
+                    "target_key": latest["target_id"],
+                    "display_name": target.display_name if target else latest["target_id"],
+                    "target_type": target.target_type if target else None,
+                    "body_id": target.body_id if target else None,
+                    "command": target.horizons_command if target else None,
+                    "status": (
+                        "failed"
+                        if latest["error"]
+                        else (
+                            "ready"
+                            if isinstance(expires_at, datetime)
+                            and expires_at > now_utc
+                            and covers_now
+                            else "refresh_due"
+                        )
+                    ),
+                    "refresh_at": _serialize_utc_datetime(expires_at),
+                    "coverage_end_at": _serialize_utc_datetime(sample_end),
+                }
+            )
+
+        latest_target_keys = {latest["target_id"] for latest in latest_rows}
+        for target_key, target in target_rows.items():
+            if target_key in latest_target_keys:
+                continue
+            target_statuses.append(
+                {
+                    "target_key": target_key,
+                    "display_name": target.display_name,
+                    "target_type": target.target_type,
+                    "body_id": target.body_id,
+                    "command": target.horizons_command,
+                    "status": "missing",
+                    "refresh_at": None,
+                    "coverage_end_at": None,
+                }
+            )
+        target_statuses.sort(key=lambda item: (str(item["target_type"]), str(item["display_name"])))
+        database_size_bytes = None
+        try:
+            page_count = int((await session.execute(text("PRAGMA page_count"))).scalar() or 0)
+            page_size = int((await session.execute(text("PRAGMA page_size"))).scalar() or 0)
+            database_size_bytes = page_count * page_size
+        except Exception:
+            # Aggregate cache health remains useful on non-SQLite test or
+            # development databases where SQLite PRAGMAs are unavailable.
+            database_size_bytes = None
+
         return {
             "success": True,
             "data": {
@@ -278,6 +405,15 @@ async def fetch_celestial_vector_snapshot_stats(
                 "oldest_fetch_at": _serialize_utc_datetime(row["oldest_fetch_at"]),
                 "newest_fetch_at": _serialize_utc_datetime(row["newest_fetch_at"]),
                 "next_expiry_at": _serialize_utc_datetime(row["next_expiry_at"]),
+                "operational_targets": len(target_rows),
+                "ready_targets": ready_targets,
+                "refresh_due_targets": refresh_due_targets
+                + max(0, len(target_rows) - len(latest_rows)),
+                "failed_targets": failed_targets,
+                "next_refresh_at": _serialize_utc_datetime(next_refresh_at),
+                "next_coverage_exhaustion_at": _serialize_utc_datetime(next_coverage_exhaustion_at),
+                "targets": target_statuses,
+                "database_size_bytes": database_size_bytes,
             },
             "error": None,
         }
@@ -293,6 +429,9 @@ async def fetch_celestial_vector_snapshot_history(
     *,
     as_of: Optional[datetime] = None,
     limit: int = 24,
+    requested_past_hours: Optional[int] = None,
+    requested_future_hours: Optional[int] = None,
+    requested_step_minutes: Optional[int] = None,
 ) -> dict:
     """Return compact cache and sample-coverage history for one canonical target."""
     try:
@@ -359,8 +498,11 @@ async def fetch_celestial_vector_snapshot_history(
             # would request now. This exposes the common case where the cache
             # has not expired yet but its future samples no longer reach far
             # enough for the current projection.
-            requested_start = now_utc - timedelta(hours=int(row["past_hours"]))
-            requested_end = now_utc + timedelta(hours=int(row["future_hours"]))
+            projection_past = int(requested_past_hours or row["past_hours"])
+            projection_future = int(requested_future_hours or row["future_hours"])
+            projection_step = int(requested_step_minutes or row["step_minutes"])
+            requested_start = now_utc - timedelta(hours=projection_past)
+            requested_end = now_utc + timedelta(hours=projection_future)
             expires_at = row["expires_at"]
             if isinstance(expires_at, datetime) and expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -374,6 +516,7 @@ async def fetch_celestial_vector_snapshot_history(
                 and requested_end
                 and sample_start <= requested_start
                 and sample_end >= requested_end
+                and int(row["step_minutes"]) <= projection_step
             )
             snapshots.append(
                 {
@@ -389,6 +532,9 @@ async def fetch_celestial_vector_snapshot_history(
                     "past_hours": int(row["past_hours"]),
                     "future_hours": int(row["future_hours"]),
                     "step_minutes": int(row["step_minutes"]),
+                    "requested_past_hours": projection_past,
+                    "requested_future_hours": projection_future,
+                    "requested_step_minutes": projection_step,
                     "frame": row["frame"],
                     "center": row["center"],
                     "source": row["source"],
@@ -466,6 +612,36 @@ async def delete_celestial_vector_snapshots(
     except Exception as e:
         await session.rollback()
         logger.error(f"Error deleting celestial vector snapshots: {e}")
+        logger.error(traceback.format_exc())
+        return {"success": False, "error": str(e)}
+
+
+async def prune_expired_celestial_vector_snapshots(
+    session: AsyncSession,
+    *,
+    expired_before: datetime,
+) -> dict:
+    """Delete expired history older than a retention cutoff across all targets."""
+    try:
+        cutoff = expired_before
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
+        cutoff = cutoff.astimezone(timezone.utc)
+        result = await session.execute(
+            delete(CelestialVectorSnapshots).where(CelestialVectorSnapshots.expires_at <= cutoff)
+        )
+        await session.commit()
+        return {
+            "success": True,
+            "data": {
+                "expired_before": cutoff.isoformat(),
+                "deleted_count": int(result.rowcount or 0),
+            },
+            "error": None,
+        }
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Error pruning celestial vector snapshots: {e}")
         logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 

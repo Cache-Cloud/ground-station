@@ -14,6 +14,7 @@ import pytest
 from crud.celestialvectors import (
     delete_celestial_vector_snapshots,
     fetch_celestial_vector_snapshot_history,
+    prune_expired_celestial_vector_snapshots,
 )
 from db.models import CelestialTargets, CelestialVectorSnapshots
 from handlers.entities.celestial import (
@@ -102,6 +103,9 @@ async def test_vector_history_reports_cache_and_sample_validity(db_session):
         "past_hours": 24,
         "future_hours": 24,
         "step_minutes": 60,
+        "requested_past_hours": 24,
+        "requested_future_hours": 24,
+        "requested_step_minutes": 60,
         "frame": "heliocentric-ecliptic",
         "center": "sun",
         "source": "horizons",
@@ -209,6 +213,49 @@ async def test_vector_snapshot_deletion_is_scoped_and_supports_expired_cleanup(d
         as_of=now,
     )
     assert [row["id"] for row in mars_history["data"]["snapshots"]] == ["mars-fresh"]
+
+
+@pytest.mark.asyncio
+async def test_global_snapshot_prune_keeps_recent_expired_fallbacks(db_session):
+    now = datetime(2026, 9, 23, 3, 30, tzinfo=timezone.utc)
+    db_session.add(
+        CelestialTargets(
+            id="body:mars",
+            target_type="body",
+            display_name="Mars",
+            body_id="mars",
+        )
+    )
+    for snapshot_id, expiry in (
+        ("old-expired", now - timedelta(days=8)),
+        ("recent-expired", now - timedelta(days=1)),
+    ):
+        db_session.add(
+            CelestialVectorSnapshots(
+                id=snapshot_id,
+                target_id="body:mars",
+                epoch_bucket_utc=expiry,
+                past_hours=1,
+                future_hours=24,
+                step_minutes=60,
+                position_xyz_au=[1, 2, 3],
+                velocity_xyz_au_per_day=[0.1, 0.2, 0.3],
+                orbit_samples_xyz_au=[[1, 2, 3]],
+                orbit_sample_times_utc=[now.isoformat()],
+                fetched_at=expiry,
+                expires_at=expiry,
+            )
+        )
+    await db_session.commit()
+
+    result = await prune_expired_celestial_vector_snapshots(
+        db_session,
+        expired_before=now - timedelta(days=7),
+    )
+
+    assert result["data"]["deleted_count"] == 1
+    history = await fetch_celestial_vector_snapshot_history(db_session, "body:mars", as_of=now)
+    assert [row["id"] for row in history["data"]["snapshots"]] == ["recent-expired"]
 
 
 @pytest.mark.asyncio

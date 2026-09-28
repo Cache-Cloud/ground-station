@@ -17,7 +17,11 @@ from common.logger import logger
 from db import AsyncSessionLocal
 from observations.constants import DEFAULT_AUTO_GENERATE_INTERVAL_HOURS
 from observations.generator import generate_observations_for_monitored_satellites
-from server.schedulerstate import ORBITAL_SYNC_JOB_ID, set_scheduler_reference
+from server.schedulerstate import (
+    CELESTIAL_SYNC_JOB_ID,
+    ORBITAL_SYNC_JOB_ID,
+    set_scheduler_reference,
+)
 from tasks.registry import get_task
 from tracker.runner import get_tracker_supervisor
 
@@ -507,7 +511,7 @@ def start_scheduler(sio, process_manager, background_task_manager):
             sync_celestial_vector_snapshots_job,
             trigger=IntervalTrigger(minutes=celestial_sync_interval_minutes),
             args=[background_task_manager, sio],
-            id="sync_celestial_vector_snapshots",
+            id=CELESTIAL_SYNC_JOB_ID,
             name="Synchronize celestial vector snapshots",
             replace_existing=True,
             max_instances=1,

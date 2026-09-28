@@ -254,12 +254,17 @@ export function CelestialEphemerisPage() {
     const [status, setStatus] = useState(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [pruning, setPruning] = useState(false);
     const [message, setMessage] = useState(null);
+    const [inspectionTarget, setInspectionTarget] = useState(null);
     const [syncProgress, setSyncProgress] = useState({
         processed: 0,
         total: 0,
         percent: 0,
         refreshed: 0,
+        provider_fetched: 0,
+        cache_reused: 0,
+        stale_fallback: 0,
         failed: 0,
         phase: 'idle',
         current_target: null,
@@ -270,6 +275,20 @@ export function CelestialEphemerisPage() {
         dispatch(setCelestialEphemerisStatus(nextStatus));
 
         const terminalState = nextStatus?.sync?.state || {};
+        if (String(terminalState.status || '').toLowerCase() === 'inprogress') {
+            setSyncProgress((current) => ({
+                ...current,
+                processed: Number(terminalState.processed || 0),
+                total: Number(terminalState.count || 0),
+                percent: Number(terminalState.progress || 0),
+                refreshed: Number(terminalState.refreshed || 0),
+                provider_fetched: Number(terminalState.provider_fetched || 0),
+                cache_reused: Number(terminalState.cache_reused || 0),
+                stale_fallback: Number(terminalState.stale_fallback || 0),
+                current_target: terminalState.current_target || null,
+                phase: terminalState.phase || 'processing',
+            }));
+        }
         const normalizedStatus = String(terminalState.status || '').toLowerCase();
         const hasFailed = normalizedStatus === 'failed'
             || (normalizedStatus === 'complete' && terminalState.success === false);
@@ -341,6 +360,9 @@ export function CelestialEphemerisPage() {
             total: 0,
             percent: 0,
             refreshed: 0,
+            provider_fetched: 0,
+            cache_reused: 0,
+            stale_fallback: 0,
             failed: 0,
             phase: 'starting',
             current_target: null,
@@ -354,6 +376,9 @@ export function CelestialEphemerisPage() {
                 total: result?.count ?? current.total,
                 percent: 100,
                 refreshed: result?.refreshed ?? current.refreshed,
+                provider_fetched: result?.provider_fetched ?? current.provider_fetched,
+                cache_reused: result?.cache_reused ?? current.cache_reused,
+                stale_fallback: result?.stale_fallback ?? current.stale_fallback,
                 failed: result?.failed ?? current.failed,
                 phase: 'complete',
             }));
@@ -368,16 +393,37 @@ export function CelestialEphemerisPage() {
         }
     };
 
+    const handlePruneCache = async () => {
+        setPruning(true);
+        setMessage(null);
+        try {
+            const result = await apiCall(socket, 'prune-celestial-vector-snapshots', null, t);
+            setMessage({
+                severity: 'success',
+                text: t('admin.ephemeris.output.pruned', {
+                    count: Number(result?.deleted_count || 0),
+                    defaultValue: `Removed ${Number(result?.deleted_count || 0)} expired snapshots.`,
+                }),
+            });
+            await loadStatus();
+        } catch (error) {
+            setMessage({ severity: 'error', text: error.message });
+        } finally {
+            setPruning(false);
+        }
+    };
+
     const provider = status?.provider || {};
     const providerStatus = provider.status || {};
     const cache = status?.cache || {};
     const sync = status?.sync || {};
     const persistedSyncState = sync.state || {};
+    const effectiveProjection = persistedSyncState.projection || sync;
     const availability = providerStatus.availability || 'unknown';
-    const totalSnapshots = Number(cache.total_snapshots || 0);
-    const freshSnapshots = Number(cache.fresh_snapshots || 0);
-    const freshnessPercent = totalSnapshots > 0
-        ? Math.round((freshSnapshots / totalSnapshots) * 100)
+    const operationalTargets = Number(cache.operational_targets || 0);
+    const readyTargets = Number(cache.ready_targets || 0);
+    const freshnessPercent = operationalTargets > 0
+        ? Math.round((readyTargets / operationalTargets) * 100)
         : 0;
     const syncPercent = Math.max(0, Math.min(100, Number(syncProgress.percent || 0)));
     const syncHasTotal = Number(syncProgress.total || 0) > 0;
@@ -397,7 +443,7 @@ export function CelestialEphemerisPage() {
         : activeFailureStatus.cause;
     const failureRetryAt = activeFailureStatus.retryAtUtc || providerStatus.retry_at_utc;
     const lastFailureAt = activeFailureStatus.lastFailureAtUtc || providerStatus.last_failure_at_utc;
-    const outputMessage = refreshing
+    const outputMessage = syncIsRunning
         ? currentTargetName
             ? t(syncProgress.phase === 'processed'
                 ? 'admin.ephemeris.output.processed_target'
@@ -460,8 +506,11 @@ export function CelestialEphemerisPage() {
                             </Box>
                         </Stack>
                         <Stack direction="row" spacing={1}>
-                            <Button size="small" variant="contained" startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <SyncIcon />} onClick={handleRefreshCache} disabled={!socket || loading || refreshing}>
+                            <Button size="small" variant="contained" startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <SyncIcon />} onClick={handleRefreshCache} disabled={!socket || loading || syncIsRunning}>
                                 {t('admin.ephemeris.actions.synchronize_now')}
+                            </Button>
+                            <Button size="small" variant="outlined" startIcon={pruning ? <CircularProgress size={16} /> : <DeleteOutlineIcon />} onClick={handlePruneCache} disabled={!socket || loading || pruning || syncIsRunning}>
+                                {t('admin.ephemeris.actions.prune_expired', { defaultValue: 'Prune expired history' })}
                             </Button>
                         </Stack>
                     </Box>
@@ -499,12 +548,12 @@ export function CelestialEphemerisPage() {
                         <>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
                                 <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
-                                    {refreshing
+                                    {syncIsRunning
                                         ? t('admin.ephemeris.labels.synchronization_progress')
                                         : t('admin.ephemeris.labels.cache_freshness')}
                                 </Typography>
                                 <Typography variant="caption" color="text.disabled" sx={{ fontFamily: 'monospace' }}>
-                                    {refreshing
+                                    {syncIsRunning
                                         ? syncHasTotal
                                             ? `${syncProgress.processed}/${syncProgress.total} · ${Math.round(syncPercent)}%`
                                             : t('admin.ephemeris.labels.preparing')
@@ -512,8 +561,8 @@ export function CelestialEphemerisPage() {
                                 </Typography>
                             </Box>
                             <LinearProgress
-                                variant={refreshing && !syncHasTotal ? 'indeterminate' : 'determinate'}
-                                value={refreshing ? syncPercent : freshnessPercent}
+                                variant={syncIsRunning && !syncHasTotal ? 'indeterminate' : 'determinate'}
+                                value={syncIsRunning ? syncPercent : freshnessPercent}
                                 sx={{ height: 3, borderRadius: 999, mb: 0.75 }}
                             />
                             <Stack direction="row" spacing={0.75} alignItems="baseline" sx={{ mb: 1.5 }}>
@@ -522,6 +571,13 @@ export function CelestialEphemerisPage() {
                                     {outputMessage}
                                 </Typography>
                             </Stack>
+                            {(syncProgress.provider_fetched || syncProgress.cache_reused || syncProgress.stale_fallback) ? (
+                                <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
+                                    <Chip size="small" variant="outlined" label={t('admin.ephemeris.labels.provider_fetched', { count: syncProgress.provider_fetched || 0, defaultValue: `Provider fetched: ${syncProgress.provider_fetched || 0}` })} />
+                                    <Chip size="small" variant="outlined" label={t('admin.ephemeris.labels.cache_reused', { count: syncProgress.cache_reused || 0, defaultValue: `Cache reused: ${syncProgress.cache_reused || 0}` })} />
+                                    <Chip size="small" variant="outlined" label={t('admin.ephemeris.labels.stale_fallback', { count: syncProgress.stale_fallback || 0, defaultValue: `Stale fallback: ${syncProgress.stale_fallback || 0}` })} />
+                                </Stack>
+                            ) : null}
 
                             {message ? (
                                 <Alert severity={message.severity} sx={{ mb: 1.5 }}>
@@ -588,8 +644,8 @@ export function CelestialEphemerisPage() {
                             ) : null}
 
                             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2 }}>
-                                <MetricCard icon={<StorageIcon />} label={t('admin.ephemeris.metrics.stored_snapshots')} value={cache.total_snapshots ?? 0} detail={t('admin.ephemeris.metrics.targets', { count: cache.distinct_targets ?? 0 })} tone="info" />
-                                <MetricCard icon={<CheckCircleOutlineIcon />} label={t('admin.ephemeris.metrics.fresh_snapshots')} value={cache.fresh_snapshots ?? 0} detail={t('admin.ephemeris.metrics.newest', { value: formatDateTime(cache.newest_fetch_at, timezone, locale, t) })} tone="success" />
+                                <MetricCard icon={<StorageIcon />} label={t('admin.ephemeris.metrics.stored_snapshots')} value={cache.total_snapshots ?? 0} detail={`${t('admin.ephemeris.metrics.targets', { count: cache.distinct_targets ?? 0 })}${cache.database_size_bytes ? ` · ${(cache.database_size_bytes / (1024 * 1024)).toFixed(1)} MB` : ''}`} tone="info" />
+                                <MetricCard icon={<CheckCircleOutlineIcon />} label={t('admin.ephemeris.metrics.ready_targets', { defaultValue: 'Ready targets' })} value={readyTargets} detail={t('admin.ephemeris.metrics.refresh_due', { count: cache.refresh_due_targets ?? 0, defaultValue: `${cache.refresh_due_targets ?? 0} refresh due` })} tone="success" />
                                 <MetricCard icon={<CloudOffIcon />} label={t('admin.ephemeris.metrics.expired_snapshots')} value={cache.expired_snapshots ?? 0} detail={t('admin.ephemeris.metrics.with_errors', { count: cache.error_snapshots ?? 0 })} tone="warning" />
                             </Stack>
 
@@ -598,15 +654,51 @@ export function CelestialEphemerisPage() {
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
                                     <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.labels.status')}</Typography><Box><Chip size="small" color={sync.enabled ? 'success' : 'default'} label={sync.enabled ? t('admin.ephemeris.periodic.enabled') : t('admin.ephemeris.periodic.disabled')} /></Box></Box>
                                     <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.interval')}</Typography><Typography variant="body2">{t('admin.ephemeris.periodic.every_minutes', { count: sync.interval_minutes ?? 60 })}</Typography></Box>
-                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.past_projection')}</Typography><Typography variant="body2">{t('admin.ephemeris.periodic.hours', { count: sync.past_hours ?? 1 })}</Typography></Box>
-                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.next_cache_expiry')}</Typography><Typography variant="body2">{formatDateTime(cache.next_expiry_at, timezone, locale, t)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.effective_projection', { defaultValue: 'Effective projection' })}</Typography><Typography variant="body2">{`-${effectiveProjection.past_hours ?? 1}h / +${effectiveProjection.future_hours ?? 24}h / ${effectiveProjection.step_minutes ?? 60}m`}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.next_provider_refresh', { defaultValue: 'Next provider refresh' })}</Typography><Typography variant="body2">{formatDateTime(cache.next_refresh_at, timezone, locale, t)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.next_scheduler_run', { defaultValue: 'Next scheduler check' })}</Typography><Typography variant="body2">{formatDateTime(sync.next_run_at, timezone, locale, t)}</Typography></Box>
                                     <Box><Typography variant="caption" color="text.secondary">{t('admin.ephemeris.periodic.last_failure')}</Typography><Typography variant="body2">{formatDateTime(providerStatus.last_failure_at_utc, timezone, locale, t)}</Typography></Box>
+                                </Stack>
+                            </Box>
+                            <Box sx={{ mt: 2, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+                                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, mb: 1 }}>
+                                    {t('admin.ephemeris.targets.title', { defaultValue: 'Target cache inspection' })}
+                                </Typography>
+                                <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+                                    {(cache.targets || []).map((target) => (
+                                        <Button
+                                            key={target.target_key}
+                                            size="small"
+                                            variant="outlined"
+                                            color={target.status === 'ready' ? 'success' : target.status === 'failed' ? 'error' : 'warning'}
+                                            onClick={() => setInspectionTarget({
+                                                targetKey: target.target_key,
+                                                displayName: target.display_name,
+                                                targetType: target.target_type,
+                                                bodyId: target.body_id,
+                                                command: target.command,
+                                                projectionPastHours: effectiveProjection.past_hours ?? 1,
+                                                projectionFutureHours: effectiveProjection.future_hours ?? 24,
+                                                projectionStepMinutes: effectiveProjection.step_minutes ?? 60,
+                                            })}
+                                        >
+                                            {target.display_name}
+                                        </Button>
+                                    ))}
                                 </Stack>
                             </Box>
                         </>
                     )}
                 </Box>
             </Paper>
+            <VectorCoverageDialog
+                open={Boolean(inspectionTarget)}
+                target={inspectionTarget}
+                socket={socket}
+                timezone={timezone}
+                locale={locale}
+                onClose={() => setInspectionTarget(null)}
+            />
         </Paper>
     );
 }

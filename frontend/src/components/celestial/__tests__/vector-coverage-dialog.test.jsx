@@ -124,7 +124,13 @@ describe('Celestial target vector coverage dialog', () => {
             'api.call',
             {
                 cmd: 'get-celestial-vector-snapshot-history',
-                data: { target_key: 'mission:-61', limit: 24 },
+                data: {
+                    target_key: 'mission:-61',
+                    limit: 24,
+                    past_hours: 1,
+                    future_hours: 24,
+                    step_minutes: 60,
+                },
             },
             expect.any(Function),
         ));

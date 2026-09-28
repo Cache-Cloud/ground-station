@@ -19,10 +19,12 @@ from celestial.horizons import HorizonsUnavailableError, fetch_celestial_vectors
 from celestial.settings import (
     DEFAULT_CENTER,
     DEFAULT_FRAME,
+    MAX_SAMPLES_PER_TARGET,
     VECTOR_DB_TTL_SECONDS,
     VECTOR_EPOCH_BUCKET_MINUTES,
     VECTOR_FETCH_PADDING_HOURS,
     _bucket_epoch,
+    vector_cache_policy,
 )
 from celestial.targets import _target_key_from_parts
 from celestial.trajectory import (
@@ -99,8 +101,25 @@ async def _load_latest_vectors_from_db(
 async def _load_latest_vectors_for_target_from_db(
     target_key: str,
     valid_only: bool = True,
+    past_hours: Optional[int] = None,
+    future_hours: Optional[int] = None,
+    maximum_step_minutes: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """Load the freshest snapshot regardless of the requested projection window."""
+    if (
+        valid_only
+        and past_hours is not None
+        and future_hours is not None
+        and maximum_step_minutes is not None
+    ):
+        # Select a covering row in SQL. The newest row may be an older narrow
+        # derived snapshot and must not hide a reusable provider envelope.
+        return await _load_covering_vectors_for_target_from_db(
+            target_key=target_key,
+            past_hours=past_hours,
+            future_hours=future_hours,
+            maximum_step_minutes=maximum_step_minutes,
+        )
     async with AsyncSessionLocal() as dbsession:
         result = await crud_celestial_vectors.fetch_latest_celestial_vector_snapshot_for_target(
             dbsession,
@@ -244,6 +263,7 @@ async def _get_vectors_snapshot(
     allow_network_fetch: bool = True,
     target_key: str = "",
     retry_horizons: bool = False,
+    refresh_reserve_hours: int = 0,
 ) -> Dict[str, Any]:
     normalized_target_key = normalize_target_key(target_key) or ""
     if not normalized_target_key:
@@ -255,6 +275,16 @@ async def _get_vectors_snapshot(
             "stale": True,
             "error": "Target key is required",
         }
+
+    cache_policy = vector_cache_policy(normalized_target_key)
+    maximum_span_hours = max(
+        1,
+        int((MAX_SAMPLES_PER_TARGET - 1) * int(step_minutes) / 60),
+    )
+    effective_refresh_reserve_hours = min(
+        max(0, int(refresh_reserve_hours)),
+        max(0, maximum_span_hours - int(past_hours) - int(future_hours)),
+    )
 
     epoch_bucket_utc = _bucket_epoch(epoch, VECTOR_EPOCH_BUCKET_MINUTES * 60)
     if not force_refresh:
@@ -274,7 +304,7 @@ async def _get_vectors_snapshot(
                 payload,
                 epoch=epoch,
                 past_hours=past_hours,
-                future_hours=future_hours,
+                future_hours=future_hours + effective_refresh_reserve_hours,
             )
             current_position_usable = _payload_covers_current_epoch(payload, epoch=epoch)
             if projection_covered or (not allow_network_fetch and current_position_usable):
@@ -320,7 +350,7 @@ async def _get_vectors_snapshot(
                 payload,
                 epoch=epoch,
                 past_hours=past_hours,
-                future_hours=future_hours,
+                future_hours=future_hours + effective_refresh_reserve_hours,
             )
             current_position_usable = _payload_covers_current_epoch(payload, epoch=epoch)
             if projection_covered or (not allow_network_fetch and current_position_usable):
@@ -352,19 +382,22 @@ async def _get_vectors_snapshot(
         compatible_cached = await _load_latest_vectors_for_target_from_db(
             target_key=normalized_target_key,
             valid_only=True,
+            past_hours=past_hours,
+            future_hours=future_hours + effective_refresh_reserve_hours,
+            maximum_step_minutes=step_minutes,
         )
         if compatible_cached and isinstance(compatible_cached.get("payload"), dict):
             payload = dict(compatible_cached["payload"])
             projection_is_compatible = _snapshot_projection_is_compatible(
                 compatible_cached,
                 past_hours=past_hours,
-                future_hours=future_hours,
+                future_hours=future_hours + effective_refresh_reserve_hours,
                 step_minutes=step_minutes,
             ) and _payload_covers_projection_window(
                 payload,
                 epoch=epoch,
                 past_hours=past_hours,
-                future_hours=future_hours,
+                future_hours=future_hours + effective_refresh_reserve_hours,
             )
             current_position_usable = _payload_covers_current_epoch(payload, epoch=epoch)
             if projection_is_compatible or (not allow_network_fetch and current_position_usable):
@@ -375,31 +408,12 @@ async def _get_vectors_snapshot(
                     future_hours=future_hours,
                 )
                 if projection_is_compatible:
-                    projection_trimmed = _trim_payload_to_projection_window(
+                    _trim_payload_to_projection_window(
                         payload=payload,
                         epoch=epoch,
                         past_hours=past_hours,
                         future_hours=future_hours,
                     )
-                    if allow_network_fetch and projection_trimmed:
-                        # A periodic sync may satisfy a short target projection
-                        # from a wider Horizons snapshot. Persist the derived
-                        # interval so five-second cache-only broadcasts keep
-                        # fixed boundaries until the next sync instead of
-                        # recentering the pass window on every broadcast.
-                        await _store_vectors_in_db(
-                            target_key=normalized_target_key,
-                            epoch_bucket_utc=epoch_bucket_utc,
-                            past_hours=past_hours,
-                            future_hours=future_hours,
-                            step_minutes=step_minutes,
-                            payload=payload,
-                            source="horizons",
-                            frame=DEFAULT_FRAME,
-                            center=DEFAULT_CENTER,
-                            error=None,
-                            ttl_seconds=VECTOR_DB_TTL_SECONDS,
-                        )
                 return {
                     "payload": payload,
                     "cache": (
@@ -455,7 +469,15 @@ async def _get_vectors_snapshot(
         }
 
     padded_past_hours = int(past_hours) + VECTOR_FETCH_PADDING_HOURS
-    padded_future_hours = int(future_hours) + VECTOR_FETCH_PADDING_HOURS
+    available_headroom_hours = max(
+        0,
+        maximum_span_hours - padded_past_hours - int(future_hours),
+    )
+    future_headroom_hours = min(
+        int(cache_policy["future_headroom_hours"]),
+        available_headroom_hours,
+    )
+    padded_future_hours = int(future_hours) + future_headroom_hours
     try:
         fetched = await _fetch_vectors_singleflight(
             command=command,
@@ -518,15 +540,17 @@ async def _get_vectors_snapshot(
     await _store_vectors_in_db(
         target_key=normalized_target_key,
         epoch_bucket_utc=epoch_bucket_utc,
-        past_hours=past_hours,
-        future_hours=future_hours,
+        # Persist the actual provider envelope. Later requests can reuse it for
+        # narrower per-object projections without creating derived DB rows.
+        past_hours=padded_past_hours,
+        future_hours=padded_future_hours,
         step_minutes=step_minutes,
         payload=fetched,
         source="horizons",
         frame=DEFAULT_FRAME,
         center=DEFAULT_CENTER,
         error=None,
-        ttl_seconds=VECTOR_DB_TTL_SECONDS,
+        ttl_seconds=int(cache_policy["ttl_seconds"]),
     )
     response_payload = copy.deepcopy(fetched)
     _trim_payload_to_projection_window(
@@ -546,4 +570,5 @@ async def _get_vectors_snapshot(
         "cache": "db-miss",
         "stale": False,
         "error": None,
+        "provider_fetched": True,
     }

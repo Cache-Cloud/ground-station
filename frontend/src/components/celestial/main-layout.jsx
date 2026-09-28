@@ -592,8 +592,12 @@ const CelestialMainLayout = () => {
             defaultValue: `Horizons vectors unavailable for ${solarCacheMissingCount} solar-system bodies.`,
         });
     }, [solarCacheMissingCount, renderableSolarBodiesCount, tCelestial]);
+    const solarLoading = Boolean(celestialState?.solarLoading);
     React.useEffect(() => {
         const previousCount = previousRenderableSolarBodiesCountRef.current;
+        // Progressive rows redraw immediately, but framing a partial batch can
+        // leave the final outer planets off-screen. Fit once the batch settles.
+        if (solarLoading && previousCount === 0) return;
         previousRenderableSolarBodiesCountRef.current = renderableSolarBodiesCount;
         if (viewMode !== VIEW_MODE_SOLAR_SYSTEM) return;
         if (previousCount !== 0 || renderableSolarBodiesCount <= 0) return;
@@ -603,8 +607,7 @@ const CelestialMainLayout = () => {
         // system layer first becomes renderable, fit once so planets/moons are
         // actually visible without requiring a manual toolbar action.
         setFitAllSignal((value) => value + 1);
-    }, [renderableSolarBodiesCount, viewMode, hasPersistedMonitoredSelection]);
-    const solarLoading = Boolean(celestialState?.solarLoading);
+    }, [renderableSolarBodiesCount, viewMode, hasPersistedMonitoredSelection, solarLoading]);
     const tracksLoading = Boolean(celestialState?.tracksLoading);
     const solarSystemLoading = solarLoading || tracksLoading;
     const isSolarRefreshing = solarSystemLoading && viewMode === VIEW_MODE_SOLAR_SYSTEM && hasSolarScene;

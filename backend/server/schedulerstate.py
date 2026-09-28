@@ -8,6 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from common.logger import logger
 
 ORBITAL_SYNC_JOB_ID = "sync_satellite_data"
+CELESTIAL_SYNC_JOB_ID = "sync_celestial_vector_snapshots"
 _scheduler_ref: Optional[AsyncIOScheduler] = None
 
 
@@ -41,6 +42,23 @@ def get_orbital_sync_next_run_time() -> Optional[str]:
         return None
 
     next_run = next_run_raw
+    if next_run.tzinfo is None:
+        next_run = next_run.replace(tzinfo=timezone.utc)
+    return next_run.astimezone(timezone.utc).isoformat()
+
+
+def get_celestial_sync_next_run_time() -> Optional[str]:
+    """Return the next scheduled celestial cache check in UTC."""
+    if _scheduler_ref is None:
+        return None
+    try:
+        job = _scheduler_ref.get_job(CELESTIAL_SYNC_JOB_ID)
+    except Exception:
+        logger.exception("Failed to read celestial sync APScheduler job metadata")
+        return None
+    if not job or not isinstance(job.next_run_time, datetime):
+        return None
+    next_run = job.next_run_time
     if next_run.tzinfo is None:
         next_run = next_run.replace(tzinfo=timezone.utc)
     return next_run.astimezone(timezone.utc).isoformat()

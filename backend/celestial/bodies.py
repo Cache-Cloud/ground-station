@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from celestial.snapshots import _get_vectors_snapshot
 from celestial.solarsystem import compute_solar_system_snapshot
@@ -49,6 +49,7 @@ async def _build_horizons_solar_system_bodies(
     allow_network_fetch: bool,
     logger: Any,
     retry_horizons: bool = False,
+    per_body_callback: Optional[Callable[[Dict[str, Any], int, int], Awaitable[None]]] = None,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """
     Build the solar-system body list from Horizons snapshots.
@@ -64,6 +65,12 @@ async def _build_horizons_solar_system_bodies(
     offline_count = 0
     _offline_meta, offline_rows = compute_solar_system_snapshot(epoch)
     offline_by_id = {str(row.get("id") or "").strip().lower(): row for row in offline_rows}
+
+    async def append_body(row: Dict[str, Any]) -> None:
+        planets.append(row)
+        if per_body_callback is not None:
+            await per_body_callback(dict(row), len(planets), len(builtin_targets))
+
     for target in builtin_targets:
         body_id = str(target.get("body_id") or "").strip().lower()
         target_key = str(target.get("target_key") or "").strip()
@@ -90,7 +97,7 @@ async def _build_horizons_solar_system_bodies(
             if isinstance(offline_payload, dict):
                 offline_count += 1
                 stale_count += 1
-                planets.append(
+                await append_body(
                     {
                         **offline_payload,
                         "target_key": target_key,
@@ -116,7 +123,7 @@ async def _build_horizons_solar_system_bodies(
             # Keep a body metadata row when Horizons is unavailable. Do not
             # synthesize origin vectors here: [0,0,0] is the heliocentric Sun
             # and would create misleading overlap in the solar-system canvas.
-            planets.append(
+            await append_body(
                 {
                     "target_key": target_key,
                     "id": body_id,
@@ -162,7 +169,7 @@ async def _build_horizons_solar_system_bodies(
             row_payload["error_code"] = snapshot.get("error_code")
         if row_payload["stale"]:
             stale_count += 1
-        planets.append(row_payload)
+        await append_body(row_payload)
 
     solar_meta = {
         "source": "horizons",

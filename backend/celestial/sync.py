@@ -10,9 +10,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+import crud.celestialvectors as crud_vectors
 import crud.monitoredcelestial as crud_monitored
 import crud.preferences as crud_preferences
 from celestial.settings import (
@@ -20,8 +21,10 @@ from celestial.settings import (
     SCHEDULED_SYNC_FUTURE_HOURS,
     SCHEDULED_SYNC_PAST_HOURS,
     SCHEDULED_SYNC_STEP_MINUTES,
+    VECTOR_EXPIRED_RETENTION_DAYS,
     _parse_projection_options,
     _projection_payload_from_map_settings,
+    vector_cache_policy,
 )
 from celestial.snapshots import _get_vectors_snapshot
 from celestial.syncstate import (
@@ -162,6 +165,9 @@ async def _refresh_celestial_vector_snapshots_cache(
                 "success": True,
                 "count": 0,
                 "refreshed": 0,
+                "provider_fetched": 0,
+                "cache_reused": 0,
+                "stale_fallback": 0,
                 "failed": 0,
                 "projection": {
                     "past_hours": past_hours,
@@ -173,6 +179,9 @@ async def _refresh_celestial_vector_snapshots_cache(
         await _ensure_scene_targets_registered(all_targets, logger)
 
         refreshed = 0
+        provider_fetched = 0
+        cache_reused = 0
+        stale_fallback = 0
         failed = 0
         errors: List[Dict[str, str]] = []
 
@@ -195,6 +204,9 @@ async def _refresh_celestial_vector_snapshots_cache(
                 "total": total,
                 "percent": (float(processed) / float(total) * 100.0) if total else 100.0,
                 "refreshed": refreshed,
+                "provider_fetched": provider_fetched,
+                "cache_reused": cache_reused,
+                "stale_fallback": stale_fallback,
                 "failed": failed,
                 "phase": phase,
                 "outcome": outcome,
@@ -250,14 +262,25 @@ async def _refresh_celestial_vector_snapshots_cache(
                 force_refresh=False,
                 logger=logger,
                 allow_network_fetch=True,
+                refresh_reserve_hours=vector_cache_policy(target_key)["refresh_reserve_hours"],
             )
             if isinstance(snapshot.get("payload"), dict):
-                refreshed += 1
+                cache_result = str(snapshot.get("cache") or "")
+                if snapshot.get("provider_fetched") or not cache_result:
+                    provider_fetched += 1
+                    refreshed += 1
+                    outcome = "provider_fetched"
+                elif cache_result == "db-stale-fallback":
+                    stale_fallback += 1
+                    outcome = "stale_fallback"
+                else:
+                    cache_reused += 1
+                    outcome = "cache_reused"
                 await report_progress(
                     processed=index + 1,
                     target=target,
                     phase="processed",
-                    outcome="refreshed",
+                    outcome=outcome,
                 )
                 continue
             failed += 1
@@ -278,10 +301,30 @@ async def _refresh_celestial_vector_snapshots_cache(
                 error=error,
             )
 
+        try:
+            async with AsyncSessionLocal() as dbsession:
+                prune_result = await crud_vectors.prune_expired_celestial_vector_snapshots(
+                    dbsession,
+                    expired_before=epoch - timedelta(days=VECTOR_EXPIRED_RETENTION_DAYS),
+                )
+        except Exception as exc:
+            # Retention is housekeeping and must not change a successful sync
+            # into a provider failure.
+            prune_result = {"success": False, "error": str(exc)}
+        pruned_snapshots = int((prune_result.get("data") or {}).get("deleted_count") or 0)
+        if not prune_result.get("success"):
+            logger.warning(
+                f"Failed to prune expired celestial snapshots: {prune_result.get('error')}"
+            )
+
         return {
             "success": failed == 0,
             "count": len(all_targets),
             "refreshed": refreshed,
+            "provider_fetched": provider_fetched,
+            "cache_reused": cache_reused,
+            "stale_fallback": stale_fallback,
+            "pruned_snapshots": pruned_snapshots,
             "failed": failed,
             "mission_count": sum(
                 1 for target in monitored_targets if target.get("target_type") == "mission"
@@ -293,6 +336,11 @@ async def _refresh_celestial_vector_snapshots_cache(
                 "past_hours": past_hours,
                 "future_hours": future_hours,
                 "step_minutes": step_minutes,
+            },
+            "cache_policy": {
+                "body": vector_cache_policy("body:example"),
+                "mission": vector_cache_policy("mission:example"),
+                "expired_retention_days": VECTOR_EXPIRED_RETENTION_DAYS,
             },
         }
 

@@ -158,6 +158,7 @@ async def build_solar_system_scene(
     data: Optional[Dict[str, Any]],
     logger,
     allow_network_fetch: bool = True,
+    per_body_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Build the solar-system portion for UI rendering."""
     epoch = _parse_epoch(data)
@@ -173,6 +174,7 @@ async def build_solar_system_scene(
         allow_network_fetch=allow_network_fetch,
         logger=logger,
         retry_horizons=retry_horizons,
+        per_body_callback=per_body_callback,
     )
     asteroid_zones, asteroid_resonance_gaps, asteroid_meta = get_static_asteroid_zones()
 

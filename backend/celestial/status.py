@@ -13,9 +13,16 @@ from typing import Any, Dict
 
 import crud.celestialvectors as crud_vectors
 from celestial.horizons import get_horizons_status
+from celestial.settings import (
+    SCHEDULED_SYNC_FUTURE_HOURS,
+    SCHEDULED_SYNC_STEP_MINUTES,
+    VECTOR_EXPIRED_RETENTION_DAYS,
+    vector_cache_policy,
+)
 from celestial.syncstate import get_celestial_sync_state, hydrate_celestial_sync_state
 from common.arguments import arguments
 from db import AsyncSessionLocal
+from server.schedulerstate import get_celestial_sync_next_run_time
 
 CELESTIAL_EPHEMERIS_STATUS_EVENT = "celestial-ephemeris-status-update"
 
@@ -51,6 +58,14 @@ async def build_celestial_ephemeris_status(logger: Any) -> Dict[str, Any]:
                     getattr(arguments, "celestial_periodic_sync_interval_minutes", 60)
                 ),
                 "past_hours": int(getattr(arguments, "celestial_sync_past_hours", 1)),
+                "future_hours": SCHEDULED_SYNC_FUTURE_HOURS,
+                "step_minutes": SCHEDULED_SYNC_STEP_MINUTES,
+                "next_run_at": get_celestial_sync_next_run_time(),
+                "cache_policy": {
+                    "body": vector_cache_policy("body:example"),
+                    "mission": vector_cache_policy("mission:example"),
+                    "expired_retention_days": VECTOR_EXPIRED_RETENTION_DAYS,
+                },
                 "state": sync_state,
             },
         },

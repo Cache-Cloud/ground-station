@@ -310,10 +310,28 @@ async def get_solar_system_scene(
     allow_network_fetch = bool(
         payload.get("allow_network_fetch") if isinstance(payload, dict) else False
     )
+    request_id = str(payload.get("request_id") or "") if isinstance(payload, dict) else ""
+
+    async def emit_body(row: Dict[str, Any], index: int, total: int) -> None:
+        await sio.emit(
+            "solar-system-body-update",
+            {
+                "request_id": request_id,
+                "body": row,
+                "progress": {
+                    "current": index,
+                    "total": total,
+                    "percent": (float(index) / float(total) * 100.0) if total else 100.0,
+                },
+            },
+            to=sid,
+        )
+
     scene = await build_solar_system_scene(
         data=payload,
         logger=logger,
         allow_network_fetch=allow_network_fetch,
+        per_body_callback=emit_body if allow_network_fetch and request_id else None,
     )
     return cast(Dict[str, Any], scene)
 
@@ -740,12 +758,28 @@ async def get_celestial_vector_snapshot_history(
     except (TypeError, ValueError):
         return {"success": False, "data": None, "error": "limit must be an integer"}
 
+    def optional_int(name: str) -> Optional[int]:
+        value = payload.get(name)
+        if value is None:
+            return None
+        return int(value)
+
+    try:
+        requested_past_hours = optional_int("past_hours")
+        requested_future_hours = optional_int("future_hours")
+        requested_step_minutes = optional_int("step_minutes")
+    except (TypeError, ValueError):
+        return {"success": False, "data": None, "error": "projection values must be integers"}
+
     async with AsyncSessionLocal() as dbsession:
         result: Dict[str, Any] = (
             await crud_celestial_vectors.fetch_celestial_vector_snapshot_history(
                 dbsession,
                 target_key,
                 limit=limit,
+                requested_past_hours=requested_past_hours,
+                requested_future_hours=requested_future_hours,
+                requested_step_minutes=requested_step_minutes,
             )
         )
     return result
@@ -807,6 +841,18 @@ async def clear_celestial_vector_snapshots(
                 expired_only=expired_only,
             ),
         )
+
+
+async def prune_celestial_vector_snapshots(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Any]:
+    """Remove expired snapshot history across all celestial targets."""
+    async with AsyncSessionLocal() as dbsession:
+        result = await crud_celestial_vectors.prune_expired_celestial_vector_snapshots(
+            dbsession,
+            expired_before=datetime.now(timezone.utc),
+        )
+    return cast(Dict[str, Any], result)
 
 
 async def refresh_celestial_cache_now(
@@ -891,6 +937,10 @@ def register_handlers(registry):
             ),
             "clear-celestial-vector-snapshots": (
                 clear_celestial_vector_snapshots,
+                "api_call",
+            ),
+            "prune-celestial-vector-snapshots": (
+                prune_celestial_vector_snapshots,
                 "api_call",
             ),
             "refresh-celestial-cache-now": (
