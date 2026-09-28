@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  calculatePathDistanceAu,
   calculatePerpendicularPathCap,
   calculateTargetPathViewport,
   collectLiveTrackedTargetKeys,
+  doesPolylineIntersectBox,
   shouldSuppressStaticSolarBody,
   splitOrbitSamplesAtTime,
 } from '../solarsystem-canvas.jsx';
@@ -15,6 +17,13 @@ describe('solar system path endpoint markers', () => {
       toX: 10,
       toY: 24,
     });
+  });
+
+  it('detects when a trajectory crosses a padded label box', () => {
+    const labelBox = { x: 10, y: 10, w: 20, h: 10 };
+
+    expect(doesPolylineIntersectBox([[0, 15], [40, 15]], labelBox, 2)).toBe(true);
+    expect(doesPolylineIntersectBox([[0, 5], [40, 5]], labelBox, 2)).toBe(false);
   });
 });
 
@@ -42,6 +51,37 @@ describe('solar system live path split', () => {
       pastSamples: [samples[0], samples[1]],
       futureSamples: [samples[1], samples[2]],
     });
+  });
+});
+
+describe('solar system endpoint path distances', () => {
+  it('sums the sampled three-dimensional trajectory', () => {
+    expect(calculatePathDistanceAu([
+      [0, 0, 0],
+      [3, 4, 0],
+      [3, 4, 12],
+    ])).toBe(17);
+  });
+
+  it('measures from the interpolated live split point', () => {
+    const samples = [
+      [0, 0, 0],
+      [10, 0, 0],
+      [10, 10, 0],
+    ];
+    const times = [
+      '2026-01-01T00:00:00Z',
+      '2026-01-01T00:10:00Z',
+      '2026-01-01T00:20:00Z',
+    ];
+    const { pastSamples, futureSamples } = splitOrbitSamplesAtTime(
+      samples,
+      times,
+      '2026-01-01T00:15:00Z',
+    );
+
+    expect(calculatePathDistanceAu(pastSamples)).toBe(15);
+    expect(calculatePathDistanceAu(futureSamples)).toBe(5);
   });
 });
 

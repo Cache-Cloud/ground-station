@@ -14,7 +14,6 @@ import {
     FormGroup,
     IconButton,
     InputLabel,
-    LinearProgress,
     MenuItem,
     Select,
     Tooltip,
@@ -310,44 +309,10 @@ export const calculateProjectionRemainingSeconds = (row, nowMs) => {
 };
 
 const ProjectionProgress = ({ row, nowMs, t }) => {
-    const value = calculateProjectionProgress(row, nowMs);
     return (
         <Tooltip title={t('passes.projection_window_progress', { defaultValue: 'Projection window progress' })}>
-            <Box
-                sx={{
-                    position: 'relative',
-                    width: '100%',
-                    height: '100%',
-                    minHeight: 35,
-                    px: 0.5,
-                    display: 'flex',
-                    alignItems: 'center',
-                }}
-            >
-                <LinearProgress
-                    variant="determinate"
-                    value={value}
-                    color="info"
-                    sx={{ width: '100%', height: 14, borderRadius: 1 }}
-                />
-                <Typography
-                    component="span"
-                    variant="caption"
-                    sx={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'common.white',
-                        fontSize: '0.68rem',
-                        fontWeight: 700,
-                        lineHeight: 1,
-                        textShadow: '0 0 2px rgba(0, 0, 0, 0.9)',
-                    }}
-                >
-                    {value}%
-                </Typography>
+            <Box sx={{ width: '100%' }}>
+                <ProgressFormatter row={row} nowMs={nowMs} />
             </Box>
         </Tooltip>
     );

@@ -52,6 +52,8 @@ const LABEL_EDGE_CENTER_OFFSET_PX = 40;
 const MAX_BACKGROUND_RING_RADIUS_PX = 12000;
 const MAX_ZONE_LABEL_RADIUS_PX = 3600;
 const AU_IN_KM = 149597870.7;
+const PATH_DISTANCE_AU_SWITCH_THRESHOLD = 1;
+const PATH_CALLOUT_CLEARANCE_PX = 3;
 const KM_TO_MI = 0.621371192;
 const GALACTIC_CENTER_ECLIPTIC_LONGITUDE_DEG = 266.85;
 const GALACTIC_CENTER_DIRECTION_DISTANCE_PX = 10000;
@@ -395,6 +397,23 @@ export const splitOrbitSamplesAtTime = (samples, sampleTimesUtc, sceneTimestampU
     return { pastSamples, futureSamples };
 };
 
+export const calculatePathDistanceAu = (samples) => {
+    if (!Array.isArray(samples) || samples.length < 2) return 0;
+
+    let distanceAu = 0;
+    for (let index = 1; index < samples.length; index += 1) {
+        const previous = samples[index - 1];
+        const current = samples[index];
+        if (!hasFiniteXYZ(previous) || !hasFiniteXYZ(current)) return Number.NaN;
+        distanceAu += Math.hypot(
+            Number(current[0]) - Number(previous[0]),
+            Number(current[1]) - Number(previous[1]),
+            Number(current[2]) - Number(previous[2]),
+        );
+    }
+    return distanceAu;
+};
+
 const formatSignedTimeOffset = (deltaMs) => {
     if (!Number.isFinite(deltaMs)) return '';
 
@@ -485,6 +504,13 @@ const computeSelectedPathTimeCallouts = ({
     const pastSegmentEndIndex = resolvePastSegmentEndIndex(samples, sampleTimesUtc, sceneTimestampUtc);
     const lastSampleIndex = samples.length - 1;
     const callouts = [];
+    // Measure along the sampled 3D trajectory from the interpolated live point,
+    // rather than using a straight endpoint-to-endpoint displacement.
+    const { pastSamples, futureSamples } = splitOrbitSamplesAtTime(
+        samples,
+        sampleTimesUtc,
+        sceneTimestampUtc,
+    );
 
     if (pastSegmentEndIndex >= 1) {
         const pastStartTimeMs = Date.parse(String(sampleTimesUtc[0] || ''));
@@ -492,6 +518,7 @@ const computeSelectedPathTimeCallouts = ({
             callouts.push({
                 sampleIndex: 0,
                 text: formatSignedTimeOffset(pastStartTimeMs - epochMs),
+                distanceAu: calculatePathDistanceAu(pastSamples),
                 sideHint: 'past',
             });
         }
@@ -504,6 +531,7 @@ const computeSelectedPathTimeCallouts = ({
             callouts.push({
                 sampleIndex: lastSampleIndex,
                 text: formatSignedTimeOffset(futureEndTimeMs - epochMs),
+                distanceAu: calculatePathDistanceAu(futureSamples),
                 sideHint: 'future',
             });
         }
@@ -558,6 +586,52 @@ export const calculatePerpendicularPathCap = (
         toX: startX + perpendicularX,
         toY: startY + perpendicularY,
     };
+};
+
+export const doesPolylineIntersectBox = (points, box, padding = 0) => {
+    if (!Array.isArray(points) || points.length < 2 || !box) return false;
+
+    const safePadding = Math.max(0, Number(padding) || 0);
+    const minX = Number(box.x) - safePadding;
+    const minY = Number(box.y) - safePadding;
+    const maxX = Number(box.x) + Number(box.w) + safePadding;
+    const maxY = Number(box.y) + Number(box.h) + safePadding;
+    if (![minX, minY, maxX, maxY].every(Number.isFinite)) return false;
+
+    for (let index = 1; index < points.length; index += 1) {
+        const start = points[index - 1];
+        const end = points[index];
+        if (!hasFiniteXY(start) || !hasFiniteXY(end)) continue;
+
+        const startX = Number(start[0]);
+        const startY = Number(start[1]);
+        const dx = Number(end[0]) - startX;
+        const dy = Number(end[1]) - startY;
+        let entry = 0;
+        let exit = 1;
+        let intersects = true;
+
+        // Clip the segment against each axis of the expanded label box.
+        for (const [origin, delta, minimum, maximum] of [
+            [startX, dx, minX, maxX],
+            [startY, dy, minY, maxY],
+        ]) {
+            if (Math.abs(delta) < 1e-9) {
+                if (origin < minimum || origin > maximum) intersects = false;
+                continue;
+            }
+            const first = (minimum - origin) / delta;
+            const second = (maximum - origin) / delta;
+            const near = Math.min(first, second);
+            const far = Math.max(first, second);
+            entry = Math.max(entry, near);
+            exit = Math.min(exit, far);
+            if (entry > exit) intersects = false;
+        }
+        if (intersects && entry <= exit) return true;
+    }
+
+    return false;
 };
 
 const drawPathStartCap = (ctx, startX, startY, nextX, nextY, color) => {
@@ -746,6 +820,36 @@ const SolarSystemCanvas = ({
             return `${numberText} ${distanceUnit}`;
         };
     }, [compactLanguageLocale, distanceUnit, effectiveLocale]);
+    const formatPathDistanceLabel = useMemo(() => {
+        const buildFormatter = (options) => {
+            try {
+                return new Intl.NumberFormat(effectiveLocale, options);
+            } catch {
+                return new Intl.NumberFormat(undefined, options);
+            }
+        };
+        const compactKmFormatter = buildFormatter({
+            notation: 'compact',
+            compactDisplay: 'short',
+            maximumFractionDigits: 1,
+        });
+        const standardKmFormatter = buildFormatter({ maximumFractionDigits: 1 });
+        const auFormatter = buildFormatter({ maximumFractionDigits: 2 });
+
+        return (distanceAu) => {
+            const normalizedDistanceAu = Number(distanceAu);
+            if (!Number.isFinite(normalizedDistanceAu) || normalizedDistanceAu < 0) return '';
+            if (normalizedDistanceAu >= PATH_DISTANCE_AU_SWITCH_THRESHOLD) {
+                return `${auFormatter.format(normalizedDistanceAu)} AU`;
+            }
+
+            const distanceKm = normalizedDistanceAu * AU_IN_KM;
+            const numberText = distanceKm >= 10000
+                ? compactKmFormatter.format(distanceKm)
+                : standardKmFormatter.format(distanceKm);
+            return `${numberText} km`;
+        };
+    }, [effectiveLocale]);
 
     const planets = scene?.planets || [];
     const renderablePlanets = useMemo(
@@ -1149,7 +1253,14 @@ const SolarSystemCanvas = ({
 
             placedLabelBoxes.push(adjustedPlacement.box);
         };
-        const drawLinkedTimeCallout = ({ anchorX, anchorY, text, strokeColor, sideHint }) => {
+        const drawLinkedTimeCallout = ({
+            anchorX,
+            anchorY,
+            text,
+            strokeColor,
+            sideHint,
+            pathScreenPoints = [],
+        }) => {
             const value = String(text || '').trim();
             if (!value) return;
             if (!isPointInsideViewport(anchorX, anchorY, width, height, 4)) return;
@@ -1193,6 +1304,7 @@ const SolarSystemCanvas = ({
             const maxCenterY = height - OFFSCREEN_TARGET_EDGE_INSET_PX - boxHeight / 2;
 
             let placement = null;
+            let pathOverlapFallback = null;
             for (const candidate of candidates) {
                 const centerX = clamp(candidate.centerX, minCenterX, maxCenterX);
                 const centerY = clamp(candidate.centerY, minCenterY, maxCenterY);
@@ -1202,11 +1314,22 @@ const SolarSystemCanvas = ({
                     w: boxWidth,
                     h: boxHeight,
                 };
-                if (!placedLabelBoxes.some((existing) => boxesOverlap(existing, box))) {
-                    placement = { centerX, centerY, box };
+                if (placedLabelBoxes.some((existing) => boxesOverlap(existing, box))) continue;
+
+                const candidatePlacement = { centerX, centerY, box };
+                if (!doesPolylineIntersectBox(
+                    pathScreenPoints,
+                    box,
+                    PATH_CALLOUT_CLEARANCE_PX,
+                )) {
+                    placement = candidatePlacement;
                     break;
                 }
+                // The trajectory is a soft obstacle: remember the first path
+                // overlap in case label collisions rule out every clear spot.
+                pathOverlapFallback ||= candidatePlacement;
             }
+            placement ||= pathOverlapFallback;
             if (!placement) {
                 ctx.restore();
                 return;
@@ -1628,38 +1751,6 @@ const SolarSystemCanvas = ({
 
         });
 
-        // Endpoint time offsets for the currently selected path only.
-        const selectedPathCallouts = computeSelectedPathTimeCallouts({
-            selectedTargetKeySet,
-            tracked,
-            renderablePlanets,
-            sceneTimestampUtc,
-            themeMode: theme.palette.mode,
-        });
-        const isSelectedPathVisible = selectedPathCallouts
-            && (
-                (selectedPathCallouts.source === 'tracked'
-                    && effectiveDisplayOptions.showTrackedObjects
-                    && effectiveDisplayOptions.showTrackedOrbits)
-                || (selectedPathCallouts.source === 'planet'
-                    && effectiveDisplayOptions.showPlanets
-                    && effectiveDisplayOptions.showPlanetOrbits)
-            );
-        if (isSelectedPathVisible && selectedPathCallouts) {
-            selectedPathCallouts.callouts.forEach((callout) => {
-                const sample = selectedPathCallouts.samples[callout.sampleIndex];
-                if (!hasFiniteXY(sample)) return;
-                const [anchorX, anchorY] = toScreen(sample);
-                drawLinkedTimeCallout({
-                    anchorX,
-                    anchorY,
-                    text: callout.text,
-                    strokeColor: selectedPathCallouts.color,
-                    sideHint: callout.sideHint,
-                });
-            });
-        }
-
         // Tracked object markers from Horizons.
         const pendingTargetSlotBadges = [];
         const pendingSelectedMarkerLabels = [];
@@ -1697,9 +1788,26 @@ const SolarSystemCanvas = ({
                         Math.round(targetBadgeHeight * 1.05),
                         textWidth + (targetBadgeHorizontalPadding * 2)
                     );
+                    const nameLabel = String(
+                        body.name || body.command || body.body_id || targetKey || 'object',
+                    );
+                    const nameGap = 3;
+                    const namePaddingX = 5;
+                    const nameHeight = targetBadgeHeight;
+                    ctx.save();
+                    ctx.font = LABEL_FONT;
+                    const nameTextWidth = Math.ceil(Math.max(4, ctx.measureText(nameLabel).width));
+                    ctx.restore();
+                    const nameWidth = nameTextWidth + (namePaddingX * 2);
+                    const badgeLeft = sx - (badgeWidth / 2);
+                    const badgeTop = sy - (targetBadgeHeight / 2);
+                    const nameLeft = badgeLeft + badgeWidth + nameGap;
+                    const nameTop = sy - (nameHeight / 2);
                     targetSlotBadgeSpec = {
                         sx,
                         sy,
+                        badgeLeft,
+                        badgeTop,
                         badgeWidth,
                         targetBadgeHeight,
                         badgeRadius: 3 * TARGET_SLOT_BADGE_SCALE,
@@ -1708,9 +1816,13 @@ const SolarSystemCanvas = ({
                         isDimmed,
                         targetLabelRenderFontSize,
                         targetLabelFontFamily,
-                        nameLabel: String(
-                            body.name || body.command || body.body_id || targetKey || 'object',
-                        ),
+                        nameLabel,
+                        nameGap,
+                        namePaddingX,
+                        nameHeight,
+                        nameLeft,
+                        nameTop,
+                        nameWidth,
                         nameColor: isSelected
                             ? theme.palette.text.primary
                             : theme.palette.text.secondary,
@@ -1731,7 +1843,19 @@ const SolarSystemCanvas = ({
                         ctx.strokeRect(sx - markerSize / 2 - 1, sy - markerSize / 2 - 1, markerSize + 2, markerSize + 2);
                     }
                 }
-                if (targetSlotBadgeSpec) pendingTargetSlotBadges.push(targetSlotBadgeSpec);
+                if (targetSlotBadgeSpec) {
+                    pendingTargetSlotBadges.push(targetSlotBadgeSpec);
+                    // Badge names render in a later pass. Reserve their complete
+                    // footprint now so endpoint callouts can avoid them.
+                    placedLabelBoxes.push({
+                        x: targetSlotBadgeSpec.badgeLeft,
+                        y: Math.min(targetSlotBadgeSpec.badgeTop, targetSlotBadgeSpec.nameTop),
+                        w: targetSlotBadgeSpec.badgeWidth
+                            + targetSlotBadgeSpec.nameGap
+                            + targetSlotBadgeSpec.nameWidth,
+                        h: Math.max(targetSlotBadgeSpec.targetBadgeHeight, targetSlotBadgeSpec.nameHeight),
+                    });
+                }
 
                 if (
                     isSelected
@@ -1802,6 +1926,44 @@ const SolarSystemCanvas = ({
                         labelOptions,
                     );
                 }
+            });
+        }
+
+        // Place endpoint callouts after on-screen target labels have registered
+        // their boxes. Labels drawn later also consult these callout boxes.
+        const selectedPathCallouts = computeSelectedPathTimeCallouts({
+            selectedTargetKeySet,
+            tracked,
+            renderablePlanets,
+            sceneTimestampUtc,
+            themeMode: theme.palette.mode,
+        });
+        const isSelectedPathVisible = selectedPathCallouts
+            && (
+                (selectedPathCallouts.source === 'tracked'
+                    && effectiveDisplayOptions.showTrackedObjects
+                    && effectiveDisplayOptions.showTrackedOrbits)
+                || (selectedPathCallouts.source === 'planet'
+                    && effectiveDisplayOptions.showPlanets
+                    && effectiveDisplayOptions.showPlanetOrbits)
+            );
+        if (isSelectedPathVisible && selectedPathCallouts) {
+            const selectedPathScreenPoints = selectedPathCallouts.samples
+                .filter((sample) => hasFiniteXY(sample))
+                .map((sample) => toScreen(sample));
+            selectedPathCallouts.callouts.forEach((callout) => {
+                const sample = selectedPathCallouts.samples[callout.sampleIndex];
+                if (!hasFiniteXY(sample)) return;
+                const [anchorX, anchorY] = toScreen(sample);
+                const distanceText = formatPathDistanceLabel(callout.distanceAu);
+                drawLinkedTimeCallout({
+                    anchorX,
+                    anchorY,
+                    text: distanceText ? `${callout.text} · ${distanceText}` : callout.text,
+                    strokeColor: selectedPathCallouts.color,
+                    sideHint: callout.sideHint,
+                    pathScreenPoints: selectedPathScreenPoints,
+                });
             });
         }
 
@@ -2003,20 +2165,12 @@ const SolarSystemCanvas = ({
         // Render target-slot badges and their names together so the topmost badge
         // cannot cover the label text.
         pendingTargetSlotBadges.forEach((badge) => {
-            const badgeLeft = badge.sx - (badge.badgeWidth / 2);
-            const badgeTop = badge.sy - (badge.targetBadgeHeight / 2);
-            const nameGap = 3;
-            const namePaddingX = 5;
-            const nameHeight = badge.targetBadgeHeight;
-            const nameLeft = badgeLeft + badge.badgeWidth + nameGap;
-            const nameTop = badge.sy - (nameHeight / 2);
-
             ctx.save();
             ctx.font = `900 ${badge.targetLabelRenderFontSize}px ${badge.targetLabelFontFamily}`;
             ctx.beginPath();
             ctx.roundRect(
-                badgeLeft,
-                badgeTop,
+                badge.badgeLeft,
+                badge.badgeTop,
                 badge.badgeWidth,
                 badge.targetBadgeHeight,
                 badge.badgeRadius
@@ -2036,10 +2190,8 @@ const SolarSystemCanvas = ({
             ctx.fillText(badge.targetSlotLabel, badge.sx, badge.sy + 0.35);
 
             ctx.font = LABEL_FONT;
-            const nameTextWidth = Math.ceil(Math.max(4, ctx.measureText(badge.nameLabel).width));
-            const nameWidth = nameTextWidth + (namePaddingX * 2);
             ctx.beginPath();
-            ctx.roundRect(nameLeft, nameTop, nameWidth, nameHeight, 3);
+            ctx.roundRect(badge.nameLeft, badge.nameTop, badge.nameWidth, badge.nameHeight, 3);
             ctx.globalAlpha = badge.isDimmed ? 0.55 : 0.86;
             ctx.fillStyle = theme.palette.background.paper;
             ctx.fill();
@@ -2052,7 +2204,7 @@ const SolarSystemCanvas = ({
             ctx.textBaseline = 'middle';
             ctx.globalAlpha = badge.isDimmed ? 0.55 : 0.96;
             ctx.fillStyle = badge.nameColor;
-            ctx.fillText(badge.nameLabel, nameLeft + namePaddingX, badge.sy + 0.35);
+            ctx.fillText(badge.nameLabel, badge.nameLeft + badge.namePaddingX, badge.sy + 0.35);
             ctx.restore();
         });
     }, [
@@ -2073,6 +2225,7 @@ const SolarSystemCanvas = ({
         theme.palette.text.primary,
         theme.palette.text.secondary,
         formatDistanceLabel,
+        formatPathDistanceLabel,
         t,
         viewport.panX,
         viewport.panY,
