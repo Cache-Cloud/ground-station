@@ -33,6 +33,8 @@
     "center_on_sun": "以太阳为中心",
     "refresh_scene": "刷新天体场景",
     "show_labels": "显示标签",
+    "scroll_left": "向左滚动工具栏",
+    "scroll_right": "向右滚动工具栏",
     "layout_options": "布局选项",
     "table_settings": "表格设置",
     "go_fullscreen": "进入全屏",

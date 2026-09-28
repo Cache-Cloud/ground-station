@@ -48,7 +48,6 @@ import HubIcon from '@mui/icons-material/Hub';
 import RouteIcon from '@mui/icons-material/Route';
 import PublicIcon from '@mui/icons-material/Public';
 import LabelIcon from '@mui/icons-material/Label';
-import DataObjectIcon from '@mui/icons-material/DataObject';
 import BlurCircularIcon from '@mui/icons-material/BlurCircular';
 import GrainIcon from '@mui/icons-material/Grain';
 import {
@@ -846,7 +845,6 @@ const CelestialMainLayout = () => {
             buildToggle('showPassCurves', 'layout_options.options.show_pass_curves.label', <RouteIcon />),
             buildToggle('showPlanetLabels', 'layout_options.options.show_planet_labels.label', <PublicIcon />),
             buildToggle('showTargetLabels', 'layout_options.options.show_target_labels.label', <LabelIcon />),
-            buildToggle('showHud', 'layout_options.options.show_hud_labels.label', <DataObjectIcon />),
         ];
     }, [handleTogglePlanetariumDisplayOption, planetariumDisplayOptions, tCelestial]);
     const handleTargetAdded = React.useCallback((targetKey) => {

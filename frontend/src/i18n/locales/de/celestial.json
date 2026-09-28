@@ -33,6 +33,8 @@
     "center_on_sun": "Zentrieren Sie die Sonne",
     "refresh_scene": "Himmelsszene aktualisieren",
     "show_labels": "Beschriftungen anzeigen",
+    "scroll_left": "Symbolleiste nach links scrollen",
+    "scroll_right": "Symbolleiste nach rechts scrollen",
     "layout_options": "Layoutoptionen",
     "table_settings": "Tabelleneinstellungen",
     "go_fullscreen": "Gehen Sie in den Vollbildmodus",

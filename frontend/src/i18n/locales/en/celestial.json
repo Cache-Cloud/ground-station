@@ -61,6 +61,8 @@
     "center_on_sun": "Center on Sun",
     "refresh_scene": "Refresh celestial scene",
     "show_labels": "Show labels",
+    "scroll_left": "Scroll toolbar left",
+    "scroll_right": "Scroll toolbar right",
     "layout_options": "Layout options",
     "table_settings": "Table settings",
     "go_fullscreen": "Go fullscreen",

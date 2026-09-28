@@ -33,6 +33,8 @@
     "center_on_sun": "Centrer sur le Soleil",
     "refresh_scene": "Actualiser la scène céleste",
     "show_labels": "Afficher les étiquettes",
+    "scroll_left": "Faire défiler la barre d’outils vers la gauche",
+    "scroll_right": "Faire défiler la barre d’outils vers la droite",
     "layout_options": "Options de mise en page",
     "table_settings": "Paramètres du tableau",
     "go_fullscreen": "Passer en plein écran",

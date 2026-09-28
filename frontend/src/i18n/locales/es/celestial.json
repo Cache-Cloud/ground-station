@@ -33,6 +33,8 @@
     "center_on_sun": "Centro en el sol",
     "refresh_scene": "Actualizar escena celestial",
     "show_labels": "Mostrar etiquetas",
+    "scroll_left": "Desplazar la barra de herramientas a la izquierda",
+    "scroll_right": "Desplazar la barra de herramientas a la derecha",
     "layout_options": "Opciones de diseño",
     "table_settings": "Configuraciones de mesa",
     "go_fullscreen": "Ir a pantalla completa",
