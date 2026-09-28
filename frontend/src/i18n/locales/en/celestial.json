@@ -60,6 +60,7 @@
     "reset_zoom": "Reset zoom",
     "center_on_sun": "Center on Sun",
     "refresh_scene": "Refresh celestial scene",
+    "show_labels": "Show labels",
     "layout_options": "Layout options",
     "table_settings": "Table settings",
     "go_fullscreen": "Go fullscreen",

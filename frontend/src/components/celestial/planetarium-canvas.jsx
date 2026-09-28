@@ -612,10 +612,8 @@ function PlanetariumCanvas({
         if (centerSunSignal === lastCenterSunSignalRef.current) return;
         lastCenterSunSignalRef.current = centerSunSignal;
 
-        // Prefer selected/focused target; otherwise center on the Sun fallback target.
-        const centerCandidate = (
-            skyObjects.find((object) => object.key === focusedKey)
-            || skyObjects.find((object) => String(object.name || '').trim().toLowerCase() === 'sun')
+        const centerCandidate = skyObjects.find(
+            (object) => String(object.name || '').trim().toLowerCase() === 'sun',
         );
         if (!centerCandidate) return;
         setView((current) => ({
@@ -623,7 +621,7 @@ function PlanetariumCanvas({
             centerAz: centerCandidate.az,
             centerEl: clamp(centerCandidate.el, -45, 85),
         }));
-    }, [centerSunSignal, focusedKey, skyObjects]);
+    }, [centerSunSignal, skyObjects]);
 
     useEffect(() => {
         const canvas = canvasRef.current;

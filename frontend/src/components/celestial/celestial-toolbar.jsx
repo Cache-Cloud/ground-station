@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, CircularProgress, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, CircularProgress, Divider, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import FitScreenIcon from '@mui/icons-material/FitScreen';
@@ -30,6 +30,7 @@ const CelestialToolbar = ({
     onToggleMapDragging,
     onToggleMapZooming,
     showZoomButtons = true,
+    viewToggles = [],
     disabled = false,
 }) => {
     const { t } = useTranslation('celestial');
@@ -152,6 +153,25 @@ const CelestialToolbar = ({
                                 </IconButton>
                             </span>
                         </Tooltip>
+                        {viewToggles.length ? (
+                            <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                        ) : null}
+                        {viewToggles.map((toggle) => (
+                            <Tooltip key={toggle.key} title={toggle.label}>
+                                <span>
+                                    <IconButton
+                                        onClick={toggle.onClick}
+                                        disabled={disabled || !toggle.onClick}
+                                        color={toggle.pressed ? 'warning' : 'primary'}
+                                        sx={{ borderRadius: 0 }}
+                                        aria-label={toggle.label}
+                                        aria-pressed={toggle.pressed}
+                                    >
+                                        {toggle.icon}
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                        ))}
                         <Tooltip title={t('toolbar.refresh_scene')}>
                             <span>
                                 <IconButton

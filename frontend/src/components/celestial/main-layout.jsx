@@ -41,6 +41,20 @@ import CelestialPassTimeline from './celestial-pass-timeline.jsx';
 import CelestialInfoIsland from './celestial-info-island.jsx';
 import SolarSystemLayoutOptionsDialog from './solar-system-layout-options-dialog.jsx';
 import SettingsIcon from '@mui/icons-material/Settings';
+import GridOnIcon from '@mui/icons-material/GridOn';
+import ExploreIcon from '@mui/icons-material/Explore';
+import StarIcon from '@mui/icons-material/Star';
+import HubIcon from '@mui/icons-material/Hub';
+import RouteIcon from '@mui/icons-material/Route';
+import PublicIcon from '@mui/icons-material/Public';
+import LabelIcon from '@mui/icons-material/Label';
+import DataObjectIcon from '@mui/icons-material/DataObject';
+import BlurCircularIcon from '@mui/icons-material/BlurCircular';
+import GrainIcon from '@mui/icons-material/Grain';
+import {
+    setPlanetariumDisplayOption,
+    setSolarSystemDisplayOption,
+} from './celestial-display-slice.jsx';
 import {
     buildTargetKeyFromCelestialRow,
     buildTargetSlotNumberByTargetKey,
@@ -754,6 +768,87 @@ const CelestialMainLayout = () => {
             enableMapZooming: !interactionSettings.enableMapZooming,
         });
     }, [interactionSettings.enableMapZooming, updateProjectionSetting]);
+    const handleTogglePlanetariumDisplayOption = React.useCallback((key) => {
+        dispatch(setPlanetariumDisplayOption({
+            key,
+            value: !planetariumDisplayOptions?.[key],
+        }));
+    }, [dispatch, planetariumDisplayOptions]);
+    const handleToggleSolarSystemDisplayOption = React.useCallback((key) => {
+        dispatch(setSolarSystemDisplayOption({
+            key,
+            value: !solarSystemDisplayOptions?.[key],
+        }));
+    }, [dispatch, solarSystemDisplayOptions]);
+    const handleToggleSolarSystemLabels = React.useCallback(() => {
+        // Treat a mixed label state as off so one click restores all labels.
+        const nextValue = !(
+            solarSystemDisplayOptions?.showPlanetLabels
+            && solarSystemDisplayOptions?.showTrackedLabels
+        );
+        dispatch(setSolarSystemDisplayOption({ key: 'showPlanetLabels', value: nextValue }));
+        dispatch(setSolarSystemDisplayOption({ key: 'showTrackedLabels', value: nextValue }));
+    }, [dispatch, solarSystemDisplayOptions]);
+    const solarSystemToolbarToggles = React.useMemo(() => {
+        const buildToggle = (key, labelKey, icon) => ({
+            key,
+            label: tCelestial(labelKey),
+            pressed: Boolean(solarSystemDisplayOptions?.[key]),
+            onClick: () => handleToggleSolarSystemDisplayOption(key),
+            icon,
+        });
+
+        return [
+            buildToggle('showGrid', 'layout_options.options.show_grid.label', <GridOnIcon />),
+            buildToggle('showPlanetOrbits', 'layout_options.options.show_planet_orbits.label', <BlurCircularIcon />),
+            buildToggle('showTrackedOrbits', 'layout_options.options.show_tracked_orbits.label', <RouteIcon />),
+            {
+                key: 'showLabels',
+                label: tCelestial('toolbar.show_labels'),
+                pressed: Boolean(
+                    solarSystemDisplayOptions?.showPlanetLabels
+                    && solarSystemDisplayOptions?.showTrackedLabels
+                ),
+                onClick: handleToggleSolarSystemLabels,
+                icon: <LabelIcon />,
+            },
+            buildToggle(
+                'showStarfieldBackground',
+                'layout_options.options.show_bright_star_field.label',
+                <StarIcon />,
+            ),
+            buildToggle('showAsteroidZones', 'layout_options.options.show_asteroid_zones.label', <GrainIcon />),
+        ];
+    }, [
+        handleToggleSolarSystemDisplayOption,
+        handleToggleSolarSystemLabels,
+        solarSystemDisplayOptions,
+        tCelestial,
+    ]);
+    const planetariumToolbarToggles = React.useMemo(() => {
+        const buildToggle = (key, labelKey, icon) => ({
+            key,
+            label: tCelestial(labelKey),
+            pressed: Boolean(planetariumDisplayOptions?.[key]),
+            onClick: () => handleTogglePlanetariumDisplayOption(key),
+            icon,
+        });
+
+        return [
+            buildToggle('showGrid', 'layout_options.options.show_sky_grid.label', <GridOnIcon />),
+            buildToggle('showHorizonCompass', 'layout_options.options.show_horizon_compass.label', <ExploreIcon />),
+            buildToggle('showStarField', 'layout_options.options.show_star_field.label', <StarIcon />),
+            buildToggle(
+                'showConstellationLabels',
+                'layout_options.options.show_constellation_labels.label',
+                <HubIcon />,
+            ),
+            buildToggle('showPassCurves', 'layout_options.options.show_pass_curves.label', <RouteIcon />),
+            buildToggle('showPlanetLabels', 'layout_options.options.show_planet_labels.label', <PublicIcon />),
+            buildToggle('showTargetLabels', 'layout_options.options.show_target_labels.label', <LabelIcon />),
+            buildToggle('showHud', 'layout_options.options.show_hud_labels.label', <DataObjectIcon />),
+        ];
+    }, [handleTogglePlanetariumDisplayOption, planetariumDisplayOptions, tCelestial]);
     const handleTargetAdded = React.useCallback((targetKey) => {
         const normalizedTargetKey = String(targetKey || '').trim();
         if (!normalizedTargetKey) return;
@@ -804,28 +899,29 @@ const CelestialMainLayout = () => {
                         </span>
                     </Tooltip>
                 </TitleBar>
-                {viewMode === VIEW_MODE_SOLAR_SYSTEM ? (
-                    <CelestialToolbar
-                        onFitAll={() => setFitAllSignal((value) => value + 1)}
-                        onZoomIn={() => setZoomInSignal((value) => value + 1)}
-                        onZoomOut={() => setZoomOutSignal((value) => value + 1)}
-                        onZoomReset={() => setResetZoomSignal((value) => value + 1)}
-                        onCenterSun={() => setCenterSunSignal((value) => value + 1)}
-                        onRefresh={handleRefreshSolarSystem}
-                        loading={solarSystemLoading}
-                        loadingText={solarToolbarLoadingText}
-                        disabled={!socket}
-                        onToggleFullscreen={handleToggleSolarSystemFullscreen}
-                        fullscreen={solarSystemFullscreen}
-                        fullscreenLabel={tCelestial('toolbar.go_fullscreen')}
-                        exitFullscreenLabel={tCelestial('toolbar.exit_fullscreen')}
-                        mapDraggingEnabled={interactionSettings.enableMapDragging}
-                        mapZoomingEnabled={interactionSettings.enableMapZooming}
-                        onToggleMapDragging={handleToggleMapDragging}
-                        onToggleMapZooming={handleToggleMapZooming}
-                        showZoomButtons={!interactionSettings.enableMapZooming}
-                    />
-                ) : null}
+                <CelestialToolbar
+                    onFitAll={() => setFitAllSignal((value) => value + 1)}
+                    onZoomIn={() => setZoomInSignal((value) => value + 1)}
+                    onZoomOut={() => setZoomOutSignal((value) => value + 1)}
+                    onZoomReset={() => setResetZoomSignal((value) => value + 1)}
+                    onCenterSun={() => setCenterSunSignal((value) => value + 1)}
+                    onRefresh={handleRefreshSolarSystem}
+                    loading={viewMode === VIEW_MODE_PLANETARIUM ? tracksLoading : solarSystemLoading}
+                    loadingText={viewMode === VIEW_MODE_PLANETARIUM ? tracksProgressText : solarToolbarLoadingText}
+                    disabled={!socket}
+                    onToggleFullscreen={handleToggleSolarSystemFullscreen}
+                    fullscreen={solarSystemFullscreen}
+                    fullscreenLabel={tCelestial('toolbar.go_fullscreen')}
+                    exitFullscreenLabel={tCelestial('toolbar.exit_fullscreen')}
+                    mapDraggingEnabled={interactionSettings.enableMapDragging}
+                    mapZoomingEnabled={interactionSettings.enableMapZooming}
+                    onToggleMapDragging={handleToggleMapDragging}
+                    onToggleMapZooming={handleToggleMapZooming}
+                    showZoomButtons={!interactionSettings.enableMapZooming}
+                    viewToggles={viewMode === VIEW_MODE_PLANETARIUM
+                        ? planetariumToolbarToggles
+                        : solarSystemToolbarToggles}
+                />
                 {horizonsUnavailable ? (
                     <Alert
                         severity={renderableSolarBodiesCount > 0 ? 'warning' : 'error'}
@@ -900,6 +996,11 @@ const CelestialMainLayout = () => {
                                     scene={combinedScene}
                                     selectedTargetKeys={selectedTargetKeys}
                                     focusTargetKey={focusTargetKey}
+                                    fitAllSignal={fitAllSignal}
+                                    zoomInSignal={zoomInSignal}
+                                    zoomOutSignal={zoomOutSignal}
+                                    resetZoomSignal={resetZoomSignal}
+                                    centerSunSignal={centerSunSignal}
                                     enableMapDragging={interactionSettings.enableMapDragging}
                                     enableMapZooming={interactionSettings.enableMapZooming}
                                     displayOptions={planetariumDisplayOptions}
