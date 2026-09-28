@@ -258,7 +258,7 @@ const ADMIN_SATELLITES_TABS = [
 const ADMIN_CELESTIAL_TABS = [
     { key: "ephemeris", labelKey: "tabs.ephemeris", defaultLabel: "Ephemeris Data", path: "/admin/celestial/ephemeris" },
     { key: "catalog", labelKey: "tabs.celestial_catalog", defaultLabel: "Catalog", path: "/admin/celestial/catalog" },
-    { key: "targets", labelKey: "tabs.celestial_targets", defaultLabel: "Targets", path: "/admin/celestial/targets" },
+    { key: "targets", labelKey: "tabs.celestial_targets", defaultLabel: "Monitored", path: "/admin/celestial/targets" },
 ];
 
 const AdminSatellitesPageLayout = React.memo(function AdminSatellitesPageLayout({ activeTab, children }) {

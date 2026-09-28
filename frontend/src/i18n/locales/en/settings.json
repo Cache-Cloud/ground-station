@@ -15,7 +15,7 @@
     "celestial": "Celestial Data",
     "ephemeris": "Ephemeris Data",
     "celestial_catalog": "Catalog",
-    "celestial_targets": "Targets",
+    "celestial_targets": "Monitored",
     "general": "General",
     "preferences": "Preferences",
     "integrations": "Integrations",

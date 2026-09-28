@@ -509,16 +509,16 @@
       "confirm": { "title": "Confirmar fin de monitorización", "question": "¿Dejar de monitorizar {{target}}?", "this_target": "este objetivo", "description": "Dejará de aparecer en la vista del Sistema Solar y podrá monitorizarse de nuevo más adelante." }
     },
     "targets": {
-      "columns": { "target": "Objetivo", "type": "Tipo", "enabled": "Activado", "last_refresh": "Última actualización", "status": "Estado" },
+      "columns": { "target": "Monitorizado", "type": "Tipo", "enabled": "Activado", "last_refresh": "Última actualización", "status": "Estado" },
       "status": { "refreshing": "Actualizando", "refreshed": "Actualizado", "refresh_failed": "Error al actualizar", "ready": "Listo", "not_fetched": "No obtenido" },
       "actions": { "refresh": "Actualizar", "edit": "Editar", "delete": "Eliminar", "refresh_selected": "Actualizar seleccionados", "enable": "Activar", "disable": "Desactivar" },
-      "search": "Buscar objetivos",
-      "empty": "No se encontraron objetivos monitorizados.",
+      "search": "Buscar monitorizados",
+      "empty": "No se encontraron elementos monitorizados.",
       "selected_count_one": "{{count}} seleccionado",
       "selected_count_other": "{{count}} seleccionados",
-      "info": { "title": "Objetivos celestes monitorizados", "description": "Gestione los cuerpos y naves espaciales usados en la vista del Sistema Solar." },
-      "edit": { "title": "Editar objetivo celeste", "display_name": "Nombre visible", "body_id": "ID del cuerpo", "horizons_command": "Comando Horizons", "color": "Color", "pick_color": "Elegir color del objetivo" },
-      "delete": { "title": "Confirmar eliminación del objetivo", "remove_count_one": "Este objetivo se eliminará de la lista monitorizada.", "remove_count_other": "Se eliminarán {{count}} objetivos de la lista monitorizada.", "description": "Los objetivos eliminados dejarán de aparecer en la vista del Sistema Solar." }
+      "info": { "title": "Objetos celestes monitorizados", "description": "Gestione los cuerpos y naves espaciales usados en la vista del Sistema Solar." },
+      "edit": { "title": "Editar objeto celeste monitorizado", "display_name": "Nombre visible", "body_id": "ID del cuerpo", "horizons_command": "Comando Horizons", "color": "Color", "pick_color": "Elegir color del objeto celeste" },
+      "delete": { "title": "Confirmar eliminación del monitorizado", "remove_count_one": "Este objeto celeste se eliminará de la lista monitorizada.", "remove_count_other": "Se eliminarán {{count}} objetos celestes de la lista monitorizada.", "description": "Los objetos celestes eliminados dejarán de aparecer en la vista del Sistema Solar." }
     }
   }
 }

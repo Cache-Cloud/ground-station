@@ -509,16 +509,16 @@
       "confirm": { "title": "Confirmer l'arrêt de la surveillance", "question": "Arrêter de surveiller {{target}} ?", "this_target": "cette cible", "description": "La cible n'apparaîtra plus dans la vue du Système solaire et pourra être surveillée à nouveau plus tard." }
     },
     "targets": {
-      "columns": { "target": "Cible", "type": "Type", "enabled": "Activé", "last_refresh": "Dernière actualisation", "status": "État" },
+      "columns": { "target": "Surveillé", "type": "Type", "enabled": "Activé", "last_refresh": "Dernière actualisation", "status": "État" },
       "status": { "refreshing": "Actualisation", "refreshed": "Actualisé", "refresh_failed": "Échec de l'actualisation", "ready": "Prêt", "not_fetched": "Non récupéré" },
       "actions": { "refresh": "Actualiser", "edit": "Modifier", "delete": "Supprimer", "refresh_selected": "Actualiser la sélection", "enable": "Activer", "disable": "Désactiver" },
-      "search": "Rechercher des cibles",
-      "empty": "Aucune cible surveillée trouvée.",
+      "search": "Rechercher les éléments surveillés",
+      "empty": "Aucun élément surveillé trouvé.",
       "selected_count_one": "{{count}} sélectionnée",
       "selected_count_other": "{{count}} sélectionnées",
-      "info": { "title": "Cibles célestes surveillées", "description": "Gérez les corps et sondes utilisés dans la vue du Système solaire." },
-      "edit": { "title": "Modifier la cible céleste", "display_name": "Nom affiché", "body_id": "ID du corps", "horizons_command": "Commande Horizons", "color": "Couleur", "pick_color": "Choisir la couleur de la cible" },
-      "delete": { "title": "Confirmer la suppression", "remove_count_one": "Cette cible sera retirée de la liste surveillée.", "remove_count_other": "{{count}} cibles seront retirées de la liste surveillée.", "description": "Les cibles supprimées n'apparaîtront plus dans la vue du Système solaire." }
+      "info": { "title": "Objets célestes surveillés", "description": "Gérez les corps et sondes utilisés dans la vue du Système solaire." },
+      "edit": { "title": "Modifier l'objet céleste surveillé", "display_name": "Nom affiché", "body_id": "ID du corps", "horizons_command": "Commande Horizons", "color": "Couleur", "pick_color": "Choisir la couleur de l'objet céleste" },
+      "delete": { "title": "Confirmer la suppression de l'élément surveillé", "remove_count_one": "Cet objet céleste sera retiré de la liste surveillée.", "remove_count_other": "{{count}} objets célestes seront retirés de la liste surveillée.", "description": "Les objets célestes supprimés n'apparaîtront plus dans la vue du Système solaire." }
     }
   }
 }

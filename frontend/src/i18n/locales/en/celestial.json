@@ -716,15 +716,15 @@
     },
     "targets": {
       "feedback": {
-        "selected_enabled": "Selected targets enabled.",
-        "selected_disabled": "Selected targets disabled.",
-        "updated": "Target updated."
+        "selected_enabled": "Selected monitored entries enabled.",
+        "selected_disabled": "Selected monitored entries disabled.",
+        "updated": "Monitored celestial updated."
       },
       "errors": {
-        "name_identifier_required": "Name and target identifier are required."
+        "name_identifier_required": "Name and celestial identifier are required."
       },
       "columns": {
-        "target": "Target",
+        "target": "Monitored",
         "type": "Type",
         "enabled": "Enabled",
         "last_refresh": "Last refresh",
@@ -748,12 +748,12 @@
       },
       "vectors": {
         "title": "Vector data · {{name}}",
-        "target_type": "Target type",
+        "target_type": "Celestial type",
         "identifier": "Horizons identifier",
         "server_time": "Current server time",
         "load_failed": "Could not load vector history.",
         "retry": "Retry",
-        "empty": "No persisted Horizons vectors are available for this target yet.",
+        "empty": "No persisted Horizons vectors are available for this monitored celestial yet.",
         "available": "Vector data available",
         "cache": "Database cache",
         "fresh": "Fresh",
@@ -777,17 +777,17 @@
         "clear_all": "Clear all snapshots",
         "delete_failed": "Could not delete the selected vector snapshots.",
         "confirm_delete_title": "Delete snapshot?",
-        "confirm_delete_message": "Delete the snapshot synchronized at {{time}}? Deleting the latest usable snapshot can make this target unavailable until it is refreshed.",
+        "confirm_delete_message": "Delete the snapshot synchronized at {{time}}? Deleting the latest usable snapshot can make this monitored celestial unavailable until it is refreshed.",
         "confirm_clear_expired_title": "Clear expired snapshots?",
         "confirm_clear_expired_message": "Delete the expired snapshot records ({{count}}) for {{name}}? Fresh snapshots will be kept.",
         "confirm_clear_all_title": "Clear all snapshots?",
-        "confirm_clear_all_message": "Delete all snapshots ({{count}}) for {{name}}? This target can become unavailable until it is refreshed.",
+        "confirm_clear_all_message": "Delete all snapshots ({{count}}) for {{name}}? This monitored celestial can become unavailable until it is refreshed.",
         "close": "Close",
         "diagnosis": {
-          "current_missing": "The latest snapshot does not cover the current server time. Current observer calculations cannot use this target vector.",
+          "current_missing": "The latest snapshot does not cover the current server time. Current observer calculations cannot use this celestial vector.",
           "window_short": "The current time is covered, but the samples do not span the full window required now. Tracking or pass calculations can reject this snapshot.",
           "cache_expired": "The sample window is sufficient, but the database cache has expired and is awaiting a successful refresh.",
-          "target_ready": "The target snapshot is fresh and covers the full window required now."
+          "target_ready": "The monitored snapshot is fresh and covers the full window required now."
         },
         "legend": {
           "samples": "Horizons sample coverage",
@@ -799,27 +799,27 @@
           "expiry": "Cache expiry"
         }
       },
-      "search": "Search targets",
-      "empty": "No monitored targets found.",
+      "search": "Search monitored",
+      "empty": "No monitored entries found.",
       "selected_count_one": "{{count}} selected",
       "selected_count_other": "{{count}} selected",
       "info": {
-        "title": "Monitored Celestial Targets",
+        "title": "Monitored Celestials",
         "description": "Enable, refresh, edit, and remove the bodies and spacecraft used by the Solar System view."
       },
       "edit": {
-        "title": "Edit celestial target",
+        "title": "Edit monitored celestial",
         "display_name": "Display name",
         "body_id": "Body ID",
         "horizons_command": "Horizons command",
         "color": "Color",
-        "pick_color": "Pick target color"
+        "pick_color": "Pick celestial color"
       },
       "delete": {
-        "title": "Confirm target deletion",
-        "remove_count_one": "This target will be removed from the monitored list.",
-        "remove_count_other": "{{count}} targets will be removed from the monitored list.",
-        "description": "Deleted targets stop appearing in the Solar System view. You can monitor them again from the Celestial Catalog."
+        "title": "Confirm monitored deletion",
+        "remove_count_one": "This celestial will be removed from the monitored list.",
+        "remove_count_other": "{{count}} celestials will be removed from the monitored list.",
+        "description": "Removed celestials stop appearing in the Solar System view. You can monitor them again from the Celestial Catalog."
       }
     }
   }

@@ -425,7 +425,7 @@ export const getNavigation = ({ isAdmin = false } = {}) => {
                 },
                 {
                     segment: 'targets',
-                    title: i18n.t('celestial_targets', { ns: 'navigation', defaultValue: 'Targets' }),
+                    title: i18n.t('celestial_targets', { ns: 'navigation', defaultValue: 'Monitored' }),
                     icon: <ListAltIcon />,
                 },
             ],
