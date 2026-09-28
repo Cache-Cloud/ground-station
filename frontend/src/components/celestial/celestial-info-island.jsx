@@ -42,6 +42,8 @@ const formatNumber = (value, digits = 2, suffix = '') => {
     return `${Number(value).toFixed(digits)}${suffix}`;
 };
 
+const toMetricNumber = (value) => (value == null ? NaN : Number(value));
+
 const formatDateTime = (isoValue, timezone, locale) => {
     if (!isoValue) return '-';
     const parsed = new Date(isoValue);
@@ -75,16 +77,61 @@ const formatRelative = (isoValue, nowMs, t) => {
         : t('time.relative.days_ago', { count: days });
 };
 
-const MetricPair = ({ label, value }) => (
-    <Box sx={{ minWidth: 0 }}>
+const MetricPair = ({ label, value, sx, wrap = false }) => (
+    <Box sx={{ minWidth: 0, ...sx }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
             {label}
         </Typography>
-        <Typography variant="body2" sx={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <Typography
+            variant="body2"
+            title={String(value)}
+            sx={{
+                fontWeight: 700,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: wrap ? 'normal' : 'nowrap',
+                overflowWrap: wrap ? 'anywhere' : 'normal',
+            }}
+        >
             {value}
         </Typography>
     </Box>
 );
+
+const formatDistanceFromEarth = (distanceKm, distanceAu, locale, compact = false) => {
+    if (!Number.isFinite(distanceKm)) return '-';
+    if (compact && Number.isFinite(distanceAu) && distanceAu >= 0.01) {
+        return `${distanceAu.toFixed(4)} AU`;
+    }
+    if (distanceKm >= 1_000_000) {
+        const millionKm = `${(distanceKm / 1_000_000).toFixed(2)}M km`;
+        return Number.isFinite(distanceAu) && distanceAu >= 0.01
+            ? `${distanceAu.toFixed(4)} AU · ${millionKm}`
+            : millionKm;
+    }
+    return `${Math.round(distanceKm).toLocaleString(locale)} km`;
+};
+
+const formatDuration = (seconds) => {
+    if (!Number.isFinite(seconds)) return '-';
+    if (seconds >= 3600) return `${(seconds / 3600).toFixed(2)} h`;
+    if (seconds >= 60) return `${(seconds / 60).toFixed(2)} min`;
+    return `${seconds.toFixed(seconds < 10 ? 2 : 1)} s`;
+};
+
+const formatSignedSpeed = (value) => {
+    if (!Number.isFinite(value)) return '-';
+    const prefix = value > 0 ? '+' : '';
+    return `${prefix}${value.toFixed(3)} km/s`;
+};
+
+const formatDopplerPerGhz = (value) => {
+    if (!Number.isFinite(value)) return '-';
+    const prefix = value > 0 ? '+' : '';
+    return Math.abs(value) >= 1000
+        ? `${prefix}${(value / 1000).toFixed(2)} kHz/GHz`
+        : `${prefix}${value.toFixed(1)} Hz/GHz`;
+};
 
 const normalizeHexColor = (value) => {
     const text = String(value || '').trim();
@@ -215,6 +262,19 @@ const CelestialInfoIsland = ({
     const speedKmS = Number.isFinite(speedAuPerDay) ? speedAuPerDay * AU_PER_DAY_TO_KM_PER_S : NaN;
     const lightTimeMinutes = Number.isFinite(distanceFromSunAu) ? distanceFromSunAu * LIGHT_TIME_MIN_PER_AU : NaN;
     const distanceKm = Number.isFinite(distanceFromSunAu) ? distanceFromSunAu * AU_IN_KM : NaN;
+    const earthRelative = selectedTrack?.earth_relative || {};
+    const earthDistanceAu = toMetricNumber(earthRelative.distance_au);
+    const earthDistanceKm = toMetricNumber(earthRelative.distance_km);
+    const relativeSpeedKmS = toMetricNumber(earthRelative.relative_speed_km_s);
+    const rangeRateKmS = toMetricNumber(earthRelative.range_rate_km_s);
+    const oneWayLightTimeSeconds = toMetricNumber(earthRelative.one_way_light_time_seconds);
+    const roundTripLightTimeSeconds = toMetricNumber(earthRelative.round_trip_light_time_seconds);
+    const dopplerShiftHzPerGhz = toMetricNumber(earthRelative.doppler_shift_hz_per_ghz);
+    const closestApproachDistanceAu = toMetricNumber(earthRelative.closest_approach_distance_au);
+    const closestApproachDistanceKm = toMetricNumber(earthRelative.closest_approach_distance_km);
+    const relativeMotion = ['approaching', 'receding', 'steady'].includes(earthRelative.motion)
+        ? tCelestial(`info.motion.${earthRelative.motion}`)
+        : '-';
 
     const statusIndicator = (() => {
         if (selectedTrack?.error) {
@@ -349,7 +409,7 @@ const CelestialInfoIsland = ({
                     </Box>
                 </TitleBar>
 
-                <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     {!normalizedTargetKey ? (
                         <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2, py: 1.5 }}>
                             <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic', textAlign: 'center' }}>
@@ -374,9 +434,7 @@ const CelestialInfoIsland = ({
                         <>
                             <Box
                                 sx={{
-                                    position: 'sticky',
-                                    top: 0,
-                                    zIndex: 2,
+                                    flexShrink: 0,
                                     px: 1.5,
                                     py: 1.25,
                                     borderBottom: '1px solid',
@@ -455,7 +513,7 @@ const CelestialInfoIsland = ({
                                 </Box>
                             </Box>
 
-                            <Box sx={{ p: 1.5 }}>
+                            <Box sx={{ p: 1.5, flex: 1, minHeight: 0, overflow: 'auto' }}>
                                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1.25 }}>
                                     <MetricPair
                                         label={tCelestial('info.metrics.target_type')}
@@ -471,6 +529,61 @@ const CelestialInfoIsland = ({
                                     <MetricPair label={tCelestial('info.metrics.distance_from_sun_km')} value={formatNumber(distanceKm, 0)} />
                                     <MetricPair label={tCelestial('info.metrics.speed')} value={formatNumber(speedKmS, 3, ` ${tCelestial('units.km_per_s')}`)} />
                                     <MetricPair label={tCelestial('info.metrics.light_time')} value={formatNumber(lightTimeMinutes, 2, ` ${tCelestial('units.min')}`)} />
+                                </Box>
+
+                                <Divider sx={{ my: 1.25 }} />
+
+                                <Typography variant="overline" sx={{ color: 'secondary.main', fontWeight: 700 }}>
+                                    {tCelestial('info.sections.earth_relative')}
+                                </Typography>
+                                <Box
+                                    sx={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                                        gap: 1.25,
+                                        mt: 0.5,
+                                    }}
+                                >
+                                    <MetricPair
+                                        label={tCelestial('info.metrics.distance_from_earth')}
+                                        value={formatDistanceFromEarth(earthDistanceKm, earthDistanceAu, locale)}
+                                        sx={{ gridColumn: '1 / -1' }}
+                                        wrap
+                                    />
+                                    <MetricPair
+                                        label={tCelestial('info.metrics.relative_speed')}
+                                        value={formatNumber(relativeSpeedKmS, 3, ` ${tCelestial('units.km_per_s')}`)}
+                                    />
+                                    <MetricPair
+                                        label={tCelestial('info.metrics.range_rate')}
+                                        value={formatSignedSpeed(rangeRateKmS)}
+                                    />
+                                    <MetricPair label={tCelestial('info.metrics.motion')} value={relativeMotion} />
+                                    <MetricPair
+                                        label={tCelestial('info.metrics.doppler_per_ghz')}
+                                        value={formatDopplerPerGhz(dopplerShiftHzPerGhz)}
+                                    />
+                                    <MetricPair
+                                        label={tCelestial('info.metrics.one_way_light_time')}
+                                        value={formatDuration(oneWayLightTimeSeconds)}
+                                    />
+                                    <MetricPair
+                                        label={tCelestial('info.metrics.round_trip_light_time')}
+                                        value={formatDuration(roundTripLightTimeSeconds)}
+                                    />
+                                    <MetricPair
+                                        label={tCelestial('info.metrics.closest_approach')}
+                                        value={formatDistanceFromEarth(
+                                            closestApproachDistanceKm,
+                                            closestApproachDistanceAu,
+                                            locale,
+                                            true,
+                                        )}
+                                    />
+                                    <MetricPair
+                                        label={tCelestial('info.metrics.closest_approach_time')}
+                                        value={formatDateTime(earthRelative.closest_approach_at_utc, timezone, locale)}
+                                    />
                                 </Box>
 
                                 <Divider sx={{ my: 1.25 }} />

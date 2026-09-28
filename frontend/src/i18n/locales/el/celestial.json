@@ -388,6 +388,7 @@
       "below_horizon": "Κατω από τον Οριζοντα"
     },
     "sections": {
+      "earth_relative": "Σε σχεση με τη Γη",
       "pass_window": "Παραθυρο Pass",
       "data_source": "Πηγη δεδομένων"
     },
@@ -399,8 +400,17 @@
       "azimuth": "Αζιμουθιο",
       "distance_from_sun_au": "Αποσταση από τον ήλιο",
       "distance_from_sun_km": "Αποσταση από Ηλιο (χλμ)",
-      "speed": "Ταχυτητα",
-      "light_time": "Ωρα φωτός",
+      "speed": "Ηλιοκεντρικη ταχυτητα",
+      "light_time": "Χρονος φωτός από τον Ηλιο",
+      "distance_from_earth": "Αποσταση από τη Γη",
+      "relative_speed": "Σχετικη ταχυτητα",
+      "range_rate": "Ρυθμος αποστασης",
+      "motion": "Κινηση",
+      "one_way_light_time": "Χρονος φωτός μονης διαδρομής",
+      "round_trip_light_time": "Χρονος φωτός μετ' επιστροφής",
+      "doppler_per_ghz": "Doppler ανά GHz",
+      "closest_approach": "Πλησιεστερη προσεγγιση στο παραθυρο",
+      "closest_approach_time": "Ωρα πλησιεστερης προσεγγισης",
       "total_passes": "Συνολικα περάσματα",
       "active_pass": "Ενεργο πάσο",
       "active_since": "Ενεργος Απο",
@@ -411,6 +421,11 @@
       "cache": "Κρυπτη",
       "stale": "Μπαγιατικος",
       "last_refresh": "Τελευταια ανανέωση"
+    },
+    "motion": {
+      "approaching": "Πλησιαζει",
+      "receding": "Απομακρυνεται",
+      "steady": "Σχεδον σταθερο"
     }
   },
   "context": {

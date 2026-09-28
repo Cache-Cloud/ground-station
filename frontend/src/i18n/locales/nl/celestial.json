@@ -388,6 +388,7 @@
       "below_horizon": "Onder de Horizon"
     },
     "sections": {
+      "earth_relative": "Ten opzichte van de aarde",
       "pass_window": "Passeer venster",
       "data_source": "Gegevensbron"
     },
@@ -399,8 +400,17 @@
       "azimuth": "Azimut",
       "distance_from_sun_au": "Afstand vanaf zon",
       "distance_from_sun_km": "Afstand vanaf de zon (km)",
-      "speed": "Snelheid",
-      "light_time": "Lichte tijd",
+      "speed": "Heliocentrische snelheid",
+      "light_time": "Lichttijd vanaf de zon",
+      "distance_from_earth": "Afstand vanaf de aarde",
+      "relative_speed": "Relatieve snelheid",
+      "range_rate": "Radiale snelheid",
+      "motion": "Beweging",
+      "one_way_light_time": "Enkele lichttijd",
+      "round_trip_light_time": "Lichttijd heen en terug",
+      "doppler_per_ghz": "Doppler per GHz",
+      "closest_approach": "Dichtste nadering in venster",
+      "closest_approach_time": "Tijd van dichtste nadering",
       "total_passes": "Totaal aantal passen",
       "active_pass": "Actieve pas",
       "active_since": "Actief sinds",
@@ -411,6 +421,11 @@
       "cache": "Cache",
       "stale": "Muf",
       "last_refresh": "Laatste vernieuwing"
+    },
+    "motion": {
+      "approaching": "Nadert",
+      "receding": "Verwijdert zich",
+      "steady": "Vrijwel stabiel"
     }
   },
   "context": {

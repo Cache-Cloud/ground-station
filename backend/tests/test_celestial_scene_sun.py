@@ -200,6 +200,7 @@ async def test_build_celestial_tracks_supports_sun_body_target(monkeypatch):
     assert row.get("source") == "horizons"
     assert row.get("cache")
     assert row.get("position_xyz_au") == [0.0, 0.0, 0.0]
+    assert row.get("earth_relative", {}).get("distance_au") == pytest.approx(1.0)
 
     sky_position = row.get("sky_position") or {}
     assert math.isfinite(float(sky_position.get("az_deg")))

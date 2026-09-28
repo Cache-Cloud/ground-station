@@ -388,6 +388,7 @@
       "below_horizon": "地平线以下"
     },
     "sections": {
+      "earth_relative": "相对于地球",
       "pass_window": "过境时间窗",
       "data_source": "数据源"
     },
@@ -399,8 +400,17 @@
       "azimuth": "方位角",
       "distance_from_sun_au": "距太阳距离",
       "distance_from_sun_km": "距太阳距离（km）",
-      "speed": "速度",
-      "light_time": "光行时",
+      "speed": "日心速度",
+      "light_time": "从太阳出发的光行时",
+      "distance_from_earth": "距地球距离",
+      "relative_speed": "相对速度",
+      "range_rate": "距离变化率",
+      "motion": "运动趋势",
+      "one_way_light_time": "单程光行时",
+      "round_trip_light_time": "往返光行时",
+      "doppler_per_ghz": "每 GHz 多普勒频移",
+      "closest_approach": "窗口内最近距离",
+      "closest_approach_time": "最近距离时间",
       "total_passes": "过境总数",
       "active_pass": "当前过境",
       "active_since": "起始于",
@@ -411,6 +421,11 @@
       "cache": "缓存",
       "stale": "过期",
       "last_refresh": "上次刷新"
+    },
+    "motion": {
+      "approaching": "正在接近",
+      "receding": "正在远离",
+      "steady": "基本稳定"
     }
   },
   "context": {

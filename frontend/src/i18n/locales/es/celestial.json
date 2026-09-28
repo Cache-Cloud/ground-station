@@ -388,6 +388,7 @@
       "below_horizon": "Debajo del horizonte"
     },
     "sections": {
+      "earth_relative": "Relativo a la Tierra",
       "pass_window": "Pasar ventana",
       "data_source": "Fuente de datos"
     },
@@ -399,8 +400,17 @@
       "azimuth": "Azimut",
       "distance_from_sun_au": "Distancia desde el sol",
       "distance_from_sun_km": "Distancia al sol (km)",
-      "speed": "Velocidad",
-      "light_time": "tiempo de luz",
+      "speed": "Velocidad heliocéntrica",
+      "light_time": "Tiempo de luz desde el Sol",
+      "distance_from_earth": "Distancia desde la Tierra",
+      "relative_speed": "Velocidad relativa",
+      "range_rate": "Tasa de distancia",
+      "motion": "Movimiento",
+      "one_way_light_time": "Tiempo de luz de ida",
+      "round_trip_light_time": "Tiempo de luz de ida y vuelta",
+      "doppler_per_ghz": "Doppler por GHz",
+      "closest_approach": "Máxima aproximación en la ventana",
+      "closest_approach_time": "Hora de máxima aproximación",
       "total_passes": "Pases totales",
       "active_pass": "Pase activo",
       "active_since": "Activo desde",
@@ -411,6 +421,11 @@
       "cache": "Cache",
       "stale": "Duro",
       "last_refresh": "Última actualización"
+    },
+    "motion": {
+      "approaching": "Acercándose",
+      "receding": "Alejándose",
+      "steady": "Casi estable"
     }
   },
   "context": {

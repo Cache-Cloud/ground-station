@@ -24,6 +24,7 @@ from celestial.observer import (
     _load_observer_location,
 )
 from celestial.passes import _build_celestial_passes
+from celestial.relative import build_earth_relative_metrics
 from celestial.settings import (
     CACHE_TTL_SECONDS,
     CELESTIAL_PASS_HORIZON_DEG,
@@ -42,7 +43,7 @@ from celestial.targets import (
     _normalize_targets,
     _target_key_from_parts,
 )
-from celestial.trajectory import _refresh_payload_dynamics_at_epoch
+from celestial.trajectory import _extract_orbit_samples, _refresh_payload_dynamics_at_epoch
 
 
 @dataclass
@@ -425,6 +426,23 @@ async def _build_celestial_tracks_single_projection(
         use_computed_cache,
         retry_horizons,
     )
+    for row in celestial:
+        target_samples = _extract_orbit_samples(
+            row,
+            epoch_fallback=epoch,
+            past_hours=past_hours,
+            future_hours=future_hours,
+        )
+        earth_relative = build_earth_relative_metrics(
+            target_position_xyz_au=row.get("position_xyz_au"),
+            target_velocity_xyz_au_per_day=row.get("velocity_xyz_au_per_day"),
+            earth_position_xyz_au=earth_position_xyz_au,
+            epoch=epoch,
+            target_samples=target_samples,
+            earth_samples=earth_orbit_samples,
+        )
+        if earth_relative is not None:
+            row["earth_relative"] = earth_relative
     celestial_passes = _build_celestial_passes(
         rows=celestial,
         epoch=epoch,
