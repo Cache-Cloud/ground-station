@@ -41,11 +41,16 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
+    refreshMonitoredCelestialNow,
     resetCelestialPassesTableSettings,
     setCelestialPassesTableColumnVisibility,
     setCelestialPassesTablePageSize,
     setCelestialPassesTableSortModel,
 } from './celestial-slice.jsx';
+import {
+    fetchMonitoredCelestial,
+    updateMonitoredCelestial,
+} from './monitored-slice.jsx';
 import { getClassNamesBasedOnGridEditing, islandTitleBarCompactSx, TitleBar } from '../common/common.jsx';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
 import { toRowSelectionModel, toSelectedIds } from '../../utils/datagrid-selection.js';
@@ -64,6 +69,7 @@ import {
     updateElevationHistory,
 } from '../../utils/elevationtrend.js';
 import { replaceCelestialTargetKey } from '../target/celestial-target-utils.js';
+import TargetProjectionFields from './targetprojectionfields.jsx';
 
 const getPassBackgroundColor = (color, theme, coefficient) => ({
     backgroundColor: darken(color, coefficient),
@@ -586,9 +592,42 @@ const PassesTableSettingsDialog = ({ open, onClose }) => {
     );
 };
 
+const ProjectionDialog = ({ open, target, saving, onChange, onClose, onSave }) => {
+    const { t } = useTranslation('celestial');
+    if (!target) return null;
+
+    return (
+        <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth PaperProps={{ sx: DIALOG_PAPER_SX }}>
+            <DialogTitle sx={DIALOG_TITLE_SX}>
+                {t('monitored.projection.edit_title', { defaultValue: 'Edit projection' })}
+            </DialogTitle>
+            <DialogContent sx={DIALOG_CONTENT_SX}>
+                <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
+                    {target.displayName}
+                </Typography>
+                <TargetProjectionFields
+                    values={target}
+                    onChange={onChange}
+                    disabled={saving}
+                    idPrefix="passes-edit-target-projection"
+                />
+            </DialogContent>
+            <DialogActions sx={DIALOG_ACTIONS_SX}>
+                <Button onClick={onClose} disabled={saving}>
+                    {t('common.cancel', { defaultValue: 'Cancel' })}
+                </Button>
+                <Button onClick={onSave} variant="contained" disabled={saving}>
+                    {t('common.save', { defaultValue: 'Save and refresh' })}
+                </Button>
+            </DialogActions>
+        </Dialog>
+    );
+};
+
 const CelestialPasses = ({
     passes = [],
     tracks = [],
+    monitoredRows = [],
     sceneTimestampUtc = '',
     loading = false,
     gridEditable = false,
@@ -620,6 +659,8 @@ const CelestialPasses = ({
     const [rowContextMenu, setRowContextMenu] = useState(null);
     const [transmittersDialogOpen, setTransmittersDialogOpen] = useState(false);
     const [transmittersDialogData, setTransmittersDialogData] = useState(null);
+    const [projectionTarget, setProjectionTarget] = useState(null);
+    const [projectionSaving, setProjectionSaving] = useState(false);
     const elevationHistoryByTargetKeyRef = useRef({});
     const columnVisibility = useSelector((state) => state.celestial?.passesTableColumnVisibility || {});
     const pageSize = useSelector((state) => state.celestial?.passesTablePageSize || 10);
@@ -640,6 +681,12 @@ const CelestialPasses = ({
             return acc;
         }, {});
     }, [tracks]);
+
+    const monitoredByTargetKey = useMemo(() => (monitoredRows || []).reduce((acc, entry) => {
+        const key = String(entry?.targetKey || entry?.target_key || '').trim();
+        if (key) acc[key] = entry;
+        return acc;
+    }, {}), [monitoredRows]);
 
     const elevationTrendByTargetKey = useMemo(() => {
         const historyByTargetKey = elevationHistoryByTargetKeyRef.current;
@@ -669,6 +716,7 @@ const CelestialPasses = ({
         const targetTypeKey = String(pass.target_type || 'mission').toLowerCase() === 'body' ? 'body' : 'mission';
         const normalizedTargetKey = String(pass.target_key || '').trim();
         const track = trackByTargetKey[normalizedTargetKey] || {};
+        const monitoredEntry = monitoredByTargetKey[normalizedTargetKey] || null;
         const missionCommand = String(
             pass.command
             || track.command
@@ -701,6 +749,7 @@ const CelestialPasses = ({
             targetType: targetTypeKey === 'body' ? tCelestial('common.body') : tCelestial('common.mission'),
             targetTypeKey,
             targetKey: pass.target_key || '',
+            monitoredEntry,
             targetIdentifier,
             command: missionCommand,
             missionId,
@@ -732,7 +781,7 @@ const CelestialPasses = ({
             stale: pass.stale ? tCelestial('common.yes') : tCelestial('common.no'),
             source: pass.source || '-',
         };
-    }), [passes, nowMs, trackByTargetKey, elevationTrendByTargetKey, tCelestial]);
+    }), [passes, nowMs, trackByTargetKey, monitoredByTargetKey, elevationTrendByTargetKey, tCelestial]);
 
     const filteredRows = useMemo(() => {
         if (quickFilterPreset === 'live') {
@@ -1013,6 +1062,38 @@ const CelestialPasses = ({
         document.body.removeChild(textArea);
     }, []);
 
+    const openProjectionDialog = useCallback((row) => {
+        const monitoredEntry = row?.monitoredEntry;
+        if (!monitoredEntry?.id) return;
+        setProjectionTarget({
+            ...monitoredEntry,
+            projectionPastHours: Number(monitoredEntry.projectionPastHours ?? 1),
+            projectionFutureHours: Number(monitoredEntry.projectionFutureHours ?? 24),
+            projectionStepMinutes: Number(monitoredEntry.projectionStepMinutes ?? 60),
+        });
+    }, []);
+
+    const saveProjection = useCallback(async () => {
+        if (!socket || !projectionTarget) return;
+        setProjectionSaving(true);
+        try {
+            await dispatch(updateMonitoredCelestial({
+                socket,
+                entry: projectionTarget,
+            })).unwrap();
+            await dispatch(refreshMonitoredCelestialNow({
+                socket,
+                ids: [projectionTarget.id],
+            })).unwrap();
+            await dispatch(fetchMonitoredCelestial({ socket })).unwrap();
+            setProjectionTarget(null);
+        } catch (error) {
+            toast.error(error?.message || error?.error || tCelestial('errors.unknown_error'));
+        } finally {
+            setProjectionSaving(false);
+        }
+    }, [dispatch, projectionTarget, socket, tCelestial]);
+
     const handleCloseRowContextMenu = useCallback(() => {
         setRowContextMenu(null);
     }, []);
@@ -1149,6 +1230,10 @@ const CelestialPasses = ({
                 setTransmittersDialogOpen(true);
                 return;
             }
+            if (action === 'projection-settings') {
+                openProjectionDialog(row);
+                return;
+            }
             if (action === 'copy-identifier') {
                 await copyTextToClipboard(row.targetIdentifier || '-');
                 return;
@@ -1177,6 +1262,7 @@ const CelestialPasses = ({
         copyTextToClipboard,
         dispatch,
         onTargetSelected,
+        openProjectionDialog,
         requestRotatorForTarget,
         rowContextMenu?.row,
         socket,
@@ -1206,6 +1292,12 @@ const CelestialPasses = ({
                 label: t('satellites_table.context_menu.edit_transmitters'),
                 disabled: !row?.targetKey,
                 onClick: () => handleRowMenuAction('edit-transmitters'),
+            },
+            {
+                key: 'projection-settings',
+                label: tCelestial('monitored.projection.edit_title', { defaultValue: 'Edit projection' }),
+                disabled: !socket || !row?.monitoredEntry?.id,
+                onClick: () => handleRowMenuAction('projection-settings'),
             },
             { type: 'divider', key: 'divider-copy' },
             {
@@ -1400,6 +1492,18 @@ const CelestialPasses = ({
                 satelliteData={transmittersDialogData}
                 variant="paper"
                 widthOffsetPx={20}
+            />
+            <ProjectionDialog
+                open={Boolean(projectionTarget)}
+                target={projectionTarget}
+                saving={projectionSaving}
+                onChange={(field, value) => {
+                    setProjectionTarget((current) => (
+                        current ? { ...current, [field]: value } : current
+                    ));
+                }}
+                onClose={() => setProjectionTarget(null)}
+                onSave={saveProjection}
             />
             <PassesTableSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
             </Box>
