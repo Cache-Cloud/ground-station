@@ -27,6 +27,7 @@ import { removeTask, stopBackgroundTask } from './tasks-slice.jsx';
 import {
     Badge,
     Box,
+    CircularProgress,
     IconButton,
     Popover,
     Typography,
@@ -565,8 +566,20 @@ const BackgroundTasksPopover = () => {
                     onClick={handleClick}
                     sx={{
                         color: getIconColor(),
+                        position: 'relative',
                     }}
                 >
+                    {runningTaskIds.length > 0 && (
+                        <CircularProgress
+                            size={28}
+                            thickness={5}
+                            color="inherit"
+                            sx={{
+                                position: 'absolute',
+                                opacity: 0.7,
+                            }}
+                        />
+                    )}
                     <Badge
                         badgeContent={taskCount}
                         invisible={!connected || taskCount === 0}
