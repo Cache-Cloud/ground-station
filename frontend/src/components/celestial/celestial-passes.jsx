@@ -184,7 +184,7 @@ const FOOTER_ACTION_ROW_SX = {
     },
 };
 
-const CustomPagination = () => {
+const CustomPagination = ({ onPageChange }) => {
     const apiRef = useGridApiContext();
     const page = useGridSelector(apiRef, gridPageSelector);
     const pageCount = useGridSelector(apiRef, gridPageCountSelector);
@@ -195,6 +195,10 @@ const CustomPagination = () => {
     const isMedium = useMediaQuery(theme.breakpoints.down('lg'));
 
     const handlePageChange = (newPage) => {
+        if (onPageChange) {
+            onPageChange(newPage);
+            return;
+        }
         apiRef.current.setPage(newPage);
     };
 
@@ -811,12 +815,26 @@ const CelestialPasses = ({
         }
     }, [filteredRows, selectedIds]);
 
-    const handlePaginationModelChange = useCallback((model) => {
-        setPage(model.page);
-        if (model.pageSize !== pageSize) {
-            dispatch(setCelestialPassesTablePageSize(model.pageSize));
-        }
-    }, [dispatch, pageSize]);
+    const lastPage = Math.max(0, Math.ceil(filteredRows.length / pageSize) - 1);
+    const paginationModel = useMemo(() => ({ pageSize, page }), [pageSize, page]);
+
+    const handlePageChange = useCallback((nextPage) => {
+        const normalizedPage = Math.max(0, Math.min(Number(nextPage) || 0, lastPage));
+        setPage(normalizedPage);
+    }, [lastPage]);
+
+    const handlePageSizeChange = useCallback((event) => {
+        const nextPageSize = Number(event?.target?.value ?? event);
+        if (!Number.isFinite(nextPageSize) || nextPageSize <= 0) return;
+        setPage(0);
+        dispatch(setCelestialPassesTablePageSize(nextPageSize));
+    }, [dispatch]);
+
+    useEffect(() => {
+        // Live celestial payloads can change the row count. Keep the current
+        // page when it still exists and clamp only after a genuine reduction.
+        setPage((currentPage) => Math.min(currentPage, lastPage));
+    }, [lastPage]);
 
     const columns = useMemo(() => [
         {
@@ -1423,11 +1441,17 @@ const CelestialPasses = ({
                         row: {
                             onContextMenu: handleRowContextMenu,
                         },
+                        pagination: {
+                            onPageChange: handlePageChange,
+                        },
+                        basePagination: {
+                            onPageChange: (_event, nextPage) => handlePageChange(nextPage),
+                            onRowsPerPageChange: handlePageSizeChange,
+                        },
                     }}
                     disableMultipleRowSelection
                     pageSizeOptions={[5, 10, 15, 20, 25]}
-                    paginationModel={{ pageSize, page }}
-                    onPaginationModelChange={handlePaginationModelChange}
+                    paginationModel={paginationModel}
                     rowSelectionModel={rowSelectionModel}
                     onRowSelectionModelChange={(model) => {
                         const ids = toSelectedIds(model);

@@ -9,7 +9,7 @@
  */
 
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { ThemeProvider } from '@mui/material/styles';
@@ -19,6 +19,7 @@ import { setupTheme } from '../../../theme.js';
 import CelestialPasses from '../celestial-passes.jsx';
 
 const socket = vi.hoisted(() => ({ emit: vi.fn() }));
+const latestDataGridProps = vi.hoisted(() => ({ current: null }));
 
 vi.mock('../../common/socket.jsx', () => ({
     useSocket: () => ({ socket }),
@@ -34,20 +35,35 @@ vi.mock('../../target/use-target-rotator-selection-dialog.jsx', () => ({
 vi.mock('@mui/x-data-grid', async () => {
     const ReactModule = await import('react');
     return {
-        DataGrid: ReactModule.forwardRef(({ rows = [], slotProps = {} }, ref) => ReactModule.createElement(
-            'div',
-            { ref },
-            rows.map((row) => ReactModule.createElement(
+        DataGrid: ReactModule.forwardRef((props, ref) => {
+            const { rows = [], slotProps = {}, onPaginationModelChange, paginationModel } = props;
+            const previousRowsRef = ReactModule.useRef(rows);
+            latestDataGridProps.current = props;
+
+            ReactModule.useEffect(() => {
+                if (previousRowsRef.current !== rows) {
+                    // Model the automatic reset emitted by MUI while replacing
+                    // a live row set so the component must retain ownership.
+                    onPaginationModelChange?.({ page: 0, pageSize: paginationModel.pageSize });
+                    previousRowsRef.current = rows;
+                }
+            }, [onPaginationModelChange, paginationModel, rows]);
+
+            return ReactModule.createElement(
                 'div',
-                {
-                    key: row.id,
-                    'data-id': row.id,
-                    'data-testid': `pass-row-${row.id}`,
-                    onContextMenu: slotProps?.row?.onContextMenu,
-                },
-                row.name,
-            )),
-        )),
+                { ref },
+                rows.map((row) => ReactModule.createElement(
+                    'div',
+                    {
+                        key: row.id,
+                        'data-id': row.id,
+                        'data-testid': `pass-row-${row.id}`,
+                        onContextMenu: slotProps?.row?.onContextMenu,
+                    },
+                    row.name,
+                )),
+            );
+        }),
         GridPagination: () => null,
         gridClasses: { cell: 'MuiDataGrid-cell', columnHeader: 'MuiDataGrid-columnHeader' },
         gridPageCountSelector: () => 1,
@@ -122,5 +138,50 @@ describe('Celestial passes context menu', () => {
         expect(screen.getByRole('combobox', { name: 'Past duration' })).toHaveTextContent('6h');
         expect(screen.getByRole('combobox', { name: 'Future duration' })).toHaveTextContent('72h');
         expect(screen.getByRole('combobox', { name: 'Sample interval' })).toHaveTextContent('30m');
+    });
+
+    it('preserves the selected page when live rows are replaced', async () => {
+        const store = configureStore({
+            reducer: {
+                celestial: fixedReducer({
+                    passesTableColumnVisibility: {},
+                    passesTablePageSize: 10,
+                    passesTableSortModel: [],
+                }),
+                celestialMonitored: fixedReducer({ monitored: [] }),
+                trackerInstances: fixedReducer({ instances: [] }),
+                targetSatTrack: fixedReducer({ trackingState: {}, trackerViews: {} }),
+                preferences: fixedReducer({ preferences: [] }),
+            },
+        });
+        const passes = Array.from({ length: 25 }, (_, index) => ({
+            id: `pass-${index}`,
+            target_key: `body:target-${index}`,
+            target_type: 'body',
+            body_id: `target-${index}`,
+            name: `Target ${index}`,
+            event_start: '2026-09-29T10:00:00Z',
+            event_end: '2026-09-29T10:30:00Z',
+            peak_time: '2026-09-29T10:15:00Z',
+        }));
+        const renderTable = (rows) => (
+            <Provider store={store}>
+                <ThemeProvider theme={setupTheme()}>
+                    <CelestialPasses passes={rows} />
+                </ThemeProvider>
+            </Provider>
+        );
+        const view = render(renderTable(passes));
+
+        act(() => latestDataGridProps.current.slotProps.pagination.onPageChange(1));
+        await waitFor(() => expect(latestDataGridProps.current.paginationModel.page).toBe(1));
+
+        view.rerender(renderTable(passes.map((pass) => ({ ...pass }))));
+
+        await waitFor(() => expect(latestDataGridProps.current.paginationModel.page).toBe(1));
+
+        view.rerender(renderTable(passes.slice(0, 5)));
+
+        await waitFor(() => expect(latestDataGridProps.current.paginationModel.page).toBe(0));
     });
 });
