@@ -47,6 +47,20 @@ def test_projection_options_use_operational_defaults_and_limits():
     assert future_hours == 720
 
 
+def test_earth_cache_projections_keep_only_non_dominated_coverage():
+    targets = [
+        {"past_hours": 12, "future_hours": 168, "step_minutes": 60},
+        {"past_hours": 168, "future_hours": 720, "step_minutes": 60},
+        {"past_hours": 1, "future_hours": 24, "step_minutes": 60},
+        {"past_hours": 12, "future_hours": 72, "step_minutes": 10},
+    ]
+
+    assert sync._build_earth_cache_projections(targets) == [
+        (12, 72, 10),
+        (168, 720, 60),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_build_tracks_groups_targets_by_their_persisted_projection(monkeypatch):
     calls = []
@@ -1432,7 +1446,12 @@ async def test_cache_refresh_uses_each_monitored_target_projection(monkeypatch):
 
     async def snapshot(*_args, **kwargs):
         requested_projections.append(
-            (kwargs["past_hours"], kwargs["future_hours"], kwargs["step_minutes"])
+            (
+                kwargs["target_key"],
+                kwargs["past_hours"],
+                kwargs["future_hours"],
+                kwargs["step_minutes"],
+            )
         )
         return {"payload": {"position_xyz_au": [1, 0, 0]}, "error": None}
 
@@ -1450,7 +1469,11 @@ async def test_cache_refresh_uses_each_monitored_target_projection(monkeypatch):
     result = await sync.refresh_celestial_vector_snapshots_cache(_DummyLogger())
 
     assert result["success"] is True
-    assert requested_projections == [(12, 168, 15)]
+    assert requested_projections == [
+        ("mission:voyager_1", 12, 168, 15),
+        ("body:earth", 12, 168, 15),
+    ]
+    assert result["earth_projection_count"] == 1
 
 
 @pytest.mark.asyncio

@@ -43,6 +43,53 @@ from db import AsyncSessionLocal
 _scheduled_sync_lock = asyncio.Lock()
 
 
+def _projection_covers(
+    candidate: Tuple[int, int, int],
+    required: Tuple[int, int, int],
+) -> bool:
+    """Return whether one cached trajectory can satisfy another projection."""
+    candidate_past, candidate_future, candidate_step = candidate
+    required_past, required_future, required_step = required
+    return (
+        candidate_past >= required_past
+        and candidate_future >= required_future
+        and candidate_step <= required_step
+    )
+
+
+def _build_earth_cache_projections(
+    targets: List[Dict[str, Any]],
+) -> List[Tuple[int, int, int]]:
+    """Build the smallest active projection set that covers every target."""
+    projections = {
+        (
+            int(target["past_hours"]),
+            int(target["future_hours"]),
+            int(target["step_minutes"]),
+        )
+        for target in targets
+    }
+    required = [
+        projection
+        for projection in projections
+        if not any(
+            candidate != projection and _projection_covers(candidate, projection)
+            for candidate in projections
+        )
+    ]
+    # Keep ordering deterministic for progress reporting and tests. Dense
+    # projections come first, followed by broader windows at the same density.
+    return sorted(
+        required,
+        key=lambda projection: (
+            projection[2],
+            -(projection[0] + projection[1]),
+            -projection[0],
+            -projection[1],
+        ),
+    )
+
+
 async def _refresh_celestial_vector_snapshots_cache(
     logger: Any,
     *,
@@ -159,6 +206,38 @@ async def _refresh_celestial_vector_snapshots_cache(
             )
             all_targets_by_projection[projection_key] = target
 
+        normalized_targets = list(all_targets_by_projection.values())
+        earth_cache_projections = _build_earth_cache_projections(normalized_targets)
+        earth_target_key = _target_key_from_parts("body", body_id="earth")
+
+        # Observer AZ/EL and pass calculations need an Earth trajectory matching
+        # every active target window. Keep only non-dominated coverage profiles:
+        # one broad, equally dense profile can serve all narrower projections.
+        all_targets_by_projection = {
+            key: target
+            for key, target in all_targets_by_projection.items()
+            if key[0] != earth_target_key
+        }
+        for earth_past, earth_future, earth_step in earth_cache_projections:
+            earth_target = _build_body_target_payload(
+                body_id="earth",
+                name="Earth",
+                target_key=earth_target_key,
+            )
+            if earth_target is None:
+                continue
+            earth_target.update(
+                {
+                    "always_in_scene": True,
+                    "past_hours": earth_past,
+                    "future_hours": earth_future,
+                    "step_minutes": earth_step,
+                }
+            )
+            all_targets_by_projection[(earth_target_key, earth_past, earth_future, earth_step)] = (
+                earth_target
+            )
+
         all_targets = list(all_targets_by_projection.values())
         if not all_targets:
             return {
@@ -176,7 +255,12 @@ async def _refresh_celestial_vector_snapshots_cache(
                 },
             }
 
-        await _ensure_scene_targets_registered(all_targets, logger)
+        # Registration is target metadata, so projection variants should not
+        # produce duplicate upserts for the same canonical Earth target.
+        registration_targets = {
+            str(target.get("target_key") or "").strip(): target for target in all_targets
+        }
+        await _ensure_scene_targets_registered(list(registration_targets.values()), logger)
 
         refreshed = 0
         provider_fetched = 0
@@ -331,6 +415,7 @@ async def _refresh_celestial_vector_snapshots_cache(
             ),
             "monitored_count": len(monitored_targets),
             "always_in_scene_count": len(builtin_targets),
+            "earth_projection_count": len(earth_cache_projections),
             "errors": errors,
             "projection": {
                 "past_hours": past_hours,
