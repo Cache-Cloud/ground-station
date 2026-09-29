@@ -518,10 +518,11 @@
       "status": { "running": "运行中", "completed": "已完成", "action_required": "需要处理", "idle": "空闲" }
     },
     "catalog": {
-      "columns": { "name": "名称", "type": "类型", "agency_parent": "机构 / 母体", "status": "状态", "identifier": "Horizons 命令 / ID", "monitoring": "监测状态" },
-      "monitoring": { "monitored": "已监测", "not_monitored": "未监测" },
-      "actions": { "working": "处理中…", "monitor": "监测", "unmonitor": "停止监测" },
-      "filters": { "catalog": "目录", "all_entries": "全部条目", "solar_bodies": "太阳系天体", "spacecraft": "航天器", "status": "状态", "all_statuses": "全部状态", "search": "搜索目录" },
+      "custom": "自定义目标",
+      "columns": { "name": "名称", "type": "类型", "agency_parent": "机构 / 母体", "status": "状态", "catalog_status": "目录状态", "identifier": "Horizons 命令 / ID", "monitoring": "监测状态", "actions": "操作" },
+      "monitoring": { "monitored": "已监测", "enabled": "已启用", "disabled": "已禁用", "not_monitored": "未监测" },
+      "actions": { "working": "处理中…", "monitor": "监测", "monitor_target": "监测 {{name}}", "unmonitor": "停止监测", "unmonitor_target": "停止监测 {{name}}" },
+      "filters": { "catalog": "目录", "all_entries": "全部条目", "solar_bodies": "太阳系天体", "spacecraft": "航天器", "status": "状态", "all_statuses": "全部状态", "monitoring": "监测状态", "all_monitoring": "全部监测状态", "monitored": "已监测", "enabled": "已启用", "disabled": "已禁用", "not_monitored": "未监测", "clear_search": "清除搜索", "clear_all": "全部清除", "results_one": "{{count}} 个结果", "results_other": "{{count}} 个结果", "search": "搜索目录" },
       "empty": "没有符合筛选条件的目录条目。",
       "info": { "title": "天体目录", "description": "浏览太阳系天体和航天器，并选择要监测的目标。" },
       "confirm": { "title": "确认停止监测", "question": "停止监测 {{target}}？", "this_target": "此目标", "description": "该目标将不再显示在太阳系视图中，之后可以重新监测。" }

@@ -518,10 +518,11 @@
       "status": { "running": "En curso", "completed": "Completado", "action_required": "Acción requerida", "idle": "Inactivo" }
     },
     "catalog": {
-      "columns": { "name": "Nombre", "type": "Tipo", "agency_parent": "Agencia / Cuerpo principal", "status": "Estado", "identifier": "Comando Horizons / ID", "monitoring": "Monitorización" },
-      "monitoring": { "monitored": "Monitorizado", "not_monitored": "No monitorizado" },
-      "actions": { "working": "Procesando…", "monitor": "Monitorizar", "unmonitor": "Dejar de monitorizar" },
-      "filters": { "catalog": "Catálogo", "all_entries": "Todas las entradas", "solar_bodies": "Cuerpos del sistema solar", "spacecraft": "Naves espaciales", "status": "Estado", "all_statuses": "Todos los estados", "search": "Buscar en el catálogo" },
+      "custom": "Objetivo personalizado",
+      "columns": { "name": "Nombre", "type": "Tipo", "agency_parent": "Agencia / Cuerpo principal", "status": "Estado", "catalog_status": "Estado del catálogo", "identifier": "Comando Horizons / ID", "monitoring": "Monitorización", "actions": "Acciones" },
+      "monitoring": { "monitored": "Monitorizado", "enabled": "Activado", "disabled": "Desactivado", "not_monitored": "No monitorizado" },
+      "actions": { "working": "Procesando…", "monitor": "Monitorizar", "monitor_target": "Monitorizar {{name}}", "unmonitor": "Dejar de monitorizar", "unmonitor_target": "Dejar de monitorizar {{name}}" },
+      "filters": { "catalog": "Catálogo", "all_entries": "Todas las entradas", "solar_bodies": "Cuerpos del sistema solar", "spacecraft": "Naves espaciales", "status": "Estado", "all_statuses": "Todos los estados", "monitoring": "Monitorización", "all_monitoring": "Todos los estados de monitorización", "monitored": "Monitorizado", "enabled": "Activado", "disabled": "Desactivado", "not_monitored": "No monitorizado", "clear_search": "Borrar búsqueda", "clear_all": "Borrar todo", "results_one": "{{count}} resultado", "results_other": "{{count}} resultados", "search": "Buscar en el catálogo" },
       "empty": "Ninguna entrada coincide con los filtros.",
       "info": { "title": "Catálogo celeste", "description": "Explore cuerpos del sistema solar y naves espaciales y elija qué monitorizar." },
       "confirm": { "title": "Confirmar fin de monitorización", "question": "¿Dejar de monitorizar {{target}}?", "this_target": "este objetivo", "description": "Dejará de aparecer en la vista del Sistema Solar y podrá monitorizarse de nuevo más adelante." }

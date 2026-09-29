@@ -530,16 +530,19 @@
       }
     },
     "catalog": {
+      "custom": "Benutzerdefiniertes Ziel",
       "columns": {
         "name": "Name",
         "type": "Typ",
         "agency_parent": "Agentur / Übergeordnet",
         "status": "Status",
+        "catalog_status": "Katalogstatus",
         "identifier": "Horizons-Befehl / ID",
-        "monitoring": "Überwachung"
+        "monitoring": "Überwachung",
+        "actions": "Aktionen"
       },
-      "monitoring": { "monitored": "Überwacht", "not_monitored": "Nicht überwacht" },
-      "actions": { "working": "Wird ausgeführt…", "monitor": "Überwachen", "unmonitor": "Überwachung beenden" },
+      "monitoring": { "monitored": "Überwacht", "enabled": "Aktiviert", "disabled": "Deaktiviert", "not_monitored": "Nicht überwacht" },
+      "actions": { "working": "Wird ausgeführt…", "monitor": "Überwachen", "monitor_target": "{{name}} überwachen", "unmonitor": "Überwachung beenden", "unmonitor_target": "Überwachung von {{name}} beenden" },
       "filters": {
         "catalog": "Katalog",
         "all_entries": "Alle Einträge",
@@ -547,6 +550,16 @@
         "spacecraft": "Raumsonden",
         "status": "Status",
         "all_statuses": "Alle Status",
+        "monitoring": "Überwachung",
+        "all_monitoring": "Alle Überwachungsstatus",
+        "monitored": "Überwacht",
+        "enabled": "Aktiviert",
+        "disabled": "Deaktiviert",
+        "not_monitored": "Nicht überwacht",
+        "clear_search": "Suche löschen",
+        "clear_all": "Alle löschen",
+        "results_one": "{{count}} Ergebnis",
+        "results_other": "{{count}} Ergebnisse",
         "search": "Katalog durchsuchen"
       },
       "empty": "Keine Katalogeinträge entsprechen den Filtern.",

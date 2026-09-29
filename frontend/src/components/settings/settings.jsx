@@ -49,7 +49,6 @@ import AppSettingsForm from "./app-settings-form.jsx";
 import {
     CelestialCatalogPage,
     CelestialEphemerisPage,
-    CelestialTargetsPage,
 } from "../celestial/admin-pages.jsx";
 
 
@@ -168,14 +167,6 @@ export function AdminCelestialCatalogPage() {
     );
 }
 
-export function AdminCelestialTargetsPage() {
-    return (
-        <AdminCelestialPageLayout activeTab="targets">
-            <CelestialTargetsPage />
-        </AdminCelestialPageLayout>
-    );
-}
-
 export function UserPreferencesPage() {
     return (
         <Box sx={{ flexGrow: 1, bgcolor: 'background.paper' }}>
@@ -258,7 +249,6 @@ const ADMIN_SATELLITES_TABS = [
 const ADMIN_CELESTIAL_TABS = [
     { key: "ephemeris", labelKey: "tabs.ephemeris", defaultLabel: "Ephemeris Data", path: "/admin/celestial/ephemeris" },
     { key: "catalog", labelKey: "tabs.celestial_catalog", defaultLabel: "Catalog", path: "/admin/celestial/catalog" },
-    { key: "targets", labelKey: "tabs.celestial_targets", defaultLabel: "Monitored", path: "/admin/celestial/targets" },
 ];
 
 const AdminSatellitesPageLayout = React.memo(function AdminSatellitesPageLayout({ activeTab, children }) {

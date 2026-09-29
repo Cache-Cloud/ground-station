@@ -686,7 +686,7 @@ const CelestialTopBar = ({
                             {compactActionButtons ? (
                                 <IconButton
                                     size="small"
-                                    onClick={() => navigate('/admin/celestial/targets')}
+                                    onClick={() => navigate('/admin/celestial/catalog')}
                                     aria-label={tCelestial('topbar.actions.manage')}
                                 >
                                     <ListAltIcon fontSize="small" />
@@ -696,7 +696,7 @@ const CelestialTopBar = ({
                                     size="small"
                                     variant="outlined"
                                     startIcon={<ListAltIcon />}
-                                    onClick={() => navigate('/admin/celestial/targets')}
+                                    onClick={() => navigate('/admin/celestial/catalog')}
                                 >
                                     {tCelestial('topbar.actions.manage')}
                                 </Button>

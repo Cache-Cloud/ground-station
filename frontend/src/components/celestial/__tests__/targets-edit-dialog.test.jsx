@@ -14,9 +14,10 @@ import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../../i18n/config.js';
-import { CelestialTargetsPage } from '../admin-pages.jsx';
+import { CelestialCatalogPage } from '../admin-pages.jsx';
 import celestialReducer from '../celestial-slice.jsx';
 import monitoredReducer from '../monitored-slice.jsx';
+import satellitesReducer from '../../satellites/satellite-slice.jsx';
 
 const socket = vi.hoisted(() => ({ emit: vi.fn() }));
 
@@ -28,12 +29,12 @@ vi.mock('@mui/x-data-grid', async () => {
     const ReactModule = await import('react');
     return {
         gridClasses: { cell: 'MuiDataGrid-cell', columnHeader: 'MuiDataGrid-columnHeader' },
-        DataGrid: ({ rows = [], columns = [] }) => ReactModule.createElement(
+        DataGrid: ({ rows = [], columns = [], getRowId }) => ReactModule.createElement(
             'div',
             null,
             rows.map((row) => ReactModule.createElement(
                 'div',
-                { key: row.id },
+                { key: getRowId?.(row) ?? row.id },
                 columns.filter((column) => column.field === 'row_actions').map((column) => (
                     ReactModule.createElement(
                         ReactModule.Fragment,
@@ -50,6 +51,23 @@ describe('Celestial target edit dialog', () => {
     beforeEach(() => {
         socket.emit.mockReset();
         socket.emit.mockImplementation((_event, request, acknowledge) => {
+            if (request.cmd === 'get-celestial-body-catalog') {
+                acknowledge({
+                    success: true,
+                    data: [{
+                        target_key: 'body:mars',
+                        body_id: 'mars',
+                        name: 'Mars',
+                        body_type: 'planet',
+                        monitorable: true,
+                    }],
+                });
+                return;
+            }
+            if (request.cmd === 'get-spacecraft-index') {
+                acknowledge({ success: true, data: [] });
+                return;
+            }
             if (request.cmd === 'get-monitored-celestial') {
                 acknowledge({
                     success: true,
@@ -78,9 +96,10 @@ describe('Celestial target edit dialog', () => {
             reducer: {
                 celestial: celestialReducer,
                 celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
             },
         });
-        render(<Provider store={store}><CelestialTargetsPage /></Provider>);
+        render(<Provider store={store}><CelestialCatalogPage /></Provider>);
 
         fireEvent.click((await screen.findByTestId('EditIcon')).closest('button'));
 

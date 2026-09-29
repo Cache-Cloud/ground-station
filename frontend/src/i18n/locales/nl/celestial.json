@@ -518,10 +518,11 @@
       "status": { "running": "Bezig", "completed": "Voltooid", "action_required": "Actie vereist", "idle": "Inactief" }
     },
     "catalog": {
-      "columns": { "name": "Naam", "type": "Type", "agency_parent": "Agentschap / Hoofdlichaam", "status": "Status", "identifier": "Horizons-opdracht / ID", "monitoring": "Volgstatus" },
-      "monitoring": { "monitored": "Gevolgd", "not_monitored": "Niet gevolgd" },
-      "actions": { "working": "Bezig…", "monitor": "Volgen", "unmonitor": "Stoppen met volgen" },
-      "filters": { "catalog": "Catalogus", "all_entries": "Alle vermeldingen", "solar_bodies": "Zonnestelsellichamen", "spacecraft": "Ruimtesondes", "status": "Status", "all_statuses": "Alle statussen", "search": "Catalogus doorzoeken" },
+      "custom": "Aangepast doel",
+      "columns": { "name": "Naam", "type": "Type", "agency_parent": "Agentschap / Hoofdlichaam", "status": "Status", "catalog_status": "Catalogusstatus", "identifier": "Horizons-opdracht / ID", "monitoring": "Volgstatus", "actions": "Acties" },
+      "monitoring": { "monitored": "Gevolgd", "enabled": "Ingeschakeld", "disabled": "Uitgeschakeld", "not_monitored": "Niet gevolgd" },
+      "actions": { "working": "Bezig…", "monitor": "Volgen", "monitor_target": "{{name}} volgen", "unmonitor": "Stoppen met volgen", "unmonitor_target": "Stoppen met volgen van {{name}}" },
+      "filters": { "catalog": "Catalogus", "all_entries": "Alle vermeldingen", "solar_bodies": "Zonnestelsellichamen", "spacecraft": "Ruimtesondes", "status": "Status", "all_statuses": "Alle statussen", "monitoring": "Volgstatus", "all_monitoring": "Alle volgstatussen", "monitored": "Gevolgd", "enabled": "Ingeschakeld", "disabled": "Uitgeschakeld", "not_monitored": "Niet gevolgd", "clear_search": "Zoekopdracht wissen", "clear_all": "Alles wissen", "results_one": "{{count}} resultaat", "results_other": "{{count}} resultaten", "search": "Catalogus doorzoeken" },
       "empty": "Geen catalogusvermeldingen passen bij de filters.",
       "info": { "title": "Hemelcatalogus", "description": "Bekijk zonnestelsellichamen en ruimtesondes en kies wat u wilt volgen." },
       "confirm": { "title": "Stoppen met volgen bevestigen", "question": "Stoppen met het volgen van {{target}}?", "this_target": "dit doel", "description": "Het doel verdwijnt uit de zonnestelselweergave en kan later opnieuw worden gevolgd." }

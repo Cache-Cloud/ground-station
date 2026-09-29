@@ -38,7 +38,6 @@ import FiberNewIcon from '@mui/icons-material/FiberNew';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import EventNoteIcon from '@mui/icons-material/EventNote';
-import ListAltIcon from '@mui/icons-material/ListAlt';
 import { useSelector } from 'react-redux';
 import { useLocation } from 'react-router-dom';
 
@@ -422,11 +421,6 @@ export const getNavigation = ({ isAdmin = false } = {}) => {
                     segment: 'catalog',
                     title: i18n.t('catalog', { ns: 'navigation', defaultValue: 'Catalog' }),
                     icon: <CelestialSolarIcon />,
-                },
-                {
-                    segment: 'targets',
-                    title: i18n.t('celestial_targets', { ns: 'navigation', defaultValue: 'Monitored' }),
-                    icon: <ListAltIcon />,
                 },
             ],
         },

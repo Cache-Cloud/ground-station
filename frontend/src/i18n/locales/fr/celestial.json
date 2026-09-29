@@ -518,10 +518,11 @@
       "status": { "running": "En cours", "completed": "Terminé", "action_required": "Action requise", "idle": "Inactif" }
     },
     "catalog": {
-      "columns": { "name": "Nom", "type": "Type", "agency_parent": "Agence / Corps parent", "status": "État", "identifier": "Commande Horizons / ID", "monitoring": "Surveillance" },
-      "monitoring": { "monitored": "Surveillé", "not_monitored": "Non surveillé" },
-      "actions": { "working": "Traitement…", "monitor": "Surveiller", "unmonitor": "Arrêter la surveillance" },
-      "filters": { "catalog": "Catalogue", "all_entries": "Toutes les entrées", "solar_bodies": "Corps du système solaire", "spacecraft": "Sondes spatiales", "status": "État", "all_statuses": "Tous les états", "search": "Rechercher dans le catalogue" },
+      "custom": "Cible personnalisée",
+      "columns": { "name": "Nom", "type": "Type", "agency_parent": "Agence / Corps parent", "status": "État", "catalog_status": "État du catalogue", "identifier": "Commande Horizons / ID", "monitoring": "Surveillance", "actions": "Actions" },
+      "monitoring": { "monitored": "Surveillé", "enabled": "Activé", "disabled": "Désactivé", "not_monitored": "Non surveillé" },
+      "actions": { "working": "Traitement…", "monitor": "Surveiller", "monitor_target": "Surveiller {{name}}", "unmonitor": "Arrêter la surveillance", "unmonitor_target": "Arrêter de surveiller {{name}}" },
+      "filters": { "catalog": "Catalogue", "all_entries": "Toutes les entrées", "solar_bodies": "Corps du système solaire", "spacecraft": "Sondes spatiales", "status": "État", "all_statuses": "Tous les états", "monitoring": "Surveillance", "all_monitoring": "Tous les états de surveillance", "monitored": "Surveillé", "enabled": "Activé", "disabled": "Désactivé", "not_monitored": "Non surveillé", "clear_search": "Effacer la recherche", "clear_all": "Tout effacer", "results_one": "{{count}} résultat", "results_other": "{{count}} résultats", "search": "Rechercher dans le catalogue" },
       "empty": "Aucune entrée ne correspond aux filtres.",
       "info": { "title": "Catalogue céleste", "description": "Parcourez les corps du système solaire et les sondes, puis choisissez les cibles à surveiller." },
       "confirm": { "title": "Confirmer l'arrêt de la surveillance", "question": "Arrêter de surveiller {{target}} ?", "this_target": "cette cible", "description": "La cible n'apparaîtra plus dans la vue du Système solaire et pourra être surveillée à nouveau plus tard." }

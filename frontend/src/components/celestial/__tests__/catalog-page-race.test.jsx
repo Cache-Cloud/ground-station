@@ -22,7 +22,9 @@ import satellitesReducer from '../../satellites/satellite-slice.jsx';
 const socketState = vi.hoisted(() => ({
     createAcknowledge: null,
     created: false,
+    bodyCatalogFailure: '',
     missions: [],
+    monitoredRows: null,
     refreshResponse: { success: true, data: { celestial: [] } },
     socket: { emit: vi.fn() },
 }));
@@ -85,11 +87,17 @@ describe('CelestialCatalogPage monitor actions', () => {
     beforeEach(() => {
         socketState.createAcknowledge = null;
         socketState.created = false;
+        socketState.bodyCatalogFailure = '';
         socketState.missions = [];
+        socketState.monitoredRows = null;
         socketState.refreshResponse = { success: true, data: { celestial: [] } };
         socketState.socket.emit.mockReset();
         socketState.socket.emit.mockImplementation((_event, request, acknowledge) => {
             if (request.cmd === 'get-celestial-body-catalog') {
+                if (socketState.bodyCatalogFailure) {
+                    acknowledge({ success: false, error: socketState.bodyCatalogFailure });
+                    return;
+                }
                 acknowledge({
                     success: true,
                     data: [{
@@ -109,7 +117,7 @@ describe('CelestialCatalogPage monitor actions', () => {
             if (request.cmd === 'get-monitored-celestial') {
                 acknowledge({
                     success: true,
-                    data: socketState.created
+                    data: socketState.monitoredRows ?? (socketState.created
                         ? [{
                             id: 'sun-id',
                             target_key: 'body:sun',
@@ -118,7 +126,7 @@ describe('CelestialCatalogPage monitor actions', () => {
                             body_id: 'sun',
                             enabled: true,
                         }]
-                        : [],
+                        : []),
                 });
                 return;
             }
@@ -128,6 +136,13 @@ describe('CelestialCatalogPage monitor actions', () => {
             }
             if (request.cmd === 'refresh-monitored-celestial-now') {
                 acknowledge(socketState.refreshResponse);
+                return;
+            }
+            if (request.cmd === 'toggle-monitored-celestial-enabled') {
+                socketState.monitoredRows = (socketState.monitoredRows || []).map((row) => (
+                    row.id === request.data.id ? { ...row, enabled: request.data.enabled } : row
+                ));
+                acknowledge({ success: true, data: null });
                 return;
             }
             if (request.cmd === 'get-transmitters') {
@@ -201,6 +216,103 @@ describe('CelestialCatalogPage monitor actions', () => {
         expect(screen.queryByText(/^working$/i)).not.toBeInTheDocument();
     });
 
+    it('keeps a custom monitored target manageable when it is absent from the catalogs', async () => {
+        const store = configureStore({
+            reducer: {
+                celestial: celestialReducer,
+                celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
+            },
+        });
+        socketState.monitoredRows = [{
+            id: 'custom-probe',
+            target_key: 'mission:custom_probe',
+            target_type: 'mission',
+            display_name: 'Custom Probe',
+            command: 'CUSTOM PROBE',
+            enabled: false,
+        }];
+
+        render(
+            <Provider store={store}>
+                <CelestialCatalogPage />
+            </Provider>,
+        );
+
+        const checkbox = await screen.findByRole('checkbox', { name: 'Select Custom Probe' });
+        expect(screen.getByTestId('catalog-grid')).toHaveAttribute(
+            'data-row-ids',
+            expect.stringContaining('mission:custom_probe'),
+        );
+        expect(screen.getByText('Disabled')).toBeInTheDocument();
+        fireEvent.click(checkbox);
+        expect(screen.getByRole('button', { name: /^unmonitor$/i })).toBeEnabled();
+    });
+
+    it('does not show a success alert after enabling a monitored target', async () => {
+        const store = configureStore({
+            reducer: {
+                celestial: celestialReducer,
+                celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
+            },
+        });
+        socketState.monitoredRows = [{
+            id: 'custom-probe',
+            target_key: 'mission:custom_probe',
+            target_type: 'mission',
+            display_name: 'Custom Probe',
+            command: 'CUSTOM PROBE',
+            enabled: false,
+        }];
+
+        render(
+            <Provider store={store}>
+                <CelestialCatalogPage />
+            </Provider>,
+        );
+
+        fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Custom Probe' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
+        await waitFor(() => expect(socketState.socket.emit).toHaveBeenCalledWith(
+            'api.call',
+            expect.objectContaining({
+                cmd: 'toggle-monitored-celestial-enabled',
+                data: { id: 'custom-probe', enabled: true },
+            }),
+            expect.any(Function),
+        ));
+        expect(document.querySelector('.MuiAlert-colorSuccess')).not.toBeInTheDocument();
+    });
+
+    it('still renders monitored targets when a catalog source fails', async () => {
+        const store = configureStore({
+            reducer: {
+                celestial: celestialReducer,
+                celestialMonitored: monitoredReducer,
+                satellites: satellitesReducer,
+            },
+        });
+        socketState.bodyCatalogFailure = 'Body catalog unavailable';
+        socketState.monitoredRows = [{
+            id: 'custom-probe',
+            target_key: 'mission:custom_probe',
+            target_type: 'mission',
+            display_name: 'Custom Probe',
+            command: 'CUSTOM PROBE',
+            enabled: true,
+        }];
+
+        render(
+            <Provider store={store}>
+                <CelestialCatalogPage />
+            </Provider>,
+        );
+
+        expect(await screen.findByText('Body catalog unavailable')).toBeInTheDocument();
+        expect(screen.getByRole('checkbox', { name: 'Select Custom Probe' })).toBeInTheDocument();
+    });
+
     it('enables both actions for a mixed monitored selection', async () => {
         const store = configureStore({
             reducer: {
@@ -223,7 +335,7 @@ describe('CelestialCatalogPage monitor actions', () => {
             </Provider>,
         );
 
-        await screen.findByText('Monitored');
+        await screen.findByText('Enabled');
         fireEvent.click(screen.getByRole('checkbox', { name: 'Select Sun' }));
         fireEvent.click(screen.getByRole('checkbox', { name: 'Select Voyager 1' }));
 
@@ -279,7 +391,7 @@ describe('CelestialCatalogPage monitor actions', () => {
         });
         await waitFor(() => {
             expect(screen.getByRole('button', { name: /^unmonitor$/i })).toBeEnabled();
-            expect(screen.getByText('Monitored')).toBeInTheDocument();
+            expect(screen.getByText('Enabled')).toBeInTheDocument();
         });
         expect(screen.queryByText('Sun is now monitored and its data was refreshed.')).not.toBeInTheDocument();
     });

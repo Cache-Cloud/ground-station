@@ -654,6 +654,7 @@
     "catalog": {
       "parent_sun": "Sun",
       "unknown_agency": "Unknown agency",
+      "custom": "Custom target",
       "feedback": {
         "first_refresh_failed": "{{name}} is monitored, but its first data refresh failed: {{error}}",
         "monitor_failed": "Could not monitor {{name}}: {{error}}",
@@ -665,14 +666,17 @@
         "type": "Type",
         "agency_parent": "Agency / Parent",
         "status": "Status",
+        "catalog_status": "Catalog status",
         "identifier": "Horizons command / ID",
-        "monitoring": "Monitoring"
+        "monitoring": "Monitoring",
+        "actions": "Actions"
       },
       "types": {
         "star": "Star",
         "planet": "Planet",
         "moon": "Moon",
         "dwarf-planet": "Dwarf planet",
+        "body": "Solar body",
         "spacecraft": "Spacecraft"
       },
       "status": {
@@ -680,16 +684,21 @@
         "active": "Active",
         "completed": "Completed",
         "failed": "Failed",
+        "custom": "Custom",
         "unknown": "Unknown"
       },
       "monitoring": {
         "monitored": "Monitored",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
         "not_monitored": "Not monitored"
       },
       "actions": {
         "working": "Working…",
         "monitor": "Monitor",
-        "unmonitor": "Unmonitor"
+        "monitor_target": "Monitor {{name}}",
+        "unmonitor": "Unmonitor",
+        "unmonitor_target": "Unmonitor {{name}}"
       },
       "filters": {
         "catalog": "Catalog",
@@ -698,13 +707,23 @@
         "spacecraft": "Spacecraft",
         "status": "Status",
         "all_statuses": "All statuses",
+        "monitoring": "Monitoring",
+        "all_monitoring": "All monitoring states",
+        "monitored": "Monitored",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "not_monitored": "Not monitored",
+        "clear_search": "Clear search",
+        "clear_all": "Clear all",
+        "results_one": "{{count}} result",
+        "results_other": "{{count}} results",
         "search": "Search catalog"
       },
       "empty": "No catalog entries match the filters.",
       "summary": "{{entries}} entries shown · {{monitored}} monitored",
       "info": {
         "title": "Celestial Catalog",
-        "description": "Browse solar-system bodies and the built-in spacecraft catalog, then choose what to monitor."
+        "description": "Browse the celestial catalog and manage monitoring, refresh health, properties, and vector data in one place."
       },
       "confirm": {
         "title": "Confirm unmonitor",
@@ -749,8 +768,6 @@
     },
     "targets": {
       "feedback": {
-        "selected_enabled": "Selected monitored entries enabled.",
-        "selected_disabled": "Selected monitored entries disabled.",
         "updated": "Monitored celestial updated."
       },
       "errors": {

@@ -530,16 +530,19 @@
       }
     },
     "catalog": {
+      "custom": "Προσαρμοσμένος στόχος",
       "columns": {
         "name": "Όνομα",
         "type": "Τύπος",
         "agency_parent": "Οργανισμός / Γονικό σώμα",
         "status": "Κατάσταση",
+        "catalog_status": "Κατάσταση καταλόγου",
         "identifier": "Εντολή Horizons / ID",
-        "monitoring": "Παρακολούθηση"
+        "monitoring": "Παρακολούθηση",
+        "actions": "Ενέργειες"
       },
-      "monitoring": { "monitored": "Παρακολουθείται", "not_monitored": "Δεν παρακολουθείται" },
-      "actions": { "working": "Εκτελείται…", "monitor": "Παρακολούθηση", "unmonitor": "Διακοπή παρακολούθησης" },
+      "monitoring": { "monitored": "Παρακολουθείται", "enabled": "Ενεργό", "disabled": "Ανενεργό", "not_monitored": "Δεν παρακολουθείται" },
+      "actions": { "working": "Εκτελείται…", "monitor": "Παρακολούθηση", "monitor_target": "Παρακολούθηση {{name}}", "unmonitor": "Διακοπή παρακολούθησης", "unmonitor_target": "Διακοπή παρακολούθησης {{name}}" },
       "filters": {
         "catalog": "Κατάλογος",
         "all_entries": "Όλες οι εγγραφές",
@@ -547,6 +550,16 @@
         "spacecraft": "Διαστημικά σκάφη",
         "status": "Κατάσταση",
         "all_statuses": "Όλες οι καταστάσεις",
+        "monitoring": "Παρακολούθηση",
+        "all_monitoring": "Όλες οι καταστάσεις παρακολούθησης",
+        "monitored": "Παρακολουθείται",
+        "enabled": "Ενεργό",
+        "disabled": "Ανενεργό",
+        "not_monitored": "Δεν παρακολουθείται",
+        "clear_search": "Εκκαθάριση αναζήτησης",
+        "clear_all": "Εκκαθάριση όλων",
+        "results_one": "{{count}} αποτέλεσμα",
+        "results_other": "{{count}} αποτελέσματα",
         "search": "Αναζήτηση καταλόγου"
       },
       "empty": "Δεν υπάρχουν εγγραφές που να ταιριάζουν στα φίλτρα.",

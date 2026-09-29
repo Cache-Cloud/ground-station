@@ -25,7 +25,6 @@ import {createBrowserRouter, Navigate, RouterProvider, useParams} from "react-ro
 import {
     AdminCelestialCatalogPage,
     AdminCelestialEphemerisPage,
-    AdminCelestialTargetsPage,
     AdminSatellitesCatalogPage,
     AdminSatellitesGroupsPage,
     AdminSatellitesSourcesPage,
@@ -194,7 +193,7 @@ const router = createBrowserRouter([
                                     },
                                     {
                                         path: "targets",
-                                        Component: AdminCelestialTargetsPage,
+                                        element: <Navigate to="/admin/celestial/catalog" replace />,
                                     },
                                 ],
                             },

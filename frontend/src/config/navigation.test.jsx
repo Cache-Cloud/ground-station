@@ -15,7 +15,6 @@ describe('administration navigation', () => {
         expect(celestialData.children.map((item) => item.segment)).toEqual([
             'ephemeris',
             'catalog',
-            'targets',
         ]);
         expect(navigation.some((item) => item.segment === 'admin/satellites/catalog')).toBe(false);
         expect(navigation.some((item) => item.segment === 'admin/celestial/catalog')).toBe(false);

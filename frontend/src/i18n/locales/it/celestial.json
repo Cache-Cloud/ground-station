@@ -517,10 +517,11 @@
       "status": { "running": "In corso", "completed": "Completato", "action_required": "Azione richiesta", "idle": "Inattivo" }
     },
     "catalog": {
-      "columns": { "name": "Nome", "type": "Tipo", "agency_parent": "Agenzia / Corpo principale", "status": "Stato", "identifier": "Comando Horizons / ID", "monitoring": "Monitoraggio" },
-      "monitoring": { "monitored": "Monitorato", "not_monitored": "Non monitorato" },
-      "actions": { "working": "Elaborazione…", "monitor": "Monitora", "unmonitor": "Interrompi monitoraggio" },
-      "filters": { "catalog": "Catalogo", "all_entries": "Tutte le voci", "solar_bodies": "Corpi del sistema solare", "spacecraft": "Veicoli spaziali", "status": "Stato", "all_statuses": "Tutti gli stati", "search": "Cerca nel catalogo" },
+      "custom": "Obiettivo personalizzato",
+      "columns": { "name": "Nome", "type": "Tipo", "agency_parent": "Agenzia / Corpo principale", "status": "Stato", "catalog_status": "Stato del catalogo", "identifier": "Comando Horizons / ID", "monitoring": "Monitoraggio", "actions": "Azioni" },
+      "monitoring": { "monitored": "Monitorato", "enabled": "Attivo", "disabled": "Disattivato", "not_monitored": "Non monitorato" },
+      "actions": { "working": "Elaborazione…", "monitor": "Monitora", "monitor_target": "Monitora {{name}}", "unmonitor": "Interrompi monitoraggio", "unmonitor_target": "Interrompi monitoraggio di {{name}}" },
+      "filters": { "catalog": "Catalogo", "all_entries": "Tutte le voci", "solar_bodies": "Corpi del sistema solare", "spacecraft": "Veicoli spaziali", "status": "Stato", "all_statuses": "Tutti gli stati", "monitoring": "Monitoraggio", "all_monitoring": "Tutti gli stati di monitoraggio", "monitored": "Monitorato", "enabled": "Attivo", "disabled": "Disattivato", "not_monitored": "Non monitorato", "clear_search": "Cancella ricerca", "clear_all": "Cancella tutto", "results_one": "{{count}} risultato", "results_other": "{{count}} risultati", "search": "Cerca nel catalogo" },
       "empty": "Nessuna voce corrisponde ai filtri.",
       "info": { "title": "Catalogo celeste", "description": "Esplora i corpi del sistema solare e i veicoli spaziali, quindi scegli cosa monitorare." },
       "confirm": { "title": "Conferma interruzione monitoraggio", "question": "Interrompere il monitoraggio di {{target}}?", "this_target": "questo obiettivo", "description": "Non apparirà più nella vista del Sistema Solare e potrà essere monitorato nuovamente in seguito." }
