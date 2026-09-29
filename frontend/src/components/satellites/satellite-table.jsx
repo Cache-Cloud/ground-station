@@ -878,7 +878,18 @@ const SatelliteTable = React.memo(function SatelliteTable() {
 
     return (
         <Box elevation={3} sx={{width: '100%', marginTop: 0}}>
-            <Paper variant="outlined" sx={{p: {xs: 1.5, md: 2}, borderRadius: 2}}>
+            <Paper
+                variant="outlined"
+                sx={{
+                    p: {xs: 1.5, md: 2},
+                    borderRadius: 2,
+                    backgroundColor: (theme) => (
+                        theme.palette.mode === 'dark'
+                            ? alpha(theme.palette.grey[700], 0.18)
+                            : alpha(theme.palette.grey[100], 0.9)
+                    ),
+                }}
+            >
                 <TextField
                     fullWidth
                     size="small"
@@ -890,17 +901,6 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                     placeholder={t('satellite_database.catalog_search_placeholder', {
                         defaultValue: 'Search satellite, NORAD ID, transmitter, mode, or service…',
                     })}
-                    helperText={localSearchValue.trim().length === 1
-                        ? t('satellite_database.catalog_search_min_chars', {defaultValue: 'Type at least 2 characters to search'})
-                        : ' '}
-                    FormHelperTextProps={{
-                        sx: {
-                            height: 20,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                        },
-                    }}
                     InputProps={{
                         startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,
                         endAdornment: localSearchValue ? (
@@ -1103,13 +1103,28 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                             '&::-webkit-scrollbar': {display: 'none'},
                         }}
                     >
+                        {activeFilterChips.length === 0 && (
+                            <Stack
+                                direction="row"
+                                spacing={0.5}
+                                alignItems="center"
+                                sx={{color: 'text.disabled', flexShrink: 0}}
+                            >
+                                <TuneRoundedIcon sx={{fontSize: 16}} />
+                                <Typography variant="caption" color="inherit">
+                                    {t('satellite_database.no_filters_applied')}
+                                </Typography>
+                            </Stack>
+                        )}
                         {activeFilterChips.map(filter => <Chip key={filter.key} label={filter.label} onDelete={filter.onDelete} size="small" sx={{flexShrink: 0}} />)}
                         {activeFilterChips.length > 1 && <Button size="small" onClick={clearAllFilters} sx={{flexShrink: 0}}>{t('satellite_database.clear_all')}</Button>}
                     </Stack>
                     <Typography variant="body2" color="text.secondary" sx={{whiteSpace: 'nowrap', flexShrink: 0}}>
-                        {loading
-                            ? t('satellite_database.searching')
-                            : t('satellite_database.results_count', {count: catalogTotal})}
+                        {localSearchValue.trim().length === 1
+                            ? t('satellite_database.catalog_search_min_chars', {defaultValue: 'Type at least 2 characters to search'})
+                            : loading
+                                ? t('satellite_database.searching')
+                                : t('satellite_database.results_count', {count: catalogTotal})}
                     </Typography>
                 </Stack>
             </Paper>

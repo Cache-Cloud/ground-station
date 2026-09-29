@@ -57,6 +57,7 @@
     "frequency_violation": "Frequency violation",
     "unconfirmed_transmitter": "Unconfirmed transmitter",
     "clear_all": "Clear all",
+    "no_filters_applied": "No filters applied",
     "searching": "Searching…",
     "results_count_one": "{{count}} satellite found",
     "results_count_other": "{{count}} satellites found",
