@@ -111,7 +111,8 @@ const orbitalSourcesPersistConfig = {
 const satellitesPersistConfig = {
     key: 'satellites',
     storage,
-    whitelist: []
+    // Catalog rows are fetched per page; only the user's sorting preference is durable.
+    whitelist: ['catalogSortModel']
 };
 
 // Persist configuration for satellite groups slice

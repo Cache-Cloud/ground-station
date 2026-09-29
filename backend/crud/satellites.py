@@ -17,11 +17,11 @@ import json
 import re
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic.v1 import UUID4
-from sqlalchemy import String, and_, delete, func, insert, or_, select, update
+from sqlalchemy import String, and_, delete, exists, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,30 @@ DATETIME_FIELDS = {"decayed", "launched", "deployed", "added", "updated"}
 SUPPORTED_CENTRAL_BODIES = {"earth", "moon", "mars"}
 SUPPORTED_ORBIT_MODEL_KINDS = {"tle", "omm"}
 TRANSMITTER_LOOKUP_CHUNK_SIZE = 400
+
+# These boundaries mirror the labels shown in the catalog. Keeping the values
+# in hertz lets band and custom-range filters share the same overlap logic.
+CATALOG_FREQUENCY_BANDS = {
+    "ELF": (3, 30),
+    "SLF": (30, 300),
+    "ULF": (300, 3_000),
+    "VLF": (3_000, 30_000),
+    "LF": (30_000, 300_000),
+    "MF": (300_000, 3_000_000),
+    "HF": (3_000_000, 30_000_000),
+    "VHF": (30_000_000, 300_000_000),
+    "UHF": (300_000_000, 1_000_000_000),
+    "L-band": (1_000_000_000, 2_000_000_000),
+    "S-band": (2_000_000_000, 4_000_000_000),
+    "C-band": (4_000_000_000, 8_000_000_000),
+    "X-band": (8_000_000_000, 12_000_000_000),
+    "Ku-band": (12_000_000_000, 18_000_000_000),
+    "K-band": (18_000_000_000, 27_000_000_000),
+    "Ka-band": (27_000_000_000, 40_000_000_000),
+    "V-band": (40_000_000_000, 75_000_000_000),
+    "W-band": (75_000_000_000, 110_000_000_000),
+    "mm-band": (110_000_000_000, 300_000_000_000),
+}
 
 
 def _coerce_datetime(value):
@@ -338,86 +362,436 @@ async def fetch_satellites_for_group_id(session: AsyncSession, group_id: Union[s
         return {"success": False, "error": str(e)}
 
 
-async def search_satellites(session: AsyncSession, keyword: Union[str, int, None]) -> dict:
+def _catalog_text_list(value: Any) -> List[str]:
+    """Normalize a catalog multi-select payload without accepting nested values."""
+    values = value if isinstance(value, list) else [value]
+    return [str(item).strip() for item in values if item is not None and str(item).strip()]
+
+
+def _catalog_int(value: Any) -> Optional[int]:
+    """Return a non-negative integer used by catalog numeric filters."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _catalog_date(value: Any, *, end_of_day: bool = False) -> Optional[datetime]:
+    """Parse the date-only values emitted by the catalog filter controls."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed_date = datetime.fromisoformat(text).date()
+    except ValueError:
+        return None
+    boundary = time.max if end_of_day else time.min
+    return datetime.combine(parsed_date, boundary, tzinfo=timezone.utc)
+
+
+def _catalog_transmitter_owner_filter():
+    """Match direct transmitters and records following a satellite's NORAD id."""
+    return or_(
+        Transmitters.norad_cat_id == Satellites.norad_id,
+        Transmitters.norad_follow_id == Satellites.norad_id,
+    )
+
+
+def _catalog_frequency_overlap(
+    low_column,
+    high_column,
+    minimum: Optional[int],
+    maximum: Optional[int],
+    *,
+    maximum_exclusive: bool = False,
+):
+    """Match point frequencies and transmitter ranges that overlap optional bounds."""
+    conditions = [low_column.is_not(None)]
+    if maximum is not None:
+        if maximum_exclusive:
+            conditions.append(low_column < maximum)
+        else:
+            conditions.append(low_column <= maximum)
+    if minimum is not None:
+        conditions.append(func.coalesce(high_column, low_column) >= minimum)
+    return and_(*conditions)
+
+
+def _catalog_directional_frequency_filter(
+    direction: str,
+    minimum: Optional[int],
+    maximum: Optional[int],
+    *,
+    maximum_exclusive: bool = False,
+):
+    downlink = _catalog_frequency_overlap(
+        Transmitters.downlink_low,
+        Transmitters.downlink_high,
+        minimum,
+        maximum,
+        maximum_exclusive=maximum_exclusive,
+    )
+    uplink = _catalog_frequency_overlap(
+        Transmitters.uplink_low,
+        Transmitters.uplink_high,
+        minimum,
+        maximum,
+        maximum_exclusive=maximum_exclusive,
+    )
+    if direction == "uplink":
+        return uplink
+    if direction == "either":
+        return or_(downlink, uplink)
+    return downlink
+
+
+def _catalog_transmitter_conditions(filters: Dict[str, Any]) -> List[Any]:
+    """Build conditions that one transmitter must satisfy as a unit."""
+    conditions: List[Any] = []
+    direction = str(filters.get("direction") or "downlink").strip().lower()
+    if direction not in {"downlink", "uplink", "either"}:
+        direction = "downlink"
+
+    bands = _catalog_text_list(filters.get("bands"))
+    band_ranges: List[tuple[int, int]] = []
+    for band in bands:
+        band_range = CATALOG_FREQUENCY_BANDS.get(band)
+        if band_range is not None:
+            band_ranges.append(band_range)
+    if band_ranges:
+        conditions.append(
+            or_(
+                *[
+                    _catalog_directional_frequency_filter(
+                        direction,
+                        minimum,
+                        maximum,
+                        maximum_exclusive=True,
+                    )
+                    for minimum, maximum in band_ranges
+                ]
+            )
+        )
+
+    frequency_min = _catalog_int(filters.get("frequency_min_hz"))
+    frequency_max = _catalog_int(filters.get("frequency_max_hz"))
+    if frequency_min is not None or frequency_max is not None:
+        if (
+            frequency_min is not None
+            and frequency_max is not None
+            and frequency_min > frequency_max
+        ):
+            frequency_min, frequency_max = frequency_max, frequency_min
+        conditions.append(
+            _catalog_directional_frequency_filter(direction, frequency_min, frequency_max)
+        )
+
+    modes = [value.lower() for value in _catalog_text_list(filters.get("modes"))]
+    if modes:
+        conditions.append(func.lower(Transmitters.mode).in_(modes))
+
+    transmitter_types = [
+        value.lower() for value in _catalog_text_list(filters.get("transmitter_types"))
+    ]
+    if transmitter_types:
+        conditions.append(func.lower(Transmitters.type).in_(transmitter_types))
+
+    services = [value.lower() for value in _catalog_text_list(filters.get("services"))]
+    if services:
+        conditions.append(func.lower(Transmitters.service).in_(services))
+
+    baud_min = _catalog_int(filters.get("baud_min"))
+    baud_max = _catalog_int(filters.get("baud_max"))
+    if baud_min is not None and baud_max is not None and baud_min > baud_max:
+        baud_min, baud_max = baud_max, baud_min
+    if baud_min is not None:
+        conditions.append(Transmitters.baud >= baud_min)
+    if baud_max is not None:
+        conditions.append(Transmitters.baud <= baud_max)
+
+    transmitter_state = str(filters.get("transmitter_state") or "").strip().lower()
+    if transmitter_state == "active":
+        conditions.append(Transmitters.alive.is_(True))
+    elif transmitter_state == "inactive":
+        conditions.append(Transmitters.alive.is_(False))
+
+    if filters.get("unconfirmed") is True:
+        conditions.append(Transmitters.unconfirmed.is_(True))
+
+    return conditions
+
+
+async def _attach_catalog_transmitters(
+    session: AsyncSession,
+    satellites: List[Dict[str, Any]],
+) -> None:
+    """Attach all transmitter rows with bounded queries instead of one query per satellite."""
+    satellite_ids = [
+        int(satellite["norad_id"])
+        for satellite in satellites
+        if satellite.get("norad_id") is not None
+    ]
+    transmitters_by_norad: Dict[int, Dict[str, Dict[str, Any]]] = {
+        norad_id: {} for norad_id in satellite_ids
+    }
+    for start in range(0, len(satellite_ids), TRANSMITTER_LOOKUP_CHUNK_SIZE):
+        chunk = satellite_ids[start : start + TRANSMITTER_LOOKUP_CHUNK_SIZE]
+        result = await session.execute(
+            select(Transmitters).filter(
+                or_(
+                    Transmitters.norad_cat_id.in_(chunk),
+                    Transmitters.norad_follow_id.in_(chunk),
+                )
+            )
+        )
+        for transmitter in serialize_object(result.scalars().all()):
+            for owner_field in ("norad_cat_id", "norad_follow_id"):
+                owner_id = transmitter.get(owner_field)
+                if owner_id in transmitters_by_norad:
+                    transmitters_by_norad[owner_id][transmitter["id"]] = transmitter
+
+    for satellite in satellites:
+        satellite["transmitters"] = list(
+            transmitters_by_norad.get(int(satellite["norad_id"]), {}).values()
+        )
+
+
+async def search_satellites(
+    session: AsyncSession,
+    keyword: Union[str, int, None],
+    filters: Optional[Dict[str, Any]] = None,
+) -> dict:
     """
     Fetch satellite records.
 
-    If 'keyword' is provided, return a list of satellite records that have a matching norad_id
-    or part of it, or a name or part of it. Otherwise, return all satellite records.
-    Each satellite will include information about which groups it belongs to.
+    If 'keyword' is provided, return satellite records that have a matching NORAD id,
+    name, or transmitter property. Structured catalog requests can include page,
+    page_size, and sorting fields; enrichment then runs only for that SQL page.
+    Legacy callers without page_size continue to receive every matching record.
     """
     try:
-        if keyword is None:
-            stmt = select(Satellites)
-        else:
-            keyword_raw = str(keyword).strip()
-            if not keyword_raw:
-                stmt = select(Satellites)
-            else:
-                # Keep phrase lookup for backwards compatibility, but add tokenized matching
-                # so phrases like "GPS PRN 04" match names such as "GPS ... (PRN 04)".
-                phrase_pattern = f"%{keyword_raw}%"
-                phrase_filter = or_(
-                    Satellites.norad_id.cast(String).ilike(phrase_pattern),
-                    Satellites.name.ilike(phrase_pattern),
-                    Satellites.name_other.ilike(phrase_pattern),
-                    Satellites.alternative_name.ilike(phrase_pattern),
+        catalog_filters = filters if isinstance(filters, dict) else {}
+        stmt = select(Satellites)
+        satellite_conditions: List[Any] = []
+
+        keyword_raw = str(keyword or "").strip()
+        if keyword_raw:
+            # Keep phrase lookup for backwards compatibility, but add tokenized matching
+            # so phrases like "GPS PRN 04" match names such as "GPS ... (PRN 04)".
+            phrase_pattern = f"%{keyword_raw}%"
+            transmitter_phrase_filter = exists(
+                select(1)
+                .select_from(Transmitters)
+                .where(
+                    _catalog_transmitter_owner_filter(),
+                    or_(
+                        Transmitters.id.ilike(phrase_pattern),
+                        Transmitters.source_transmitter_id.ilike(phrase_pattern),
+                        Transmitters.description.ilike(phrase_pattern),
+                        Transmitters.mode.ilike(phrase_pattern),
+                        Transmitters.type.ilike(phrase_pattern),
+                        Transmitters.service.ilike(phrase_pattern),
+                    ),
                 )
+            )
+            phrase_filter = or_(
+                Satellites.norad_id.cast(String).ilike(phrase_pattern),
+                Satellites.name.ilike(phrase_pattern),
+                Satellites.name_other.ilike(phrase_pattern),
+                Satellites.alternative_name.ilike(phrase_pattern),
+                transmitter_phrase_filter,
+            )
 
-                raw_tokens = [tok for tok in re.findall(r"[A-Za-z0-9]+", keyword_raw) if tok]
-                token_filters = []
-                for token in raw_tokens:
-                    variants = [token]
+            raw_tokens = [tok for tok in re.findall(r"[A-Za-z0-9]+", keyword_raw) if tok]
+            token_filters = []
+            for token in raw_tokens:
+                variants = [token]
 
-                    # Expand compact PRN formats such as E29/J195 so they can match "(PRN 29)".
-                    prn_compact_match = re.fullmatch(r"[A-Za-z](\d{1,3})", token)
-                    if prn_compact_match:
-                        digits = prn_compact_match.group(1)
-                        variants.append(digits)
-                        if len(digits) == 1:
-                            variants.append(digits.zfill(2))
+                # Expand compact PRN formats such as E29/J195 so they can match "(PRN 29)".
+                prn_compact_match = re.fullmatch(r"[A-Za-z](\d{1,3})", token)
+                if prn_compact_match:
+                    digits = prn_compact_match.group(1)
+                    variants.append(digits)
+                    if len(digits) == 1:
+                        variants.append(digits.zfill(2))
 
-                    if token.isdigit():
-                        stripped = token.lstrip("0")
-                        if stripped and stripped != token:
-                            variants.append(stripped)
+                if token.isdigit():
+                    stripped = token.lstrip("0")
+                    if stripped and stripped != token:
+                        variants.append(stripped)
 
-                    variant_filters = []
-                    for variant in dict.fromkeys(variants):
-                        pattern = f"%{variant}%"
-                        variant_filters.append(
+                variant_filters = []
+                for variant in dict.fromkeys(variants):
+                    pattern = f"%{variant}%"
+                    transmitter_token_filter = exists(
+                        select(1)
+                        .select_from(Transmitters)
+                        .where(
+                            _catalog_transmitter_owner_filter(),
                             or_(
-                                Satellites.norad_id.cast(String).ilike(pattern),
-                                Satellites.name.ilike(pattern),
-                                Satellites.name_other.ilike(pattern),
-                                Satellites.alternative_name.ilike(pattern),
-                            )
+                                Transmitters.id.ilike(pattern),
+                                Transmitters.source_transmitter_id.ilike(pattern),
+                                Transmitters.description.ilike(pattern),
+                                Transmitters.mode.ilike(pattern),
+                                Transmitters.type.ilike(pattern),
+                                Transmitters.service.ilike(pattern),
+                            ),
                         )
+                    )
+                    variant_filters.append(
+                        or_(
+                            Satellites.norad_id.cast(String).ilike(pattern),
+                            Satellites.name.ilike(pattern),
+                            Satellites.name_other.ilike(pattern),
+                            Satellites.alternative_name.ilike(pattern),
+                            transmitter_token_filter,
+                        )
+                    )
 
-                    if variant_filters:
-                        token_filters.append(or_(*variant_filters))
+                if variant_filters:
+                    token_filters.append(or_(*variant_filters))
 
-                if token_filters:
-                    combined_filter = or_(phrase_filter, and_(*token_filters))
-                else:
-                    combined_filter = phrase_filter
+            if token_filters:
+                combined_filter = or_(phrase_filter, and_(*token_filters))
+            else:
+                combined_filter = phrase_filter
+            satellite_conditions.append(combined_filter)
 
-                stmt = select(Satellites).filter(combined_filter)
+        status = str(catalog_filters.get("status") or "").strip().lower()
+        if status:
+            satellite_conditions.append(func.lower(Satellites.status) == status)
+
+        country = str(catalog_filters.get("country") or "").strip().upper()
+        if country:
+            normalized_countries = func.replace(func.upper(Satellites.countries), " ", "")
+            satellite_conditions.append(
+                or_(
+                    normalized_countries == country,
+                    normalized_countries.like(f"{country},%"),
+                    normalized_countries.like(f"%,{country},%"),
+                    normalized_countries.like(f"%,{country}"),
+                )
+            )
+
+        source = str(catalog_filters.get("source") or "").strip().lower()
+        if source:
+            satellite_conditions.append(func.lower(Satellites.source) == source)
+
+        launched_from = _catalog_date(catalog_filters.get("launched_from"))
+        launched_to = _catalog_date(catalog_filters.get("launched_to"), end_of_day=True)
+        if launched_from is not None:
+            satellite_conditions.append(Satellites.launched >= launched_from)
+        if launched_to is not None:
+            satellite_conditions.append(Satellites.launched <= launched_to)
+
+        group_id = str(catalog_filters.get("group_id") or "").strip()
+        if group_id:
+            try:
+                group_result = await fetch_satellite_group(session, uuid.UUID(group_id))
+                group_data = group_result.get("data") if group_result.get("success") else None
+                group_satellite_ids = (group_data or {}).get("satellite_ids") or []
+            except (TypeError, ValueError):
+                group_satellite_ids = []
+            satellite_conditions.append(Satellites.norad_id.in_(group_satellite_ids))
+
+        transmitter_conditions = _catalog_transmitter_conditions(catalog_filters)
+        transmitter_state = str(catalog_filters.get("transmitter_state") or "").strip().lower()
+        requires_transmitter = bool(transmitter_conditions) or transmitter_state == "any"
+        transmitter_exists = exists(
+            select(1)
+            .select_from(Transmitters)
+            .where(
+                _catalog_transmitter_owner_filter(),
+                *transmitter_conditions,
+            )
+        )
+        if transmitter_state == "none":
+            satellite_conditions.append(
+                ~exists(
+                    select(1).select_from(Transmitters).where(_catalog_transmitter_owner_filter())
+                )
+            )
+            if transmitter_conditions:
+                # No transmitter can also satisfy an RF or transmitter-property constraint.
+                satellite_conditions.append(transmitter_exists)
+        elif requires_transmitter:
+            satellite_conditions.append(transmitter_exists)
+
+        if catalog_filters.get("frequency_violation") is True:
+            satellite_conditions.append(
+                or_(
+                    Satellites.is_frequency_violator.is_(True),
+                    exists(
+                        select(1)
+                        .select_from(Transmitters)
+                        .where(
+                            _catalog_transmitter_owner_filter(),
+                            Transmitters.frequency_violation.is_(True),
+                        )
+                    ),
+                )
+            )
+
+        if satellite_conditions:
+            stmt = stmt.filter(*satellite_conditions)
+
+        pagination_requested = "page_size" in catalog_filters
+        page = _catalog_int(catalog_filters.get("page")) or 0
+        requested_page_size = _catalog_int(catalog_filters.get("page_size"))
+        page_size = min(max(requested_page_size or 10, 1), 100)
+
+        if pagination_requested:
+            count_stmt = select(func.count()).select_from(Satellites)
+            if satellite_conditions:
+                count_stmt = count_stmt.filter(*satellite_conditions)
+            total = int(await session.scalar(count_stmt) or 0)
+        else:
+            total = 0
+
+        if pagination_requested:
+            sort_field = str(catalog_filters.get("sort_field") or "name").strip().lower()
+            sort_direction = str(catalog_filters.get("sort_direction") or "asc").strip().lower()
+            transmitter_count = (
+                select(func.count(Transmitters.id))
+                .where(_catalog_transmitter_owner_filter())
+                .correlate(Satellites)
+                .scalar_subquery()
+            )
+            sort_columns = {
+                "name": func.lower(Satellites.name),
+                "norad_id": Satellites.norad_id,
+                "status": func.lower(Satellites.status),
+                "countries": func.lower(Satellites.countries),
+                "operator": func.lower(Satellites.operator),
+                "transmitters": transmitter_count,
+                "decayed": Satellites.decayed,
+                "launched": Satellites.launched,
+                "deployed": Satellites.deployed,
+                "updated": Satellites.updated,
+            }
+            sort_column = sort_columns.get(sort_field, sort_columns["name"])
+            ordering = sort_column.desc() if sort_direction == "desc" else sort_column.asc()
+            stmt = stmt.order_by(ordering, Satellites.norad_id.asc())
+            stmt = stmt.offset(page * page_size).limit(page_size)
+
         result = await session.execute(stmt)
         satellites = result.scalars().all()
         satellites = serialize_object(satellites)
+        if not pagination_requested:
+            total = len(satellites)
         await _attach_primary_earth_orbits(session, satellites)
 
-        # For each satellite, find which groups it belongs to
+        # The table needs full transmitter records for band chips, matching
+        # details, and edit actions after the server has narrowed satellites.
+        await _attach_catalog_transmitters(session, satellites)
+
+        # Fetch groups once and attach membership in memory. The previous loop
+        # repeated the same groups query once for every search result.
+        all_groups_result = await session.execute(select(Groups))
+        all_groups = all_groups_result.scalars().all()
         for satellite in satellites:
             norad_id = satellite["norad_id"]
-
-            # Get all groups and filter them in Python since JSON querying can be database-specific
-            all_groups_stmt = select(Groups)
-            all_groups_result = await session.execute(all_groups_stmt)
-            all_groups = all_groups_result.scalars().all()
-
-            # Filter groups that contain this satellite's NORAD ID
             matching_groups = []
             for group in all_groups:
                 if group.satellite_ids and norad_id in group.satellite_ids:
@@ -429,7 +803,14 @@ async def search_satellites(session: AsyncSession, keyword: Union[str, int, None
             # Add group information to the satellite
             satellite["groups"] = serialize_object(matching_groups) if matching_groups else []
 
-        return {"success": True, "data": satellites, "error": None}
+        return {
+            "success": True,
+            "data": satellites,
+            "total": total,
+            "page": page,
+            "page_size": page_size if pagination_requested else total,
+            "error": None,
+        }
 
     except Exception as e:
         logger.error(f"Error fetching satellite(s): {e}")
@@ -494,6 +875,29 @@ async def fetch_satellite_catalog_stats(session: AsyncSession) -> dict:
             .where(Transmitters.norad_cat_id.is_not(None))
         )
 
+        async def distinct_values(column) -> List[str]:
+            result = await session.execute(select(column).where(column.is_not(None)).distinct())
+            return sorted(
+                {str(value).strip() for value in result.scalars().all() if str(value).strip()},
+                key=str.casefold,
+            )
+
+        country_rows = await distinct_values(Satellites.countries)
+        countries = sorted(
+            {
+                country.strip()
+                for row in country_rows
+                for country in row.split(",")
+                if country.strip()
+            },
+            key=str.casefold,
+        )
+        sources = await distinct_values(Satellites.source)
+        statuses = await distinct_values(Satellites.status)
+        modes = await distinct_values(Transmitters.mode)
+        transmitter_types = await distinct_values(Transmitters.type)
+        services = await distinct_values(Transmitters.service)
+
         return {
             "success": True,
             "data": {
@@ -502,6 +906,12 @@ async def fetch_satellite_catalog_stats(session: AsyncSession) -> dict:
                 "user_groups": int(user_groups_count or 0),
                 "system_groups": int(system_groups_count or 0),
                 "satellite_transmitters": int(satellite_transmitters_count or 0),
+                "countries": countries,
+                "sources": sources,
+                "statuses": statuses,
+                "modes": modes,
+                "transmitter_types": transmitter_types,
+                "services": services,
             },
             "error": None,
         }

@@ -163,7 +163,7 @@ async def get_satellite_catalog_stats(
 
 async def search_satellites(
     sio: Any, data: Optional[Union[Dict[str, Any], str, int]], logger: Any, sid: str
-) -> Dict[str, Union[bool, list]]:
+) -> Dict[str, Any]:
     """
     Search satellites by keyword with their transmitters.
 
@@ -179,23 +179,29 @@ async def search_satellites(
     async with AsyncSessionLocal() as dbsession:
         logger.debug(f"Searching satellites, data: {data}")
         keyword: Union[str, int, None]
+        filters: Dict[str, Any] = {}
         if isinstance(data, dict):
             keyword = data.get("keyword") or data.get("query")
+            filters = data
         else:
             keyword = data
-        satellites = await crud.satellites.search_satellites(dbsession, keyword=keyword)
+        satellites = await crud.satellites.search_satellites(
+            dbsession,
+            keyword=keyword,
+            filters=filters,
+        )
 
-        # Get transmitters for each satellite (same as get_satellites_for_group_id)
-        if satellites:
-            for satellite in satellites.get("data", []):
-                transmitters = await crud.transmitters.fetch_transmitters_for_satellite(
-                    dbsession, satellite["norad_id"]
-                )
-                satellite["transmitters"] = transmitters["data"]
-        else:
-            logger.debug(f"No satellites found for search keyword: {data}")
-
-        return {"success": satellites["success"], "data": satellites.get("data", [])}
+        response: Dict[str, Any] = {
+            "success": satellites["success"],
+            "data": satellites.get("data", []),
+        }
+        if isinstance(data, dict) and "page_size" in data:
+            response.update(
+                total=int(satellites.get("total") or 0),
+                page=int(satellites.get("page") or 0),
+                page_size=int(satellites.get("page_size") or 0),
+            )
+        return response
 
 
 async def search_targets(

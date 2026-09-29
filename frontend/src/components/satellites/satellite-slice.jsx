@@ -20,6 +20,8 @@
 
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 
+export const DEFAULT_CATALOG_SORT_MODEL = [{field: 'transmitters', sort: 'desc'}];
+
 // Example default Satellite object:
 const defaultSatellite = {
     id: null,
@@ -255,15 +257,21 @@ export const fetchSatelliteCatalogStats = createAsyncThunk(
 
 export const searchSatellites = createAsyncThunk(
     'satellites/search',
-    async ({ socket, keyword }, { rejectWithValue }) => {
+    async ({ socket, keyword, filters }, { rejectWithValue }) => {
         try {
             return await new Promise((resolve, reject) => {
+                const data = filters ? {...filters, keyword: keyword || filters.keyword || ''} : keyword;
                 socket.emit("api.call", {
   cmd: 'get-satellite-search',
-  data: keyword
+  data
 }, res => {
   if (res.success) {
-    resolve(res.data);
+    resolve({
+      items: Array.isArray(res.data) ? res.data : [],
+      total: Number(res.total ?? res.data?.length ?? 0),
+      page: Number(res.page ?? 0),
+      pageSize: Number(res.page_size ?? res.data?.length ?? 0),
+    });
   } else {
     reject(new Error('Failed to search satellites'));
   }
@@ -318,6 +326,9 @@ const satellitesSlice = createSlice({
         openAddDialog: false,
         clickedSatellite: defaultSatellite,
         catalogStats: null,
+        catalogTotal: 0,
+        catalogSortModel: DEFAULT_CATALOG_SORT_MODEL,
+        currentSearchRequestId: null,
     },
     reducers: {
         setSatellites: (state, action) => {
@@ -328,6 +339,9 @@ const satellitesSlice = createSlice({
         },
         setPageSize: (state, action) => {
             state.pageSize = action.payload;
+        },
+        setCatalogSortModel: (state, action) => {
+            state.catalogSortModel = action.payload;
         },
         setOpenDeleteConfirm: (state, action) => {
             state.openDeleteConfirm = action.payload;
@@ -487,20 +501,34 @@ const satellitesSlice = createSlice({
                 state.loading = false;
                 state.error = action.error?.message;
             })
-            .addCase(searchSatellites.pending, (state) => {
+            .addCase(searchSatellites.pending, (state, action) => {
                 state.status = 'loading';
                 state.loading = true;
                 state.error = null;
+                state.currentSearchRequestId = action.meta.requestId;
             })
             .addCase(searchSatellites.fulfilled, (state, action) => {
+                if (state.currentSearchRequestId !== action.meta.requestId) {
+                    return;
+                }
                 state.status = 'succeeded';
                 state.loading = false;
-                state.satellites = action.payload;
+                state.satellites = Array.isArray(action.payload)
+                    ? action.payload
+                    : action.payload.items;
+                state.catalogTotal = Array.isArray(action.payload)
+                    ? action.payload.length
+                    : action.payload.total;
+                state.currentSearchRequestId = null;
             })
             .addCase(searchSatellites.rejected, (state, action) => {
+                if (state.currentSearchRequestId !== action.meta.requestId) {
+                    return;
+                }
                 state.status = 'failed';
                 state.loading = false;
                 state.error = action.error?.message;
+                state.currentSearchRequestId = null;
             })
             .addCase(submitOrEditSatellite.pending, (state) => {
                 state.status = 'loading';
@@ -526,6 +554,7 @@ export const {
     setSatGroupId,
     setSearchKeyword,
     setPageSize,
+    setCatalogSortModel,
     setOpenDeleteConfirm,
     setOpenSatelliteInfoDialog,
     setOpenAddDialog,

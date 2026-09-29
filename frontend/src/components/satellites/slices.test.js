@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import {configureStore} from '@reduxjs/toolkit';
+import { describe, expect, it, vi } from 'vitest';
 
 import satelliteReducer, {
+    DEFAULT_CATALOG_SORT_MODEL,
     fetchSatellite,
     fetchSatelliteCatalogStats,
+    searchSatellites,
+    setCatalogSortModel,
     submitOrEditSatellite,
 } from './satellite-slice.jsx';
 import groupsReducer, {
@@ -17,6 +21,15 @@ import sourcesReducer, {
 } from './sources-slice.jsx';
 
 describe('satellite state slices', () => {
+    it('defaults catalog sorting to bands and stores user sort changes', () => {
+        let state = satelliteReducer(undefined, { type: '@@INIT' });
+        expect(state.catalogSortModel).toEqual(DEFAULT_CATALOG_SORT_MODEL);
+
+        state = satelliteReducer(state, setCatalogSortModel([{field: 'name', sort: 'asc'}]));
+
+        expect(state.catalogSortModel).toEqual([{field: 'name', sort: 'asc'}]);
+    });
+
     it('loads a satellite with its transmitters and replaces saved satellite rows', () => {
         let state = satelliteReducer(undefined, { type: '@@INIT' });
         state = satelliteReducer(state, fetchSatellite.pending('request'));
@@ -38,6 +51,69 @@ describe('satellite state slices', () => {
                 name: 'NOAA 19',
                 transmitters: [{ id: 'tx-1', frequency: 137100000 }],
             },
+        });
+    });
+
+    it('keeps the newest catalog search result when responses arrive out of order', () => {
+        let state = satelliteReducer(undefined, { type: '@@INIT' });
+        state = satelliteReducer(state, searchSatellites.pending('older-request'));
+        state = satelliteReducer(state, searchSatellites.pending('newer-request'));
+        state = satelliteReducer(state, searchSatellites.fulfilled(
+            [{norad_id: 1, name: 'Stale result'}],
+            'older-request',
+        ));
+        state = satelliteReducer(state, searchSatellites.fulfilled(
+            [{norad_id: 2, name: 'Current result'}],
+            'newer-request',
+        ));
+
+        expect(state.satellites).toEqual([{norad_id: 2, name: 'Current result'}]);
+        expect(state.loading).toBe(false);
+    });
+
+    it('stores a server-paginated catalog page and its total row count', () => {
+        let state = satelliteReducer(undefined, { type: '@@INIT' });
+        state = satelliteReducer(state, searchSatellites.pending('page-request'));
+        state = satelliteReducer(state, searchSatellites.fulfilled({
+            items: [{norad_id: 44003, name: 'Paged satellite'}],
+            total: 14000,
+            page: 2,
+            pageSize: 10,
+        }, 'page-request'));
+
+        expect(state.satellites).toEqual([{norad_id: 44003, name: 'Paged satellite'}]);
+        expect(state.catalogTotal).toBe(14000);
+        expect(state.loading).toBe(false);
+    });
+
+    it('preserves pagination metadata returned by the catalog socket request', async () => {
+        const page = [{norad_id: 44003, name: 'Paged satellite'}];
+        const socket = {
+            emit: vi.fn((_event, _request, acknowledge) => acknowledge({
+                success: true,
+                data: page,
+                total: 14000,
+                page: 2,
+                page_size: 10,
+            })),
+        };
+        const store = configureStore({reducer: satelliteReducer});
+
+        const result = await store.dispatch(searchSatellites({
+            socket,
+            filters: {page: 2, page_size: 10},
+        }));
+
+        expect(result.payload).toEqual({
+            items: page,
+            total: 14000,
+            page: 2,
+            pageSize: 10,
+        });
+        expect(store.getState()).toMatchObject({
+            satellites: page,
+            catalogTotal: 14000,
+            loading: false,
         });
     });
 

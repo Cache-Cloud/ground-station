@@ -27,6 +27,7 @@ from crud.satellites import (
     add_satellite,
     delete_satellite,
     edit_satellite,
+    fetch_satellite_catalog_stats,
     fetch_satellites,
     fetch_satellites_for_group_id,
     search_satellites,
@@ -325,6 +326,318 @@ class TestSatellitesCRUD:
 
         assert result["success"] is True
         assert len(result["data"]) == 2
+
+    async def test_catalog_search_paginates_and_sorts_before_enrichment(self, db_session):
+        """Catalog pages return a total while enriching only the requested rows."""
+        for norad_id in (44001, 44002, 44003):
+            await add_satellite(
+                db_session,
+                {
+                    "name": f"Catalog satellite {norad_id}",
+                    "sat_id": f"SAT-{norad_id}",
+                    "norad_id": norad_id,
+                    "status": "in orbit",
+                    "is_frequency_violator": False,
+                    "tle1": TLE1_TEMPLATE.format(norad=norad_id),
+                    "tle2": TLE2_TEMPLATE.format(norad=norad_id),
+                },
+            )
+        db_session.add_all(
+            [
+                Transmitters(
+                    id="sat-44002-tx-1",
+                    norad_cat_id=44002,
+                    type="Transmitter",
+                    status="active",
+                ),
+                Transmitters(
+                    id="sat-44003-tx-1",
+                    norad_cat_id=44003,
+                    type="Transmitter",
+                    status="active",
+                ),
+                Transmitters(
+                    id="sat-44003-tx-2",
+                    norad_cat_id=44003,
+                    type="Transmitter",
+                    status="active",
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        first_page = await search_satellites(
+            db_session,
+            keyword=None,
+            filters={
+                "page": 0,
+                "page_size": 2,
+                "sort_field": "transmitters",
+                "sort_direction": "desc",
+            },
+        )
+        second_page = await search_satellites(
+            db_session,
+            keyword=None,
+            filters={
+                "page": 1,
+                "page_size": 2,
+                "sort_field": "transmitters",
+                "sort_direction": "desc",
+            },
+        )
+
+        assert first_page["total"] == 3
+        assert first_page["page"] == 0
+        assert first_page["page_size"] == 2
+        assert [satellite["norad_id"] for satellite in first_page["data"]] == [44003, 44002]
+        assert [len(satellite["transmitters"]) for satellite in first_page["data"]] == [2, 1]
+        assert second_page["total"] == 3
+        assert [satellite["norad_id"] for satellite in second_page["data"]] == [44001]
+
+    async def test_catalog_search_matches_transmitter_description(self, db_session):
+        """Global catalog search includes transmitter descriptions and returns the match data."""
+        await add_satellite(
+            db_session,
+            {
+                "name": "Weather Satellite",
+                "sat_id": "WX-001",
+                "norad_id": 44001,
+                "status": "in orbit",
+                "is_frequency_violator": False,
+                "tle1": TLE1_TEMPLATE.format(norad=44001),
+                "tle2": TLE2_TEMPLATE.format(norad=44001),
+            },
+        )
+        db_session.add(
+            Transmitters(
+                id="weather-apt-transmitter",
+                norad_cat_id=44001,
+                description="Primary APT weather downlink",
+                type="Transmitter",
+                downlink_low=137_100_000,
+                downlink_high=137_100_000,
+                mode="FM",
+                alive=True,
+                status="active",
+            )
+        )
+        await db_session.commit()
+
+        result = await search_satellites(db_session, keyword="weather APT")
+
+        assert result["success"] is True
+        assert [satellite["norad_id"] for satellite in result["data"]] == [44001]
+        assert result["data"][0]["transmitters"][0]["description"] == (
+            "Primary APT weather downlink"
+        )
+
+    async def test_catalog_filters_apply_to_one_matching_transmitter(self, db_session):
+        """Band, mode, state, and frequency constraints describe the same transmitter row."""
+        for norad_id, name in ((44001, "Matching satellite"), (44002, "Split match satellite")):
+            await add_satellite(
+                db_session,
+                {
+                    "name": name,
+                    "sat_id": f"SAT-{norad_id}",
+                    "norad_id": norad_id,
+                    "status": "in orbit",
+                    "is_frequency_violator": False,
+                    "tle1": TLE1_TEMPLATE.format(norad=norad_id),
+                    "tle2": TLE2_TEMPLATE.format(norad=norad_id),
+                },
+            )
+
+        db_session.add_all(
+            [
+                Transmitters(
+                    id="matching-uhf-fm",
+                    norad_cat_id=44001,
+                    description="UHF FM",
+                    type="Transmitter",
+                    downlink_low=437_500_000,
+                    downlink_high=437_500_000,
+                    mode="FM",
+                    alive=True,
+                    status="active",
+                ),
+                Transmitters(
+                    id="split-uhf-cw",
+                    norad_cat_id=44002,
+                    description="UHF CW",
+                    type="Transmitter",
+                    downlink_low=437_500_000,
+                    downlink_high=437_500_000,
+                    mode="CW",
+                    alive=True,
+                    status="active",
+                ),
+                Transmitters(
+                    id="split-vhf-fm",
+                    norad_cat_id=44002,
+                    description="VHF FM",
+                    type="Transmitter",
+                    downlink_low=145_800_000,
+                    downlink_high=145_800_000,
+                    mode="FM",
+                    alive=True,
+                    status="active",
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        result = await search_satellites(
+            db_session,
+            keyword=None,
+            filters={
+                "bands": ["UHF"],
+                "direction": "downlink",
+                "frequency_min_hz": 437_000_000,
+                "frequency_max_hz": 438_000_000,
+                "modes": ["FM"],
+                "transmitter_state": "active",
+            },
+        )
+
+        assert result["success"] is True
+        assert [satellite["norad_id"] for satellite in result["data"]] == [44001]
+
+    async def test_catalog_group_and_missing_transmitter_filters_compose(self, db_session):
+        """Group membership remains active alongside catalog data-quality filters."""
+        for norad_id in (44001, 44002):
+            await add_satellite(
+                db_session,
+                {
+                    "name": f"Catalog satellite {norad_id}",
+                    "sat_id": f"SAT-{norad_id}",
+                    "norad_id": norad_id,
+                    "status": "in orbit",
+                    "is_frequency_violator": False,
+                    "tle1": TLE1_TEMPLATE.format(norad=norad_id),
+                    "tle2": TLE2_TEMPLATE.format(norad=norad_id),
+                },
+            )
+        group_result = await add_satellite_group(
+            db_session,
+            {"name": "Catalog group", "type": "user", "satellite_ids": [44001]},
+        )
+
+        result = await search_satellites(
+            db_session,
+            keyword="Catalog",
+            filters={
+                "group_id": str(group_result["data"]["id"]),
+                "transmitter_state": "none",
+            },
+        )
+
+        assert result["success"] is True
+        assert [satellite["norad_id"] for satellite in result["data"]] == [44001]
+
+    async def test_catalog_frequency_filters_support_open_ended_ranges(self, db_session):
+        """Minimum and maximum fields remain useful when only one endpoint is supplied."""
+        for norad_id, name in ((44001, "VHF satellite"), (44002, "UHF satellite")):
+            await add_satellite(
+                db_session,
+                {
+                    "name": name,
+                    "sat_id": f"SAT-{norad_id}",
+                    "norad_id": norad_id,
+                    "status": "in orbit",
+                    "is_frequency_violator": False,
+                    "tle1": TLE1_TEMPLATE.format(norad=norad_id),
+                    "tle2": TLE2_TEMPLATE.format(norad=norad_id),
+                },
+            )
+        db_session.add_all(
+            [
+                Transmitters(
+                    id="vhf-transmitter",
+                    norad_cat_id=44001,
+                    type="Transmitter",
+                    downlink_low=145_800_000,
+                    downlink_high=145_900_000,
+                    status="active",
+                ),
+                Transmitters(
+                    id="uhf-transmitter",
+                    norad_cat_id=44002,
+                    type="Transmitter",
+                    downlink_low=437_500_000,
+                    downlink_high=437_600_000,
+                    status="active",
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        above_result = await search_satellites(
+            db_session,
+            keyword=None,
+            filters={"frequency_min_hz": 400_000_000},
+        )
+        below_result = await search_satellites(
+            db_session,
+            keyword=None,
+            filters={"frequency_max_hz": 200_000_000},
+        )
+        reversed_result = await search_satellites(
+            db_session,
+            keyword=None,
+            filters={
+                "frequency_min_hz": 438_000_000,
+                "frequency_max_hz": 437_000_000,
+            },
+        )
+
+        assert [satellite["norad_id"] for satellite in above_result["data"]] == [44002]
+        assert [satellite["norad_id"] for satellite in below_result["data"]] == [44001]
+        assert [satellite["norad_id"] for satellite in reversed_result["data"]] == [44002]
+
+    async def test_catalog_stats_include_stable_filter_facets(self, db_session):
+        """Filter choices come from the whole catalog instead of the current search result."""
+        await add_satellite(
+            db_session,
+            {
+                "name": "Facet satellite",
+                "sat_id": "FACET-1",
+                "norad_id": 44001,
+                "source": "satnogs",
+                "status": "in orbit",
+                "countries": "US, GR",
+                "is_frequency_violator": False,
+                "tle1": TLE1_TEMPLATE.format(norad=44001),
+                "tle2": TLE2_TEMPLATE.format(norad=44001),
+            },
+        )
+        db_session.add(
+            Transmitters(
+                id="facet-transmitter",
+                norad_cat_id=44001,
+                type="Transceiver",
+                mode="GMSK",
+                service="Amateur",
+                status="active",
+            )
+        )
+        await db_session.commit()
+
+        result = await fetch_satellite_catalog_stats(db_session)
+        country_result = await search_satellites(
+            db_session,
+            keyword=None,
+            filters={"country": "GR"},
+        )
+
+        assert result["success"] is True
+        assert result["data"]["countries"] == ["GR", "US"]
+        assert result["data"]["sources"] == ["satnogs"]
+        assert result["data"]["statuses"] == ["in orbit"]
+        assert result["data"]["modes"] == ["GMSK"]
+        assert result["data"]["transmitter_types"] == ["Transceiver"]
+        assert result["data"]["services"] == ["Amateur"]
+        assert [satellite["norad_id"] for satellite in country_result["data"]] == [44001]
 
     async def test_edit_satellite_success(self, db_session):
         """Test successful satellite editing."""
