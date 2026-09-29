@@ -100,7 +100,7 @@ const DATA_GRID_SX = {
     '& .MuiDataGrid-cell': {
         display: 'flex',
         alignItems: 'center',
-        py: 1,
+        py: 0.5,
     },
     [`& .${gridClasses.cell}:focus, & .${gridClasses.cell}:focus-within`]: {
         outline: 'none',
@@ -1437,7 +1437,7 @@ export function CelestialCatalogPage() {
                 getRowId={(row) => row.catalogId}
                 pageSizeOptions={[5, 10, 20, 50, 100]}
                 initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
-                rowHeight={64}
+                rowHeight={52}
                 checkboxSelection
                 rowSelectionModel={rowSelectionModel}
                 onRowSelectionModelChange={(selection) => setSelected(toSelectedIds(selection))}
