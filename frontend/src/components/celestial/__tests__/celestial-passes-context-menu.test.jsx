@@ -140,6 +140,86 @@ describe('Celestial passes context menu', () => {
         expect(screen.getByRole('combobox', { name: 'Sample interval' })).toHaveTextContent('30m');
     });
 
+    it('opens the ephemeris vector data from the pass context menu', async () => {
+        socket.emit.mockImplementation((_event, request, acknowledge) => {
+            if (request.cmd === 'get-celestial-vector-snapshot-history') {
+                acknowledge({
+                    success: true,
+                    data: {
+                        target_key: 'body:mars',
+                        now_utc: '2026-09-29T10:00:00Z',
+                        snapshots: [],
+                    },
+                });
+            }
+        });
+        const store = configureStore({
+            reducer: {
+                celestial: fixedReducer({
+                    passesTableColumnVisibility: {},
+                    passesTablePageSize: 10,
+                    passesTableSortModel: [],
+                }),
+                celestialMonitored: fixedReducer({ monitored: [] }),
+                trackerInstances: fixedReducer({ instances: [] }),
+                targetSatTrack: fixedReducer({ trackingState: {}, trackerViews: {} }),
+                preferences: fixedReducer({ preferences: [] }),
+            },
+        });
+        const monitored = {
+            id: 'monitored-mars',
+            targetKey: 'body:mars',
+            targetType: 'body',
+            displayName: 'Mars',
+            bodyId: 'mars',
+            projectionPastHours: 6,
+            projectionFutureHours: 72,
+            projectionStepMinutes: 30,
+        };
+
+        render(
+            <Provider store={store}>
+                <ThemeProvider theme={setupTheme()}>
+                    <CelestialPasses
+                        passes={[{
+                            id: 'mars-vector-pass',
+                            target_key: 'body:mars',
+                            target_type: 'body',
+                            body_id: 'mars',
+                            name: 'Mars',
+                            event_start: '2026-09-29T10:00:00Z',
+                            event_end: '2026-09-29T11:00:00Z',
+                            peak_time: '2026-09-29T10:30:00Z',
+                        }]}
+                        monitoredRows={[monitored]}
+                    />
+                </ThemeProvider>
+            </Provider>,
+        );
+
+        fireEvent.contextMenu(screen.getByTestId('pass-row-mars-vector-pass'), {
+            clientX: 100,
+            clientY: 120,
+        });
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Vector details' }));
+
+        expect(await screen.findByText('Vector data · Mars')).toBeInTheDocument();
+        await waitFor(() => expect(socket.emit).toHaveBeenCalledWith(
+            'api.call',
+            {
+                cmd: 'get-celestial-vector-snapshot-history',
+                data: {
+                    target_key: 'body:mars',
+                    limit: 24,
+                    past_hours: 6,
+                    future_hours: 72,
+                    step_minutes: 30,
+                },
+            },
+            expect.any(Function),
+        ));
+    });
+
     it('preserves the selected page when live rows are replaced', async () => {
         const store = configureStore({
             reducer: {

@@ -70,6 +70,7 @@ import {
 } from '../../utils/elevationtrend.js';
 import { replaceCelestialTargetKey } from '../target/celestial-target-utils.js';
 import TargetProjectionFields from './targetprojectionfields.jsx';
+import VectorCoverageDialog from './vector-coverage-dialog.jsx';
 
 const getPassBackgroundColor = (color, theme, coefficient) => ({
     backgroundColor: darken(color, coefficient),
@@ -665,6 +666,7 @@ const CelestialPasses = ({
     const [transmittersDialogData, setTransmittersDialogData] = useState(null);
     const [projectionTarget, setProjectionTarget] = useState(null);
     const [projectionSaving, setProjectionSaving] = useState(false);
+    const [vectorTarget, setVectorTarget] = useState(null);
     const elevationHistoryByTargetKeyRef = useRef({});
     const columnVisibility = useSelector((state) => state.celestial?.passesTableColumnVisibility || {});
     const pageSize = useSelector((state) => state.celestial?.passesTablePageSize || 10);
@@ -1112,6 +1114,29 @@ const CelestialPasses = ({
         }
     }, [dispatch, projectionTarget, socket, tCelestial]);
 
+    const openVectorDialog = useCallback((row) => {
+        const monitoredEntry = row?.monitoredEntry || {};
+        if (!row?.targetKey) return;
+        setVectorTarget({
+            ...monitoredEntry,
+            id: monitoredEntry.id || null,
+            targetKey: row.targetKey,
+            targetType: row.targetTypeKey,
+            displayName: row.name,
+            command: row.command,
+            bodyId: row.bodyId,
+            projectionPastHours: Number(monitoredEntry.projectionPastHours ?? 1),
+            projectionFutureHours: Number(monitoredEntry.projectionFutureHours ?? 24),
+            projectionStepMinutes: Number(monitoredEntry.projectionStepMinutes ?? 60),
+        });
+    }, []);
+
+    const refreshVectorTarget = useCallback(async (id) => {
+        if (!socket || !id) return;
+        await dispatch(refreshMonitoredCelestialNow({ socket, ids: [id] })).unwrap();
+        await dispatch(fetchMonitoredCelestial({ socket })).unwrap();
+    }, [dispatch, socket]);
+
     const handleCloseRowContextMenu = useCallback(() => {
         setRowContextMenu(null);
     }, []);
@@ -1252,6 +1277,10 @@ const CelestialPasses = ({
                 openProjectionDialog(row);
                 return;
             }
+            if (action === 'vector-details') {
+                openVectorDialog(row);
+                return;
+            }
             if (action === 'copy-identifier') {
                 await copyTextToClipboard(row.targetIdentifier || '-');
                 return;
@@ -1281,6 +1310,7 @@ const CelestialPasses = ({
         dispatch,
         onTargetSelected,
         openProjectionDialog,
+        openVectorDialog,
         requestRotatorForTarget,
         rowContextMenu?.row,
         socket,
@@ -1316,6 +1346,12 @@ const CelestialPasses = ({
                 label: tCelestial('monitored.projection.edit_title', { defaultValue: 'Edit projection' }),
                 disabled: !socket || !row?.monitoredEntry?.id,
                 onClick: () => handleRowMenuAction('projection-settings'),
+            },
+            {
+                key: 'vector-details',
+                label: tCelestial('admin.targets.actions.vector_details'),
+                disabled: !socket || !row?.targetKey,
+                onClick: () => handleRowMenuAction('vector-details'),
             },
             { type: 'divider', key: 'divider-copy' },
             {
@@ -1528,6 +1564,15 @@ const CelestialPasses = ({
                 }}
                 onClose={() => setProjectionTarget(null)}
                 onSave={saveProjection}
+            />
+            <VectorCoverageDialog
+                open={Boolean(vectorTarget)}
+                target={vectorTarget}
+                socket={socket}
+                timezone={timezone}
+                locale={locale}
+                onClose={() => setVectorTarget(null)}
+                onRefresh={vectorTarget?.id ? refreshVectorTarget : null}
             />
             <PassesTableSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
             </Box>

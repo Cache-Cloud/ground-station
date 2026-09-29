@@ -54,6 +54,7 @@ import {
     updateElevationHistory,
 } from '../../utils/elevationtrend.js';
 import TargetProjectionFields from './targetprojectionfields.jsx';
+import VectorCoverageDialog from './vector-coverage-dialog.jsx';
 
 const AU_IN_KM = 149597870.7;
 const SECONDS_PER_DAY = 86400;
@@ -408,6 +409,7 @@ const MonitoredCelestialGridIsland = ({
     const [transmittersDialogData, setTransmittersDialogData] = useState(null);
     const [projectionTarget, setProjectionTarget] = useState(null);
     const [projectionSaving, setProjectionSaving] = useState(false);
+    const [vectorTarget, setVectorTarget] = useState(null);
     const [unmonitorTarget, setUnmonitorTarget] = useState(null);
     const [unmonitoring, setUnmonitoring] = useState(false);
     const elevationHistoryByTargetKeyRef = useRef({});
@@ -547,6 +549,12 @@ const MonitoredCelestialGridIsland = ({
             setProjectionSaving(false);
         }
     }, [dispatch, projectionTarget, socket, tCelestial]);
+
+    const refreshVectorTarget = useCallback(async (id) => {
+        if (!socket || !id) return;
+        await dispatch(refreshMonitoredCelestialNow({ socket, ids: [id] })).unwrap();
+        await dispatch(fetchMonitoredCelestial({ socket })).unwrap();
+    }, [dispatch, socket]);
 
     const confirmUnmonitor = useCallback(async () => {
         if (!socket || !unmonitorTarget?.id || unmonitoring) return;
@@ -899,6 +907,10 @@ const MonitoredCelestialGridIsland = ({
                 openProjectionDialog(row);
                 return;
             }
+            if (action === 'vector-details') {
+                setVectorTarget(row);
+                return;
+            }
             if (action === 'unmonitor') {
                 setUnmonitorTarget(row);
                 return;
@@ -967,6 +979,12 @@ const MonitoredCelestialGridIsland = ({
                 label: tCelestial('monitored.projection.edit_title', { defaultValue: 'Edit projection' }),
                 disabled: !socket,
                 onClick: () => handleRowMenuAction('projection-settings'),
+            },
+            {
+                key: 'vector-details',
+                label: tCelestial('admin.targets.actions.vector_details'),
+                disabled: !socket || !row?.targetKey,
+                onClick: () => handleRowMenuAction('vector-details'),
             },
             { type: 'divider', key: 'divider-copy' },
             {
@@ -1109,6 +1127,15 @@ const MonitoredCelestialGridIsland = ({
                 }}
                 onClose={() => setProjectionTarget(null)}
                 onSave={saveProjection}
+            />
+            <VectorCoverageDialog
+                open={Boolean(vectorTarget)}
+                target={vectorTarget}
+                socket={socket}
+                timezone={timezone}
+                locale={locale}
+                onClose={() => setVectorTarget(null)}
+                onRefresh={refreshVectorTarget}
             />
             <Dialog
                 open={Boolean(unmonitorTarget)}
