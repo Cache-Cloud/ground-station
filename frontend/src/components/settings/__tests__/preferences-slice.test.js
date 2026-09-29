@@ -19,7 +19,7 @@ describe('preferences slice', () => {
     expect(state.userPreferences).toEqual(expect.arrayContaining([
       { id: 12, name: 'language', value: 'el_GR' },
       { id: 13, name: 'custom_preference', value: 'enabled' },
-      { id: null, name: 'theme', value: 'auto' },
+      { id: null, name: 'theme', value: 'dark' },
     ]));
   });
 

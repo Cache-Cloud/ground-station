@@ -38,7 +38,7 @@ USER_PREFERENCE_DEFAULTS: Dict[str, str] = {
     "timezone": "UTC",
     "locale": "browser",  # Locale for date/time/number formatting (e.g., en-US, en-GB, el-GR)
     "language": "en_US",
-    "theme": "auto",
+    "theme": "dark",
     "toast_position": "bottom-center",
     **INTEGRATION_PREFERENCE_DEFAULTS,
 }

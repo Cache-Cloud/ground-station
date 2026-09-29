@@ -54,7 +54,6 @@ import { toast } from '../../utils/toast-with-timestamp.jsx';
 import {
     DataGrid,
     gridPageCountSelector,
-    GridPagination,
     useGridApiContext,
     useGridSelector,
     gridClasses
@@ -90,6 +89,7 @@ import ClearIcon from '@mui/icons-material/Clear';
 import { useNavigate } from "react-router-dom";
 import TransmittersDialog from "./transmitters-dialog.jsx";
 import EditIcon from '@mui/icons-material/Edit';
+import SettingsInputAntennaIcon from '@mui/icons-material/SettingsInputAntenna';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import FolderSharedOutlinedIcon from '@mui/icons-material/FolderSharedOutlined';
@@ -252,6 +252,25 @@ const formatFrequency = (frequency) => {
 function Pagination({page, onPageChange, className}) {
     const apiRef = useGridApiContext();
     const pageCount = useGridSelector(apiRef, gridPageCountSelector);
+    const [gridWidth, setGridWidth] = useState(0);
+
+    useEffect(() => {
+        const gridElement = apiRef.current.rootElementRef?.current;
+        if (!gridElement) return undefined;
+
+        const updateWidth = () => setGridWidth(gridElement.clientWidth);
+        updateWidth();
+
+        if (typeof ResizeObserver === 'undefined') return undefined;
+        const observer = new ResizeObserver(updateWidth);
+        observer.observe(gridElement);
+        return () => observer.disconnect();
+    }, [apiRef]);
+
+    // Keep the page controls inside the footer while showing more nearby
+    // destinations whenever the table has room for them.
+    const boundaryCount = gridWidth > 0 && gridWidth < 650 ? 0 : 1;
+    const siblingCount = gridWidth >= 1200 ? 2 : gridWidth >= 900 ? 1 : 0;
 
     return (
         <MuiPagination
@@ -259,15 +278,14 @@ function Pagination({page, onPageChange, className}) {
             className={className}
             count={pageCount}
             page={page + 1}
+            boundaryCount={boundaryCount}
+            siblingCount={siblingCount}
+            size={gridWidth > 0 && gridWidth < 850 ? 'small' : 'medium'}
             onChange={(event, newPage) => {
                 onPageChange(event, newPage - 1);
             }}
         />
     );
-}
-
-function CustomPagination(props) {
-    return <GridPagination ActionsComponent={Pagination} {...props} />;
 }
 
 const SatelliteTable = React.memo(function SatelliteTable() {
@@ -295,6 +313,7 @@ const SatelliteTable = React.memo(function SatelliteTable() {
     const [catalogFilters, setCatalogFilters] = useState(EMPTY_CATALOG_FILTERS);
     const [filtersExpanded, setFiltersExpanded] = useState(false);
     const [paginationModel, setPaginationModel] = useState({page: 0, pageSize: 10});
+    const immediateSearchRef = React.useRef(false);
     const sortModel = Array.isArray(catalogSortModel)
         ? catalogSortModel
         : DEFAULT_CATALOG_SORT_MODEL;
@@ -657,6 +676,17 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                                 <EditIcon fontSize="small" />
                             </IconButton>
                         </Tooltip>
+                        <Tooltip title={t('satellite_database.edit_transmitters')}>
+                            <IconButton
+                                size="small"
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleOpenTransmitters(satellite);
+                                }}
+                            >
+                                <SettingsInputAntennaIcon fontSize="small" />
+                            </IconButton>
+                        </Tooltip>
                         <Tooltip title={t('satellite_database.view')}>
                             <IconButton
                                 size="small"
@@ -697,12 +727,21 @@ const SatelliteTable = React.memo(function SatelliteTable() {
         const effectivePayload = normalizedKeyword.length === 1
             ? {...searchPayload, keyword: ''}
             : searchPayload;
+        // Paging and sorting are discrete actions, so start their request at
+        // once. Text and filter input retain the debounce that combines edits.
+        const delay = immediateSearchRef.current ? 0 : 350;
+        immediateSearchRef.current = false;
         const timeoutId = setTimeout(() => {
             dispatch(setSearchKeyword(effectivePayload.keyword));
             dispatch(searchSatellites({socket, filters: effectivePayload}));
-        }, 350);
+        }, delay);
         return () => clearTimeout(timeoutId);
     }, [dispatch, localSearchValue, searchPayload, socket]);
+
+    const handlePaginationModelChange = useCallback((model) => {
+        immediateSearchRef.current = true;
+        setPaginationModel(model);
+    }, []);
 
     const handleOnGroupChange = (event) => {
         dispatch(setSatGroupId(event.target.value));
@@ -1004,43 +1043,48 @@ const SatelliteTable = React.memo(function SatelliteTable() {
 
                 <Collapse in={filtersExpanded}>
                     <Divider sx={{my: 2}} />
-                    <Box sx={{display: 'grid', gridTemplateColumns: {xs: '1fr', md: 'repeat(3, minmax(0, 1fr))'}, gap: 3}}>
+                    <Box sx={{
+                        display: 'grid',
+                        gridTemplateColumns: {xs: '1fr', md: 'repeat(3, minmax(0, 1fr))'},
+                        gap: 3,
+                        ...filterFieldSx,
+                    }}>
                         <Stack spacing={1.25}>
                             <Typography variant="subtitle2">{t('satellite_database.satellite_filters', {defaultValue: 'Satellite'})}</Typography>
-                            <FormControl size="small"><InputLabel>{t('satellite_database.country')}</InputLabel><Select value={catalogFilters.country} label={t('satellite_database.country')} onChange={(event) => updateCatalogFilter('country', event.target.value)}><MenuItem value="">{t('satellite_database.any_country')}</MenuItem>{countryOptions.map(country => <MenuItem key={country} value={country}>{country}</MenuItem>)}</Select></FormControl>
-                            <FormControl size="small"><InputLabel>{t('satellite_database.source')}</InputLabel><Select value={catalogFilters.source} label={t('satellite_database.source')} onChange={(event) => updateCatalogFilter('source', event.target.value)}><MenuItem value="">{t('satellite_database.any_source')}</MenuItem>{sourceOptions.map(source => <MenuItem key={source} value={source}>{source}</MenuItem>)}</Select></FormControl>
+                            <FormControl size="small" sx={filterFieldSx}><InputLabel>{t('satellite_database.country')}</InputLabel><Select value={catalogFilters.country} label={t('satellite_database.country')} onChange={(event) => updateCatalogFilter('country', event.target.value)}><MenuItem value="">{t('satellite_database.any_country')}</MenuItem>{countryOptions.map(country => <MenuItem key={country} value={country}>{country}</MenuItem>)}</Select></FormControl>
+                            <FormControl size="small" sx={filterFieldSx}><InputLabel>{t('satellite_database.source')}</InputLabel><Select value={catalogFilters.source} label={t('satellite_database.source')} onChange={(event) => updateCatalogFilter('source', event.target.value)}><MenuItem value="">{t('satellite_database.any_source')}</MenuItem>{sourceOptions.map(source => <MenuItem key={source} value={source}>{source}</MenuItem>)}</Select></FormControl>
                             <Stack direction={{xs: 'column', sm: 'row'}} spacing={1}>
-                                <TextField fullWidth size="small" type="date" label={t('satellite_database.launched_from')} value={catalogFilters.launchedFrom} onChange={(event) => updateCatalogFilter('launchedFrom', event.target.value)} InputLabelProps={{shrink: true}} />
-                                <TextField fullWidth size="small" type="date" label={t('satellite_database.launched_to')} value={catalogFilters.launchedTo} onChange={(event) => updateCatalogFilter('launchedTo', event.target.value)} InputLabelProps={{shrink: true}} />
+                                <TextField fullWidth size="small" sx={filterFieldSx} type="date" label={t('satellite_database.launched_from')} value={catalogFilters.launchedFrom} onChange={(event) => updateCatalogFilter('launchedFrom', event.target.value)} InputLabelProps={{shrink: true}} />
+                                <TextField fullWidth size="small" sx={filterFieldSx} type="date" label={t('satellite_database.launched_to')} value={catalogFilters.launchedTo} onChange={(event) => updateCatalogFilter('launchedTo', event.target.value)} InputLabelProps={{shrink: true}} />
                             </Stack>
                         </Stack>
 
                         <Stack spacing={1.25}>
                             <Typography variant="subtitle2">{t('satellite_database.spectrum_filters', {defaultValue: 'Radio spectrum'})}</Typography>
-                            <FormControl size="small"><InputLabel>{t('satellite_database.direction')}</InputLabel><Select value={catalogFilters.direction} label={t('satellite_database.direction')} onChange={(event) => updateCatalogFilter('direction', event.target.value)}><MenuItem value="downlink">{t('satellite_database.downlink')}</MenuItem><MenuItem value="uplink">{t('satellite_database.uplink')}</MenuItem><MenuItem value="either">{t('satellite_database.either_direction')}</MenuItem></Select></FormControl>
+                            <FormControl size="small" sx={filterFieldSx}><InputLabel>{t('satellite_database.direction')}</InputLabel><Select value={catalogFilters.direction} label={t('satellite_database.direction')} onChange={(event) => updateCatalogFilter('direction', event.target.value)}><MenuItem value="downlink">{t('satellite_database.downlink')}</MenuItem><MenuItem value="uplink">{t('satellite_database.uplink')}</MenuItem><MenuItem value="either">{t('satellite_database.either_direction')}</MenuItem></Select></FormControl>
                             <Stack direction="row" spacing={1}>
-                                <TextField fullWidth size="small" type="number" label={t('satellite_database.minimum')} value={catalogFilters.frequencyMin} onChange={(event) => updateCatalogFilter('frequencyMin', event.target.value)} inputProps={{min: 0, step: 'any'}} />
-                                <TextField fullWidth size="small" type="number" label={t('satellite_database.maximum')} value={catalogFilters.frequencyMax} onChange={(event) => updateCatalogFilter('frequencyMax', event.target.value)} inputProps={{min: 0, step: 'any'}} />
-                                <FormControl size="small" sx={{minWidth: 90}}><InputLabel>{t('satellite_database.unit')}</InputLabel><Select value={catalogFilters.frequencyUnit} label={t('satellite_database.unit')} onChange={(event) => updateCatalogFilter('frequencyUnit', event.target.value)}>{Object.keys(FREQUENCY_UNITS).map(unit => <MenuItem key={unit} value={unit}>{unit}</MenuItem>)}</Select></FormControl>
+                                <TextField fullWidth size="small" sx={filterFieldSx} type="number" label={t('satellite_database.minimum')} value={catalogFilters.frequencyMin} onChange={(event) => updateCatalogFilter('frequencyMin', event.target.value)} inputProps={{min: 0, step: 'any'}} />
+                                <TextField fullWidth size="small" sx={filterFieldSx} type="number" label={t('satellite_database.maximum')} value={catalogFilters.frequencyMax} onChange={(event) => updateCatalogFilter('frequencyMax', event.target.value)} inputProps={{min: 0, step: 'any'}} />
+                                <FormControl size="small" sx={{...filterFieldSx, minWidth: 90}}><InputLabel>{t('satellite_database.unit')}</InputLabel><Select value={catalogFilters.frequencyUnit} label={t('satellite_database.unit')} onChange={(event) => updateCatalogFilter('frequencyUnit', event.target.value)}>{Object.keys(FREQUENCY_UNITS).map(unit => <MenuItem key={unit} value={unit}>{unit}</MenuItem>)}</Select></FormControl>
                             </Stack>
-                            <FormControl size="small"><InputLabel>{t('satellite_database.service')}</InputLabel><Select multiple value={catalogFilters.services} label={t('satellite_database.service')} renderValue={(values) => values.join(', ')} onChange={(event) => updateCatalogFilter('services', event.target.value)}>{serviceOptions.map(service => <MenuItem key={service} value={service}><Checkbox checked={catalogFilters.services.includes(service)} size="small" />{service}</MenuItem>)}</Select></FormControl>
+                            <FormControl size="small" sx={filterFieldSx}><InputLabel>{t('satellite_database.service')}</InputLabel><Select multiple value={catalogFilters.services} label={t('satellite_database.service')} renderValue={(values) => values.join(', ')} onChange={(event) => updateCatalogFilter('services', event.target.value)}>{serviceOptions.map(service => <MenuItem key={service} value={service}><Checkbox checked={catalogFilters.services.includes(service)} size="small" />{service}</MenuItem>)}</Select></FormControl>
                         </Stack>
 
                         <Stack spacing={1.25}>
                             <Typography variant="subtitle2">{t('satellite_database.transmitter_filters', {defaultValue: 'Transmitter'})}</Typography>
-                            <FormControl size="small"><InputLabel>{t('satellite_database.state')}</InputLabel><Select value={catalogFilters.transmitterState} label={t('satellite_database.state')} onChange={(event) => updateCatalogFilter('transmitterState', event.target.value)}><MenuItem value="">{t('satellite_database.any_state')}</MenuItem><MenuItem value="any">{t('satellite_database.has_transmitters')}</MenuItem><MenuItem value="active">{t('satellite_database.active')}</MenuItem><MenuItem value="inactive">{t('satellite_database.inactive')}</MenuItem><MenuItem value="none">{t('satellite_database.no_transmitters')}</MenuItem></Select></FormControl>
-                            <FormControl size="small"><InputLabel>{t('satellite_database.mode')}</InputLabel><Select multiple value={catalogFilters.modes} label={t('satellite_database.mode')} renderValue={(values) => values.join(', ')} onChange={(event) => updateCatalogFilter('modes', event.target.value)}>{modeOptions.map(mode => <MenuItem key={mode} value={mode}><Checkbox checked={catalogFilters.modes.includes(mode)} size="small" />{mode}</MenuItem>)}</Select></FormControl>
-                            <FormControl size="small"><InputLabel>{t('satellite_database.type')}</InputLabel><Select multiple value={catalogFilters.transmitterTypes} label={t('satellite_database.type')} renderValue={(values) => values.join(', ')} onChange={(event) => updateCatalogFilter('transmitterTypes', event.target.value)}>{transmitterTypeOptions.map(type => <MenuItem key={type} value={type}><Checkbox checked={catalogFilters.transmitterTypes.includes(type)} size="small" />{type}</MenuItem>)}</Select></FormControl>
-                            <Stack direction="row" spacing={1}><TextField fullWidth size="small" type="number" label={t('satellite_database.minimum_baud')} value={catalogFilters.baudMin} onChange={(event) => updateCatalogFilter('baudMin', event.target.value)} inputProps={{min: 0}} /><TextField fullWidth size="small" type="number" label={t('satellite_database.maximum_baud')} value={catalogFilters.baudMax} onChange={(event) => updateCatalogFilter('baudMax', event.target.value)} inputProps={{min: 0}} /></Stack>
+                            <FormControl size="small" sx={filterFieldSx}><InputLabel>{t('satellite_database.state')}</InputLabel><Select value={catalogFilters.transmitterState} label={t('satellite_database.state')} onChange={(event) => updateCatalogFilter('transmitterState', event.target.value)}><MenuItem value="">{t('satellite_database.any_state')}</MenuItem><MenuItem value="any">{t('satellite_database.has_transmitters')}</MenuItem><MenuItem value="active">{t('satellite_database.active')}</MenuItem><MenuItem value="inactive">{t('satellite_database.inactive')}</MenuItem><MenuItem value="none">{t('satellite_database.no_transmitters')}</MenuItem></Select></FormControl>
+                            <FormControl size="small" sx={filterFieldSx}><InputLabel>{t('satellite_database.mode')}</InputLabel><Select multiple value={catalogFilters.modes} label={t('satellite_database.mode')} renderValue={(values) => values.join(', ')} onChange={(event) => updateCatalogFilter('modes', event.target.value)}>{modeOptions.map(mode => <MenuItem key={mode} value={mode}><Checkbox checked={catalogFilters.modes.includes(mode)} size="small" />{mode}</MenuItem>)}</Select></FormControl>
+                            <FormControl size="small" sx={filterFieldSx}><InputLabel>{t('satellite_database.type')}</InputLabel><Select multiple value={catalogFilters.transmitterTypes} label={t('satellite_database.type')} renderValue={(values) => values.join(', ')} onChange={(event) => updateCatalogFilter('transmitterTypes', event.target.value)}>{transmitterTypeOptions.map(type => <MenuItem key={type} value={type}><Checkbox checked={catalogFilters.transmitterTypes.includes(type)} size="small" />{type}</MenuItem>)}</Select></FormControl>
+                            <Stack direction="row" spacing={1}><TextField fullWidth size="small" sx={filterFieldSx} type="number" label={t('satellite_database.minimum_baud')} value={catalogFilters.baudMin} onChange={(event) => updateCatalogFilter('baudMin', event.target.value)} inputProps={{min: 0}} /><TextField fullWidth size="small" sx={filterFieldSx} type="number" label={t('satellite_database.maximum_baud')} value={catalogFilters.baudMax} onChange={(event) => updateCatalogFilter('baudMax', event.target.value)} inputProps={{min: 0}} /></Stack>
                         </Stack>
                     </Box>
                     <Divider sx={{my: 2}} />
                     <Stack direction={{xs: 'column', sm: 'row'}} spacing={1} alignItems={{sm: 'center'}} justifyContent="space-between">
                         <Stack direction={{xs: 'column', sm: 'row'}} spacing={{sm: 2}}>
-                            <FormControlLabel control={<Checkbox checked={catalogFilters.frequencyViolation} onChange={(event) => updateCatalogFilter('frequencyViolation', event.target.checked)} />} label={t('satellite_database.frequency_violation')} />
-                            <FormControlLabel control={<Checkbox checked={catalogFilters.unconfirmed} onChange={(event) => updateCatalogFilter('unconfirmed', event.target.checked)} />} label={t('satellite_database.unconfirmed_transmitter')} />
+                            <FormControlLabel control={<Checkbox size="small" checked={catalogFilters.frequencyViolation} onChange={(event) => updateCatalogFilter('frequencyViolation', event.target.checked)} />} label={t('satellite_database.frequency_violation')} />
+                            <FormControlLabel control={<Checkbox size="small" checked={catalogFilters.unconfirmed} onChange={(event) => updateCatalogFilter('unconfirmed', event.target.checked)} />} label={t('satellite_database.unconfirmed_transmitter')} />
                         </Stack>
-                        <Button onClick={clearAllFilters}>{t('satellite_database.clear_all')}</Button>
+                        <Button size="small" onClick={clearAllFilters}>{t('satellite_database.clear_all')}</Button>
                     </Stack>
                 </Collapse>
 
@@ -1084,17 +1128,18 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                     sortingMode="server"
                     rowCount={catalogTotal}
                     paginationModel={paginationModel}
-                    onPaginationModelChange={setPaginationModel}
+                    onPaginationModelChange={handlePaginationModelChange}
                     sortModel={sortModel}
                     onSortModelChange={(model) => {
+                        immediateSearchRef.current = true;
                         dispatch(setCatalogSortModel(model));
                         setPaginationModel(current => ({...current, page: 0}));
                     }}
                     checkboxSelection={true}
-                    slots={{
-                        pagination: CustomPagination,
-                    }}
                     slotProps={{
+                        basePagination: {
+                            ActionsComponent: Pagination,
+                        },
                         loadingOverlay: {
                             variant: 'linear-progress',
                             noRowsVariant: 'linear-progress',
