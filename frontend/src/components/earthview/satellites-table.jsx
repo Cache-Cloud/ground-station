@@ -1125,11 +1125,11 @@ const SatelliteDetailsTable = React.memo(function SatelliteDetailsTable() {
         [isTightHeader]
     );
     const satelliteContextMenuItems = React.useMemo(() => ([
-        { key: 'set-target', label: t('satellites_table.context_menu.set_as_target'), onClick: () => handleSatelliteMenuAction('set-target') },
-        { key: 'edit-properties', label: t('satellites_table.context_menu.edit_properties'), onClick: () => handleSatelliteMenuAction('edit-properties') },
-        { key: 'edit-transmitters', label: t('satellites_table.context_menu.edit_transmitters'), onClick: () => handleSatelliteMenuAction('edit-transmitters') },
-        { key: 'schedule-observation', label: t('satellites_table.context_menu.schedule_observation'), onClick: () => handleSatelliteMenuAction('schedule-observation') },
-        { key: 'monitor-satellite', label: t('satellites_table.context_menu.monitor_satellite'), onClick: () => handleSatelliteMenuAction('monitor-satellite') },
+        { key: 'set-target', label: t('satellites_table.context_menu.set_as_target'), opensDialog: true, onClick: () => handleSatelliteMenuAction('set-target') },
+        { key: 'edit-properties', label: t('satellites_table.context_menu.edit_properties'), opensDialog: true, onClick: () => handleSatelliteMenuAction('edit-properties') },
+        { key: 'edit-transmitters', label: t('satellites_table.context_menu.edit_transmitters'), opensDialog: true, onClick: () => handleSatelliteMenuAction('edit-transmitters') },
+        { key: 'schedule-observation', label: t('satellites_table.context_menu.schedule_observation'), opensDialog: true, onClick: () => handleSatelliteMenuAction('schedule-observation') },
+        { key: 'monitor-satellite', label: t('satellites_table.context_menu.monitor_satellite'), opensDialog: true, onClick: () => handleSatelliteMenuAction('monitor-satellite') },
         { type: 'divider', key: 'divider-copy' },
         { key: 'copy-norad', label: t('satellites_table.context_menu.copy_norad'), onClick: () => handleSatelliteMenuAction('copy-norad') },
         { key: 'copy-summary', label: t('satellites_table.context_menu.copy_summary'), onClick: () => handleSatelliteMenuAction('copy-summary') },

@@ -564,7 +564,7 @@
     "targets": {
       "columns": { "target": "Überwacht", "type": "Typ", "enabled": "Aktiviert", "last_refresh": "Letzte Aktualisierung", "status": "Status" },
       "status": { "refreshing": "Wird aktualisiert", "refreshed": "Aktualisiert", "refresh_failed": "Aktualisierung fehlgeschlagen", "ready": "Bereit", "not_fetched": "Nicht abgerufen" },
-      "actions": { "refresh": "Aktualisieren", "edit": "Bearbeiten", "delete": "Löschen", "refresh_selected": "Ausgewählte aktualisieren", "enable": "Aktivieren", "disable": "Deaktivieren" },
+      "actions": { "refresh": "Aktualisieren", "edit": "Bearbeiten", "edit_properties": "Eigenschaften bearbeiten", "delete": "Löschen", "refresh_selected": "Ausgewählte aktualisieren", "enable": "Aktivieren", "disable": "Deaktivieren" },
       "search": "Überwachte Einträge durchsuchen",
       "empty": "Keine überwachten Einträge gefunden.",
       "selected_count_one": "{{count}} ausgewählt",

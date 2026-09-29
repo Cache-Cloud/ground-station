@@ -529,7 +529,7 @@
     "targets": {
       "columns": { "target": "Surveillé", "type": "Type", "enabled": "Activé", "last_refresh": "Dernière actualisation", "status": "État" },
       "status": { "refreshing": "Actualisation", "refreshed": "Actualisé", "refresh_failed": "Échec de l'actualisation", "ready": "Prêt", "not_fetched": "Non récupéré" },
-      "actions": { "refresh": "Actualiser", "edit": "Modifier", "delete": "Supprimer", "refresh_selected": "Actualiser la sélection", "enable": "Activer", "disable": "Désactiver" },
+      "actions": { "refresh": "Actualiser", "edit": "Modifier", "edit_properties": "Modifier les propriétés", "delete": "Supprimer", "refresh_selected": "Actualiser la sélection", "enable": "Activer", "disable": "Désactiver" },
       "search": "Rechercher les éléments surveillés",
       "empty": "Aucun élément surveillé trouvé.",
       "selected_count_one": "{{count}} sélectionnée",

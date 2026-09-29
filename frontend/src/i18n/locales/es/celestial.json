@@ -529,7 +529,7 @@
     "targets": {
       "columns": { "target": "Monitorizado", "type": "Tipo", "enabled": "Activado", "last_refresh": "Última actualización", "status": "Estado" },
       "status": { "refreshing": "Actualizando", "refreshed": "Actualizado", "refresh_failed": "Error al actualizar", "ready": "Listo", "not_fetched": "No obtenido" },
-      "actions": { "refresh": "Actualizar", "edit": "Editar", "delete": "Eliminar", "refresh_selected": "Actualizar seleccionados", "enable": "Activar", "disable": "Desactivar" },
+      "actions": { "refresh": "Actualizar", "edit": "Editar", "edit_properties": "Editar propiedades", "delete": "Eliminar", "refresh_selected": "Actualizar seleccionados", "enable": "Activar", "disable": "Desactivar" },
       "search": "Buscar monitorizados",
       "empty": "No se encontraron elementos monitorizados.",
       "selected_count_one": "{{count}} seleccionado",

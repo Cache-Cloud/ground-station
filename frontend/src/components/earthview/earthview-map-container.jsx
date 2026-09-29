@@ -333,26 +333,31 @@ const EarthViewMapContainer = ({handleSetTrackingOnBackend}) => {
         {
             key: 'set-target',
             label: t('satellites_table.context_menu.set_as_target'),
+            opensDialog: true,
             onClick: () => handleMapSatelliteMenuAction('set-target'),
         },
         {
             key: 'edit-properties',
             label: t('satellites_table.context_menu.edit_properties'),
+            opensDialog: true,
             onClick: () => handleMapSatelliteMenuAction('edit-properties'),
         },
         {
             key: 'edit-transmitters',
             label: t('satellites_table.context_menu.edit_transmitters'),
+            opensDialog: true,
             onClick: () => handleMapSatelliteMenuAction('edit-transmitters'),
         },
         {
             key: 'schedule-observation',
             label: t('satellites_table.context_menu.schedule_observation'),
+            opensDialog: true,
             onClick: () => handleMapSatelliteMenuAction('schedule-observation'),
         },
         {
             key: 'monitor-satellite',
             label: t('satellites_table.context_menu.monitor_satellite'),
+            opensDialog: true,
             onClick: () => handleMapSatelliteMenuAction('monitor-satellite'),
         },
         {type: 'divider', key: 'divider-copy'},

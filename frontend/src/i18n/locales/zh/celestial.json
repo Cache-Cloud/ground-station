@@ -529,7 +529,7 @@
     "targets": {
       "columns": { "target": "监测项", "type": "类型", "enabled": "已启用", "last_refresh": "最后刷新", "status": "状态" },
       "status": { "refreshing": "刷新中", "refreshed": "已刷新", "refresh_failed": "刷新失败", "ready": "就绪", "not_fetched": "未获取" },
-      "actions": { "refresh": "刷新", "edit": "编辑", "delete": "删除", "refresh_selected": "刷新所选项", "enable": "启用", "disable": "禁用" },
+      "actions": { "refresh": "刷新", "edit": "编辑", "edit_properties": "编辑属性", "delete": "删除", "refresh_selected": "刷新所选项", "enable": "启用", "disable": "禁用" },
       "search": "搜索监测项",
       "empty": "未找到监测项。",
       "selected_count_one": "已选择 {{count}} 项",

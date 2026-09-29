@@ -78,7 +78,7 @@ import {
 import { buildEphemerisSyncFailure, describeHorizonsFailure } from './ephemeris-errors.js';
 import { toRowSelectionModel, toSelectedIds } from '../../utils/datagrid-selection.js';
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
-import TargetProjectionFields from './targetprojectionfields.jsx';
+import CelestialEditDialog from './celestialeditdialog.jsx';
 import VectorCoverageDialog from './vector-coverage-dialog.jsx';
 import TransmittersDialog from '../satellites/transmitters-dialog.jsx';
 
@@ -1440,28 +1440,19 @@ export function CelestialTargetsPage() {
                 onRefresh={refreshVectorTarget}
             />
 
-            <Dialog open={Boolean(editTarget)} onClose={() => setEditTarget(null)} maxWidth="md" fullWidth>
-                <DialogTitle>{t('admin.targets.edit.title')}</DialogTitle>
-                <DialogContent><Stack spacing={2} sx={{ pt: 2 }}>
-                    <TextField label={t('admin.targets.edit.display_name')} size="small" value={editTarget?.displayName || ''} onChange={(event) => setEditTarget((current) => ({ ...current, displayName: event.target.value }))} />
-                    <TextField label={editTarget?.targetType === 'body' ? t('admin.targets.edit.body_id') : t('admin.targets.edit.horizons_command')} size="small" value={editTarget?.targetType === 'body' ? editTarget?.bodyId || '' : editTarget?.command || ''} onChange={(event) => setEditTarget((current) => ({ ...current, [current.targetType === 'body' ? 'bodyId' : 'command']: event.target.value }))} />
-                    <Stack direction="row" spacing={1} alignItems="center">
-                        <TextField label={t('admin.targets.edit.color')} size="small" value={editTarget?.color || ''} onChange={(event) => setEditTarget((current) => ({ ...current, color: event.target.value }))} sx={{ flex: 1 }} />
-                        <input type="color" aria-label={t('admin.targets.edit.pick_color')} value={/^#[0-9a-f]{6}$/i.test(editTarget?.color || '') ? editTarget.color : '#06D6A0'} onChange={(event) => setEditTarget((current) => ({ ...current, color: event.target.value.toUpperCase() }))} style={{ width: 44, height: 36 }} />
-                    </Stack>
-                    <TargetProjectionFields
-                        values={editTarget}
-                        disabled={saveLoading}
-                        idPrefix="edit-target-projection"
-                        onChange={(field, value) => setEditTarget((current) => ({
-                            ...current,
-                            [field]: value,
-                        }))}
-                    />
-                    {editError ? <Alert severity="error">{editError}</Alert> : null}
-                </Stack></DialogContent>
-                <DialogActions><Button onClick={() => setEditTarget(null)}>{t('admin.common.cancel')}</Button><Button variant="contained" onClick={handleSaveEdit} disabled={saveLoading}>{t('admin.common.save')}</Button></DialogActions>
-            </Dialog>
+            <CelestialEditDialog
+                target={editTarget}
+                saving={saveLoading}
+                error={editError}
+                onChange={(field, value) => setEditTarget((current) => (
+                    current ? { ...current, [field]: value } : current
+                ))}
+                onClose={() => {
+                    setEditTarget(null);
+                    setEditError('');
+                }}
+                onSave={handleSaveEdit}
+            />
 
             <Dialog
                 open={pendingDeleteIds.length > 0}

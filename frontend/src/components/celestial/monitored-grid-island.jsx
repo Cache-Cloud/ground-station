@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DataGrid, gridClasses } from '@mui/x-data-grid';
 import { alpha, styled } from '@mui/material/styles';
+import CellTowerOutlinedIcon from '@mui/icons-material/CellTowerOutlined';
+import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
+import MyLocationOutlinedIcon from '@mui/icons-material/MyLocationOutlined';
+import SummarizeOutlinedIcon from '@mui/icons-material/SummarizeOutlined';
+import TimelineOutlinedIcon from '@mui/icons-material/TimelineOutlined';
+import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined';
 import {
     Box,
     Button,
@@ -53,7 +61,7 @@ import {
     pruneElevationHistory,
     updateElevationHistory,
 } from '../../utils/elevationtrend.js';
-import TargetProjectionFields from './targetprojectionfields.jsx';
+import CelestialEditDialog from './celestialeditdialog.jsx';
 import VectorCoverageDialog from './vector-coverage-dialog.jsx';
 
 const AU_IN_KM = 149597870.7;
@@ -346,38 +354,6 @@ const SettingsDialog = ({ open, onClose }) => {
     );
 };
 
-const ProjectionDialog = ({ open, target, saving, onChange, onClose, onSave }) => {
-    const { t } = useTranslation('celestial');
-    if (!target) return null;
-
-    return (
-        <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth PaperProps={{ sx: DIALOG_PAPER_SX }}>
-            <DialogTitle sx={DIALOG_TITLE_SX}>
-                {t('monitored.projection.edit_title', { defaultValue: 'Edit projection' })}
-            </DialogTitle>
-            <DialogContent sx={DIALOG_CONTENT_SX}>
-                <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
-                    {target.displayName}
-                </Typography>
-                <TargetProjectionFields
-                    values={target}
-                    onChange={onChange}
-                    disabled={saving}
-                    idPrefix="edit-target-projection"
-                />
-            </DialogContent>
-            <DialogActions sx={DIALOG_ACTIONS_SX}>
-                <Button onClick={onClose} disabled={saving}>
-                    {t('common.cancel', { defaultValue: 'Cancel' })}
-                </Button>
-                <Button onClick={onSave} variant="contained" disabled={saving}>
-                    {t('common.save', { defaultValue: 'Save and refresh' })}
-                </Button>
-            </DialogActions>
-        </Dialog>
-    );
-};
-
 const MonitoredCelestialGridIsland = ({
     rows = [],
     loading = false,
@@ -407,8 +383,9 @@ const MonitoredCelestialGridIsland = ({
     const [rowContextMenu, setRowContextMenu] = useState(null);
     const [transmittersDialogOpen, setTransmittersDialogOpen] = useState(false);
     const [transmittersDialogData, setTransmittersDialogData] = useState(null);
-    const [projectionTarget, setProjectionTarget] = useState(null);
-    const [projectionSaving, setProjectionSaving] = useState(false);
+    const [propertiesTarget, setPropertiesTarget] = useState(null);
+    const [propertiesSaving, setPropertiesSaving] = useState(false);
+    const [propertiesError, setPropertiesError] = useState('');
     const [vectorTarget, setVectorTarget] = useState(null);
     const [unmonitorTarget, setUnmonitorTarget] = useState(null);
     const [unmonitoring, setUnmonitoring] = useState(false);
@@ -520,8 +497,9 @@ const MonitoredCelestialGridIsland = ({
         }
     }, [dispatch, enrichedRows, onTargetSelected]);
 
-    const openProjectionDialog = useCallback((row) => {
-        setProjectionTarget({
+    const openPropertiesDialog = useCallback((row) => {
+        setPropertiesError('');
+        setPropertiesTarget({
             ...row,
             projectionPastHours: Number(row.projectionPastHours || 1),
             projectionFutureHours: Number(row.projectionFutureHours || 24),
@@ -529,26 +507,35 @@ const MonitoredCelestialGridIsland = ({
         });
     }, []);
 
-    const saveProjection = useCallback(async () => {
-        if (!socket || !projectionTarget) return;
-        setProjectionSaving(true);
+    const saveProperties = useCallback(async () => {
+        if (!socket || !propertiesTarget) return;
+        const name = String(propertiesTarget.displayName || '').trim();
+        const identifier = propertiesTarget.targetType === 'body'
+            ? String(propertiesTarget.bodyId || '').trim()
+            : String(propertiesTarget.command || '').trim();
+        if (!name || !identifier) {
+            setPropertiesError(tCelestial('admin.targets.errors.name_identifier_required'));
+            return;
+        }
+        setPropertiesSaving(true);
+        setPropertiesError('');
         try {
             await dispatch(updateMonitoredCelestial({
                 socket,
-                entry: projectionTarget,
+                entry: propertiesTarget,
             })).unwrap();
             await dispatch(refreshMonitoredCelestialNow({
                 socket,
-                ids: [projectionTarget.id],
+                ids: [propertiesTarget.id],
             })).unwrap();
             await dispatch(fetchMonitoredCelestial({ socket })).unwrap();
-            setProjectionTarget(null);
+            setPropertiesTarget(null);
         } catch (error) {
-            toast.error(error?.message || error?.error || tCelestial('errors.unknown_error'));
+            setPropertiesError(error?.message || error?.error || tCelestial('errors.unknown_error'));
         } finally {
-            setProjectionSaving(false);
+            setPropertiesSaving(false);
         }
-    }, [dispatch, projectionTarget, socket, tCelestial]);
+    }, [dispatch, propertiesTarget, socket, tCelestial]);
 
     const refreshVectorTarget = useCallback(async (id) => {
         if (!socket || !id) return;
@@ -726,7 +713,7 @@ const MonitoredCelestialGridIsland = ({
                         variant="text"
                         onClick={(event) => {
                             event.stopPropagation();
-                            openProjectionDialog(params.row);
+                            openPropertiesDialog(params.row);
                         }}
                         sx={{ fontFamily: 'monospace', textTransform: 'none' }}
                     >
@@ -751,7 +738,7 @@ const MonitoredCelestialGridIsland = ({
                 valueGetter: (value) => formatLastRefresh(value, timezone, locale, tCelestial),
             },
         ],
-        [timezone, locale, openProjectionDialog, targetNumberByTargetKey, tCelestial],
+        [timezone, locale, openPropertiesDialog, targetNumberByTargetKey, tCelestial],
     );
 
     const copyTextToClipboard = useCallback(async (text) => {
@@ -903,8 +890,8 @@ const MonitoredCelestialGridIsland = ({
                 setTransmittersDialogOpen(true);
                 return;
             }
-            if (action === 'projection-settings') {
-                openProjectionDialog(row);
+            if (action === 'edit-properties') {
+                openPropertiesDialog(row);
                 return;
             }
             if (action === 'vector-details') {
@@ -943,7 +930,7 @@ const MonitoredCelestialGridIsland = ({
         applyTargetSelection,
         copyTextToClipboard,
         dispatch,
-        openProjectionDialog,
+        openPropertiesDialog,
         requestRotatorForTarget,
         rowContextMenu?.row,
         socket,
@@ -965,24 +952,32 @@ const MonitoredCelestialGridIsland = ({
             {
                 key: 'set-target',
                 label: t('satellites_table.context_menu.set_as_target'),
+                icon: <MyLocationOutlinedIcon />,
+                opensDialog: true,
                 disabled: !socket || !isTargetable || isCurrentlyTargeted,
                 onClick: () => handleRowMenuAction('set-target'),
             },
             {
+                key: 'edit-properties',
+                label: tCelestial('admin.targets.actions.edit_properties', { defaultValue: 'Edit properties' }),
+                icon: <EditOutlinedIcon />,
+                opensDialog: true,
+                disabled: !socket,
+                onClick: () => handleRowMenuAction('edit-properties'),
+            },
+            {
                 key: 'edit-transmitters',
                 label: t('satellites_table.context_menu.edit_transmitters'),
+                icon: <CellTowerOutlinedIcon />,
+                opensDialog: true,
                 disabled: !row?.targetKey,
                 onClick: () => handleRowMenuAction('edit-transmitters'),
             },
             {
-                key: 'projection-settings',
-                label: tCelestial('monitored.projection.edit_title', { defaultValue: 'Edit projection' }),
-                disabled: !socket,
-                onClick: () => handleRowMenuAction('projection-settings'),
-            },
-            {
                 key: 'vector-details',
                 label: tCelestial('admin.targets.actions.vector_details'),
+                icon: <TimelineOutlinedIcon />,
+                opensDialog: true,
                 disabled: !socket || !row?.targetKey,
                 onClick: () => handleRowMenuAction('vector-details'),
             },
@@ -992,14 +987,16 @@ const MonitoredCelestialGridIsland = ({
                 label: row.targetType === 'body'
                     ? tCelestial('context.copy_body_id')
                     : tCelestial('context.copy_mission_command'),
+                icon: <ContentCopyOutlinedIcon />,
                 onClick: () => handleRowMenuAction('copy-identifier'),
             },
-            { key: 'copy-target-key', label: tCelestial('context.copy_target_key'), onClick: () => handleRowMenuAction('copy-target-key') },
-            { key: 'copy-summary', label: tCelestial('context.copy_target_summary'), onClick: () => handleRowMenuAction('copy-summary') },
+            { key: 'copy-target-key', label: tCelestial('context.copy_target_key'), icon: <KeyOutlinedIcon />, onClick: () => handleRowMenuAction('copy-target-key') },
+            { key: 'copy-summary', label: tCelestial('context.copy_target_summary'), icon: <SummarizeOutlinedIcon />, onClick: () => handleRowMenuAction('copy-summary') },
             { type: 'divider', key: 'divider-unmonitor' },
             {
                 key: 'unmonitor',
                 label: tCelestial('admin.catalog.actions.unmonitor'),
+                icon: <VisibilityOffOutlinedIcon />,
                 disabled: !socket || unmonitoring,
                 onClick: () => handleRowMenuAction('unmonitor'),
             },
@@ -1116,17 +1113,20 @@ const MonitoredCelestialGridIsland = ({
                 open={openGridSettingsDialog}
                 onClose={() => dispatch(setOpenGridSettingsDialog(false))}
             />
-            <ProjectionDialog
-                open={Boolean(projectionTarget)}
-                target={projectionTarget}
-                saving={projectionSaving}
+            <CelestialEditDialog
+                target={propertiesTarget}
+                saving={propertiesSaving}
+                error={propertiesError}
                 onChange={(field, value) => {
-                    setProjectionTarget((current) => (
+                    setPropertiesTarget((current) => (
                         current ? { ...current, [field]: value } : current
                     ));
                 }}
-                onClose={() => setProjectionTarget(null)}
-                onSave={saveProjection}
+                onClose={() => {
+                    setPropertiesTarget(null);
+                    setPropertiesError('');
+                }}
+                onSave={saveProperties}
             />
             <VectorCoverageDialog
                 open={Boolean(vectorTarget)}

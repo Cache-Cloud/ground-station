@@ -564,7 +564,7 @@
     "targets": {
       "columns": { "target": "Παρακολουθούμενο", "type": "Τύπος", "enabled": "Ενεργό", "last_refresh": "Τελευταία ανανέωση", "status": "Κατάσταση" },
       "status": { "refreshing": "Ανανέωση", "refreshed": "Ανανεώθηκε", "refresh_failed": "Η ανανέωση απέτυχε", "ready": "Έτοιμο", "not_fetched": "Δεν ανακτήθηκε" },
-      "actions": { "refresh": "Ανανέωση", "edit": "Επεξεργασία", "delete": "Διαγραφή", "refresh_selected": "Ανανέωση επιλεγμένων", "enable": "Ενεργοποίηση", "disable": "Απενεργοποίηση" },
+      "actions": { "refresh": "Ανανέωση", "edit": "Επεξεργασία", "edit_properties": "Επεξεργασία ιδιοτήτων", "delete": "Διαγραφή", "refresh_selected": "Ανανέωση επιλεγμένων", "enable": "Ενεργοποίηση", "disable": "Απενεργοποίηση" },
       "search": "Αναζήτηση παρακολουθούμενων",
       "empty": "Δεν βρέθηκαν παρακολουθούμενες καταχωρίσεις.",
       "selected_count_one": "{{count}} επιλεγμένος",

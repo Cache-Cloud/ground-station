@@ -1,5 +1,30 @@
 import React from 'react';
-import { Box, Divider, Menu, MenuItem, Typography } from '@mui/material';
+import { Box, Divider, ListItemIcon, Menu, MenuItem, Typography } from '@mui/material';
+import CellTowerOutlinedIcon from '@mui/icons-material/CellTowerOutlined';
+import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
+import DateRangeOutlinedIcon from '@mui/icons-material/DateRangeOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import EventOutlinedIcon from '@mui/icons-material/EventOutlined';
+import MyLocationOutlinedIcon from '@mui/icons-material/MyLocationOutlined';
+import SummarizeOutlinedIcon from '@mui/icons-material/SummarizeOutlined';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
+
+const ITEM_ICONS = {
+    'set-target': <MyLocationOutlinedIcon />,
+    'edit-properties': <EditOutlinedIcon />,
+    'edit-transmitters': <CellTowerOutlinedIcon />,
+    'schedule-observation': <EventOutlinedIcon />,
+    'monitor-satellite': <VisibilityOutlinedIcon />,
+    'copy-norad': <ContentCopyOutlinedIcon />,
+    'copy-window': <DateRangeOutlinedIcon />,
+    'copy-summary': <SummarizeOutlinedIcon />,
+};
+
+const formatItemLabel = (item) => {
+    const label = String(item?.label || '');
+    if (!item?.opensDialog) return label;
+    return `${label.replace(/(?:\.\.\.|…)\s*$/, '')}...`;
+};
 
 export default function RowContextMenu({
     open,
@@ -100,11 +125,22 @@ export default function RowContextMenu({
                 return (
                     <MenuItem
                         key={item?.key || `item-${index}`}
-                        sx={{ px: 1.2, py: 0.45, minHeight: 30, fontSize: '0.82rem', borderRadius: 0 }}
+                        sx={{ px: 1, py: 0.4, minHeight: 29, fontSize: '0.82rem', borderRadius: 0 }}
                         disabled={Boolean(item?.disabled)}
                         onClick={item?.onClick}
                     >
-                        {item?.label}
+                        <ListItemIcon
+                            sx={(theme) => ({
+                                minWidth: 20,
+                                color: theme.palette.mode === 'dark'
+                                    ? theme.palette.grey[500]
+                                    : theme.palette.grey[800],
+                                '& .MuiSvgIcon-root': { fontSize: '0.92rem' },
+                            })}
+                        >
+                            {item?.icon || ITEM_ICONS[item?.key]}
+                        </ListItemIcon>
+                        {formatItemLabel(item)}
                     </MenuItem>
                 );
             })}

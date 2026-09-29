@@ -77,7 +77,7 @@ vi.mock('@mui/x-data-grid', async () => {
 const fixedReducer = (initialState) => (state = initialState) => state;
 
 describe('Celestial passes context menu', () => {
-    it('opens projection editing for the matching monitored celestial', async () => {
+    it('opens property editing for the matching monitored celestial', async () => {
         const store = configureStore({
             reducer: {
                 celestial: fixedReducer({
@@ -132,9 +132,15 @@ describe('Celestial passes context menu', () => {
             clientX: 100,
             clientY: 120,
         });
-        fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit projection' }));
+        const menuItems = await screen.findAllByRole('menuitem');
+        expect(menuItems[2]).toHaveAccessibleName('Edit properties...');
+        expect(screen.getByTestId('EditOutlinedIcon')).toBeInTheDocument();
+        fireEvent.click(menuItems[2]);
 
-        expect(await screen.findByRole('dialog', { name: 'Edit projection' })).toBeInTheDocument();
+        expect(await screen.findByRole('dialog', { name: 'Edit monitored celestial' })).toBeInTheDocument();
+        expect(screen.getByRole('textbox', { name: 'Display name' })).toHaveValue('Mars');
+        expect(screen.getByRole('textbox', { name: 'Body ID' })).toHaveValue('mars');
+        expect(screen.getByRole('textbox', { name: 'Color' })).toBeInTheDocument();
         expect(screen.getByRole('combobox', { name: 'Past duration' })).toHaveTextContent('6h');
         expect(screen.getByRole('combobox', { name: 'Future duration' })).toHaveTextContent('72h');
         expect(screen.getByRole('combobox', { name: 'Sample interval' })).toHaveTextContent('30m');
@@ -201,7 +207,7 @@ describe('Celestial passes context menu', () => {
             clientX: 100,
             clientY: 120,
         });
-        fireEvent.click(await screen.findByRole('menuitem', { name: 'Vector details' }));
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Vector details...' }));
 
         expect(await screen.findByText('Vector data · Mars')).toBeInTheDocument();
         await waitFor(() => expect(socket.emit).toHaveBeenCalledWith(

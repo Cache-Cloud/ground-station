@@ -34,10 +34,17 @@ import {
 } from '@mui/x-data-grid';
 import AccessTimeFilledIcon from '@mui/icons-material/AccessTimeFilled';
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
+import CellTowerOutlinedIcon from '@mui/icons-material/CellTowerOutlined';
+import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
+import MyLocationOutlinedIcon from '@mui/icons-material/MyLocationOutlined';
 import RadioButtonCheckedIcon from '@mui/icons-material/RadioButtonChecked';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SettingsIcon from '@mui/icons-material/Settings';
+import SummarizeOutlinedIcon from '@mui/icons-material/SummarizeOutlined';
+import TimelineOutlinedIcon from '@mui/icons-material/TimelineOutlined';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
@@ -69,7 +76,7 @@ import {
     updateElevationHistory,
 } from '../../utils/elevationtrend.js';
 import { replaceCelestialTargetKey } from '../target/celestial-target-utils.js';
-import TargetProjectionFields from './targetprojectionfields.jsx';
+import CelestialEditDialog from './celestialeditdialog.jsx';
 import VectorCoverageDialog from './vector-coverage-dialog.jsx';
 
 const getPassBackgroundColor = (color, theme, coefficient) => ({
@@ -597,38 +604,6 @@ const PassesTableSettingsDialog = ({ open, onClose }) => {
     );
 };
 
-const ProjectionDialog = ({ open, target, saving, onChange, onClose, onSave }) => {
-    const { t } = useTranslation('celestial');
-    if (!target) return null;
-
-    return (
-        <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth PaperProps={{ sx: DIALOG_PAPER_SX }}>
-            <DialogTitle sx={DIALOG_TITLE_SX}>
-                {t('monitored.projection.edit_title', { defaultValue: 'Edit projection' })}
-            </DialogTitle>
-            <DialogContent sx={DIALOG_CONTENT_SX}>
-                <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
-                    {target.displayName}
-                </Typography>
-                <TargetProjectionFields
-                    values={target}
-                    onChange={onChange}
-                    disabled={saving}
-                    idPrefix="passes-edit-target-projection"
-                />
-            </DialogContent>
-            <DialogActions sx={DIALOG_ACTIONS_SX}>
-                <Button onClick={onClose} disabled={saving}>
-                    {t('common.cancel', { defaultValue: 'Cancel' })}
-                </Button>
-                <Button onClick={onSave} variant="contained" disabled={saving}>
-                    {t('common.save', { defaultValue: 'Save and refresh' })}
-                </Button>
-            </DialogActions>
-        </Dialog>
-    );
-};
-
 const CelestialPasses = ({
     passes = [],
     tracks = [],
@@ -664,8 +639,9 @@ const CelestialPasses = ({
     const [rowContextMenu, setRowContextMenu] = useState(null);
     const [transmittersDialogOpen, setTransmittersDialogOpen] = useState(false);
     const [transmittersDialogData, setTransmittersDialogData] = useState(null);
-    const [projectionTarget, setProjectionTarget] = useState(null);
-    const [projectionSaving, setProjectionSaving] = useState(false);
+    const [propertiesTarget, setPropertiesTarget] = useState(null);
+    const [propertiesSaving, setPropertiesSaving] = useState(false);
+    const [propertiesError, setPropertiesError] = useState('');
     const [vectorTarget, setVectorTarget] = useState(null);
     const elevationHistoryByTargetKeyRef = useRef({});
     const columnVisibility = useSelector((state) => state.celestial?.passesTableColumnVisibility || {});
@@ -1082,10 +1058,11 @@ const CelestialPasses = ({
         document.body.removeChild(textArea);
     }, []);
 
-    const openProjectionDialog = useCallback((row) => {
+    const openPropertiesDialog = useCallback((row) => {
         const monitoredEntry = row?.monitoredEntry;
         if (!monitoredEntry?.id) return;
-        setProjectionTarget({
+        setPropertiesError('');
+        setPropertiesTarget({
             ...monitoredEntry,
             projectionPastHours: Number(monitoredEntry.projectionPastHours ?? 1),
             projectionFutureHours: Number(monitoredEntry.projectionFutureHours ?? 24),
@@ -1093,26 +1070,35 @@ const CelestialPasses = ({
         });
     }, []);
 
-    const saveProjection = useCallback(async () => {
-        if (!socket || !projectionTarget) return;
-        setProjectionSaving(true);
+    const saveProperties = useCallback(async () => {
+        if (!socket || !propertiesTarget) return;
+        const name = String(propertiesTarget.displayName || '').trim();
+        const identifier = propertiesTarget.targetType === 'body'
+            ? String(propertiesTarget.bodyId || '').trim()
+            : String(propertiesTarget.command || '').trim();
+        if (!name || !identifier) {
+            setPropertiesError(tCelestial('admin.targets.errors.name_identifier_required'));
+            return;
+        }
+        setPropertiesSaving(true);
+        setPropertiesError('');
         try {
             await dispatch(updateMonitoredCelestial({
                 socket,
-                entry: projectionTarget,
+                entry: propertiesTarget,
             })).unwrap();
             await dispatch(refreshMonitoredCelestialNow({
                 socket,
-                ids: [projectionTarget.id],
+                ids: [propertiesTarget.id],
             })).unwrap();
             await dispatch(fetchMonitoredCelestial({ socket })).unwrap();
-            setProjectionTarget(null);
+            setPropertiesTarget(null);
         } catch (error) {
-            toast.error(error?.message || error?.error || tCelestial('errors.unknown_error'));
+            setPropertiesError(error?.message || error?.error || tCelestial('errors.unknown_error'));
         } finally {
-            setProjectionSaving(false);
+            setPropertiesSaving(false);
         }
-    }, [dispatch, projectionTarget, socket, tCelestial]);
+    }, [dispatch, propertiesTarget, socket, tCelestial]);
 
     const openVectorDialog = useCallback((row) => {
         const monitoredEntry = row?.monitoredEntry || {};
@@ -1273,8 +1259,8 @@ const CelestialPasses = ({
                 setTransmittersDialogOpen(true);
                 return;
             }
-            if (action === 'projection-settings') {
-                openProjectionDialog(row);
+            if (action === 'edit-properties') {
+                openPropertiesDialog(row);
                 return;
             }
             if (action === 'vector-details') {
@@ -1309,7 +1295,7 @@ const CelestialPasses = ({
         copyTextToClipboard,
         dispatch,
         onTargetSelected,
-        openProjectionDialog,
+        openPropertiesDialog,
         openVectorDialog,
         requestRotatorForTarget,
         rowContextMenu?.row,
@@ -1332,24 +1318,32 @@ const CelestialPasses = ({
             {
                 key: 'set-target',
                 label: t('satellites_table.context_menu.set_as_target'),
+                icon: <MyLocationOutlinedIcon />,
+                opensDialog: true,
                 disabled: !socket || !isTargetable || isCurrentlyTargeted,
                 onClick: () => handleRowMenuAction('set-target'),
             },
             {
+                key: 'edit-properties',
+                label: tCelestial('admin.targets.actions.edit_properties', { defaultValue: 'Edit properties' }),
+                icon: <EditOutlinedIcon />,
+                opensDialog: true,
+                disabled: !socket || !row?.monitoredEntry?.id,
+                onClick: () => handleRowMenuAction('edit-properties'),
+            },
+            {
                 key: 'edit-transmitters',
                 label: t('satellites_table.context_menu.edit_transmitters'),
+                icon: <CellTowerOutlinedIcon />,
+                opensDialog: true,
                 disabled: !row?.targetKey,
                 onClick: () => handleRowMenuAction('edit-transmitters'),
             },
             {
-                key: 'projection-settings',
-                label: tCelestial('monitored.projection.edit_title', { defaultValue: 'Edit projection' }),
-                disabled: !socket || !row?.monitoredEntry?.id,
-                onClick: () => handleRowMenuAction('projection-settings'),
-            },
-            {
                 key: 'vector-details',
                 label: tCelestial('admin.targets.actions.vector_details'),
+                icon: <TimelineOutlinedIcon />,
+                opensDialog: true,
                 disabled: !socket || !row?.targetKey,
                 onClick: () => handleRowMenuAction('vector-details'),
             },
@@ -1359,16 +1353,19 @@ const CelestialPasses = ({
                 label: row.targetTypeKey === 'body'
                     ? tCelestial('context.copy_body_id')
                     : tCelestial('context.copy_mission_command'),
+                icon: <ContentCopyOutlinedIcon />,
                 onClick: () => handleRowMenuAction('copy-identifier'),
             },
             {
                 key: 'copy-target-key',
                 label: tCelestial('context.copy_target_key'),
+                icon: <KeyOutlinedIcon />,
                 onClick: () => handleRowMenuAction('copy-target-key'),
             },
             {
                 key: 'copy-summary',
                 label: tCelestial('context.copy_pass_summary'),
+                icon: <SummarizeOutlinedIcon />,
                 onClick: () => handleRowMenuAction('copy-summary'),
             },
         ];
@@ -1553,17 +1550,20 @@ const CelestialPasses = ({
                 variant="paper"
                 widthOffsetPx={20}
             />
-            <ProjectionDialog
-                open={Boolean(projectionTarget)}
-                target={projectionTarget}
-                saving={projectionSaving}
+            <CelestialEditDialog
+                target={propertiesTarget}
+                saving={propertiesSaving}
+                error={propertiesError}
                 onChange={(field, value) => {
-                    setProjectionTarget((current) => (
+                    setPropertiesTarget((current) => (
                         current ? { ...current, [field]: value } : current
                     ));
                 }}
-                onClose={() => setProjectionTarget(null)}
-                onSave={saveProjection}
+                onClose={() => {
+                    setPropertiesTarget(null);
+                    setPropertiesError('');
+                }}
+                onSave={saveProperties}
             />
             <VectorCoverageDialog
                 open={Boolean(vectorTarget)}

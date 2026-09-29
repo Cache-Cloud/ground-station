@@ -157,6 +157,61 @@ async def test_load_earth_observer_vectors_prefers_broad_coverage_for_passes(mon
 
 
 @pytest.mark.asyncio
+async def test_load_earth_observer_vectors_recovers_cache_only_projection_miss(monkeypatch):
+    epoch = datetime(2026, 9, 29, 9, 45, tzinfo=timezone.utc)
+    broad_start = epoch - timedelta(hours=2)
+    broad_end = epoch + timedelta(hours=54)
+    covering_request = None
+
+    async def _cache_miss(**_kwargs):
+        return {
+            "payload": None,
+            "cache": "cache-only-miss",
+            "stale": True,
+            "error": "No cached vectors available for target 'body:earth'",
+        }
+
+    async def _broad_snapshot(**kwargs):
+        nonlocal covering_request
+        covering_request = kwargs
+        return {
+            "payload": {
+                "position_xyz_au": [0.0, 0.0, 0.0],
+                "orbit_samples_xyz_au": [[1.0, 2.0, 3.0], [3.0, 4.0, 5.0]],
+                "orbit_sample_times_utc": [broad_start.isoformat(), broad_end.isoformat()],
+            }
+        }
+
+    monkeypatch.setattr(observer, "_get_vectors_snapshot", _cache_miss)
+    monkeypatch.setattr(
+        observer,
+        "_load_covering_vectors_for_target_from_db",
+        _broad_snapshot,
+    )
+
+    position, samples = await observer._load_earth_observer_vectors(
+        epoch=epoch,
+        past_hours=1,
+        future_hours=6,
+        step_minutes=15,
+        observer_location=None,
+        force_refresh=False,
+        allow_network_fetch=False,
+        logger=_DummyLogger(),
+    )
+
+    assert covering_request == {
+        "target_key": "body:earth",
+        "past_hours": 1,
+        "future_hours": 6,
+        "maximum_step_minutes": 60,
+    }
+    assert position is not None
+    assert samples[0][0] == broad_start
+    assert samples[-1][0] == broad_end
+
+
+@pytest.mark.asyncio
 async def test_build_celestial_tracks_supports_sun_body_target(monkeypatch):
     async def _stub_observer_location():
         return {

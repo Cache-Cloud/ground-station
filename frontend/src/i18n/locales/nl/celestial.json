@@ -529,7 +529,7 @@
     "targets": {
       "columns": { "target": "Gevolgd", "type": "Type", "enabled": "Ingeschakeld", "last_refresh": "Laatste vernieuwing", "status": "Status" },
       "status": { "refreshing": "Vernieuwen", "refreshed": "Vernieuwd", "refresh_failed": "Vernieuwen mislukt", "ready": "Gereed", "not_fetched": "Niet opgehaald" },
-      "actions": { "refresh": "Vernieuwen", "edit": "Bewerken", "delete": "Verwijderen", "refresh_selected": "Selectie vernieuwen", "enable": "Inschakelen", "disable": "Uitschakelen" },
+      "actions": { "refresh": "Vernieuwen", "edit": "Bewerken", "edit_properties": "Eigenschappen bewerken", "delete": "Verwijderen", "refresh_selected": "Selectie vernieuwen", "enable": "Inschakelen", "disable": "Uitschakelen" },
       "search": "Gevolgde items zoeken",
       "empty": "Geen gevolgde items gevonden.",
       "selected_count_one": "{{count}} geselecteerd",

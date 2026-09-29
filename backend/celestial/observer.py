@@ -58,11 +58,13 @@ async def _load_earth_observer_vectors(
     )
     earth_cache = str(earth_snapshot.get("cache") or "")
     if not allow_network_fetch and (
-        earth_cache.endswith("partial") or earth_cache == "db-compatible-current-only"
+        earth_cache.endswith("partial")
+        or earth_cache in {"cache-only-miss", "db-compatible-current-only"}
     ):
         # A target-slot request can keep writing a narrow Earth snapshot around
-        # NOW. Prefer the scheduled broad snapshot for pass calculations so the
-        # observer interval remains fixed between scheduled refreshes.
+        # NOW, or request a denser step than the scheduled Earth snapshot. Prefer
+        # scheduled broad coverage so current AZ/EL and pass calculations remain
+        # available between projection-specific refreshes.
         covering_earth = await _load_covering_vectors_for_target_from_db(
             target_key=_target_key_from_parts("body", body_id="earth"),
             past_hours=past_hours,

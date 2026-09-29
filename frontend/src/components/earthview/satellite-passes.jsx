@@ -1791,11 +1791,11 @@ const NextPassesGroupIsland = React.memo(function NextPassesGroupIsland() {
         [isTightHeader]
     );
     const passContextMenuItems = useMemo(() => ([
-        { key: 'set-target', label: t('satellites_table.context_menu.set_as_target'), onClick: () => handlePassMenuAction('set-target') },
-        { key: 'edit-properties', label: t('satellites_table.context_menu.edit_properties'), onClick: () => handlePassMenuAction('edit-properties') },
-        { key: 'edit-transmitters', label: t('satellites_table.context_menu.edit_transmitters'), onClick: () => handlePassMenuAction('edit-transmitters') },
-        { key: 'schedule-observation', label: t('satellites_table.context_menu.schedule_observation'), onClick: () => handlePassMenuAction('schedule-observation') },
-        { key: 'monitor-satellite', label: t('satellites_table.context_menu.monitor_satellite'), onClick: () => handlePassMenuAction('monitor-satellite') },
+        { key: 'set-target', label: t('satellites_table.context_menu.set_as_target'), opensDialog: true, onClick: () => handlePassMenuAction('set-target') },
+        { key: 'edit-properties', label: t('satellites_table.context_menu.edit_properties'), opensDialog: true, onClick: () => handlePassMenuAction('edit-properties') },
+        { key: 'edit-transmitters', label: t('satellites_table.context_menu.edit_transmitters'), opensDialog: true, onClick: () => handlePassMenuAction('edit-transmitters') },
+        { key: 'schedule-observation', label: t('satellites_table.context_menu.schedule_observation'), opensDialog: true, onClick: () => handlePassMenuAction('schedule-observation') },
+        { key: 'monitor-satellite', label: t('satellites_table.context_menu.monitor_satellite'), opensDialog: true, onClick: () => handlePassMenuAction('monitor-satellite') },
         { type: 'divider', key: 'divider-copy' },
         { key: 'copy-norad', label: t('satellites_table.context_menu.copy_norad'), onClick: () => handlePassMenuAction('copy-norad') },
         {
