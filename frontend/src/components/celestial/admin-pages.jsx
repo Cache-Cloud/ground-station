@@ -69,6 +69,7 @@ import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { useSocket } from '../common/socket.jsx';
+import { humanizeDate } from '../common/common.jsx';
 import ErrorDialog from '../common/error-dialog.jsx';
 import {
     createMonitoredCelestial,
@@ -1236,9 +1237,19 @@ export function CelestialCatalogPage() {
             headerName: t('admin.targets.columns.last_refresh'),
             minWidth: 180,
             flex: 0.8,
-            renderCell: (params) => params.row.monitored
-                ? formatDateTime(params.value, timezone, locale, t)
-                : t('admin.common.not_available'),
+            renderCell: (params) => {
+                if (!params.row.monitored) return t('admin.common.not_available');
+                if (!params.value) return t('common.never');
+
+                const parsed = new Date(params.value);
+                if (Number.isNaN(parsed.getTime())) return t('common.unknown');
+
+                return (
+                    <Tooltip title={formatDateTime(params.value, timezone, locale, t)}>
+                        <Typography variant="body2" noWrap>{humanizeDate(params.value)}</Typography>
+                    </Tooltip>
+                );
+            },
         },
         {
             field: 'lastError',

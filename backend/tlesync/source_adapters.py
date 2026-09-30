@@ -50,12 +50,20 @@ def fetch_source_orbit_records(source: Dict[str, Any]) -> List[Dict[str, Any]]:
             str(source.get("url") or ""), str(source.get("format") or ""), adapter
         )
     if adapter == "http_3le":
-        return _fetch_http_3le(source)
-    if adapter == "http_omm":
-        return _fetch_http_omm(source)
-    if adapter == "space_track_gp":
-        return _fetch_space_track_gp(source)
-    raise ValueError(f"Unsupported orbit source adapter: {adapter}")
+        records = _fetch_http_3le(source)
+    elif adapter == "http_omm":
+        records = _fetch_http_omm(source)
+    elif adapter == "space_track_gp":
+        records = _fetch_space_track_gp(source)
+    else:
+        raise ValueError(f"Unsupported orbit source adapter: {adapter}")
+
+    # Stamp the completed provider response once so every row from that response
+    # has the same, unambiguous local fetch time.
+    fetched_at = datetime.now(timezone.utc)
+    for record in records:
+        record["fetched_at"] = fetched_at
+    return records
 
 
 async def async_fetch_source_orbit_records(

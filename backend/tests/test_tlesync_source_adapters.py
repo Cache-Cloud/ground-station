@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Efstratios Goudelis
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 import requests
@@ -88,6 +89,8 @@ def test_fetch_http_omm_adapter(monkeypatch):
     assert records[0]["line2"].startswith("2 25544")
     assert isinstance(records[0]["orbit_payload"], dict)
     assert records[0]["orbit_payload"]["NORAD_CAT_ID"] == "25544"
+    assert isinstance(records[0]["fetched_at"], datetime)
+    assert records[0]["fetched_at"].tzinfo == timezone.utc
 
 
 def test_fetch_http_omm_adapter_keeps_six_digit_catalogue_number_as_omm(monkeypatch):

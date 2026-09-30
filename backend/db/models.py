@@ -163,12 +163,16 @@ class Satellites(Base):
     citation = Column(String, nullable=True)
     is_frequency_violator = Column(Boolean, nullable=True, default=False)
     associated_satellites = Column(String, nullable=True)
-    added = Column(AwareDateTime, nullable=False, default=datetime.now(timezone.utc))
+    added = Column(
+        AwareDateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
     updated = Column(
         AwareDateTime,
         nullable=True,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 
@@ -194,12 +198,29 @@ class SatelliteOrbits(Base):
     )
     source_object_id = Column(String, nullable=True)
     source_updated_at = Column(AwareDateTime, nullable=True)
-    added = Column(AwareDateTime, nullable=False, default=datetime.now(timezone.utc))
+    # These timestamps intentionally describe different parts of the orbit lifecycle.
+    # Keep them explicit so a successful fetch does not look like new orbital data.
+    fetched_at = Column(AwareDateTime, nullable=True)
+    first_seen_at = Column(
+        AwareDateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    changed_at = Column(
+        AwareDateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    added = Column(
+        AwareDateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
     updated = Column(
         AwareDateTime,
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     __table_args__ = (

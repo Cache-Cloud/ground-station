@@ -27,7 +27,7 @@ from common.arguments import arguments
 from common.common import *  # noqa: F401,F403
 from common.exceptions import SynchronizationErrorMainTLESource
 from crud.orbitalsources import fetch_orbital_source
-from db.models import Satellites
+from db.models import SatelliteOrbits, Satellites
 from handlers.entities.transmitterimport import (
     import_gr_satellites_transmitters,
     import_satdump_transmitters,
@@ -704,8 +704,13 @@ async def synchronize_satellite_data_internal(dbsession, logger, emit_callback):
 
                 # add to dbsession
                 await dbsession.merge(satellite)
-                orbit = create_satellite_orbit_from_source_data(sat, norad_id)
-                await dbsession.merge(orbit)
+                existing_orbit = await dbsession.get(SatelliteOrbits, (norad_id, "earth"))
+                orbit = create_satellite_orbit_from_source_data(
+                    sat,
+                    norad_id,
+                    existing_orbit=existing_orbit,
+                )
+                dbsession.add(orbit)
 
                 # commit session
                 await dbsession.commit()

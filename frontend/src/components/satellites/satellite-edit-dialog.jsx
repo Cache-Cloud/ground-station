@@ -22,7 +22,7 @@ import { useTranslation } from 'react-i18next';
 import { submitOrEditSatellite } from './satellite-slice.jsx';
 import { useSocket } from '../common/socket.jsx';
 
-const normalizeSatelliteFormValues = (satelliteData) => {
+export const normalizeSatelliteFormValues = (satelliteData) => {
     if (!satelliteData) {
         return {
             id: null,
@@ -39,6 +39,10 @@ const normalizeSatelliteFormValues = (satelliteData) => {
             alternative_name: '',
             website: '',
             image: '',
+            orbit_epoch: '',
+            orbit_fetched_at: '',
+            orbit_first_seen_at: '',
+            orbit_changed_at: '',
         };
     }
 
@@ -94,6 +98,15 @@ const normalizeSatelliteFormValues = (satelliteData) => {
         orbit_model_kind: orbitModelKind,
         orbit_central_body: orbitCentralBody,
         orbit_epoch: orbitEpoch,
+        orbit_fetched_at: String(
+            details.orbit_fetched_at ?? satelliteData.orbit_fetched_at ?? '',
+        ).trim(),
+        orbit_first_seen_at: String(
+            details.orbit_first_seen_at ?? satelliteData.orbit_first_seen_at ?? '',
+        ).trim(),
+        orbit_changed_at: String(
+            details.orbit_changed_at ?? satelliteData.orbit_changed_at ?? '',
+        ).trim(),
         orbit_omm_payload: orbitOmmPayload,
     };
 };
@@ -514,8 +527,37 @@ const SatelliteEditDialog = ({ open, onClose, satelliteData, onSaved }) => {
                                 size="small"
                                 disabled={isSubmitting}
                                 placeholder="2026-05-09T12:34:56Z"
+                                InputProps={formValues.id ? { readOnly: true } : undefined}
                                 sx={monospaceInputSx}
                             />
+                            {formValues.id && (
+                                <>
+                                    <TextField
+                                        label={t('satellite_database.orbit_fetched')}
+                                        value={formValues.orbit_fetched_at || ''}
+                                        fullWidth
+                                        size="small"
+                                        InputProps={{ readOnly: true }}
+                                        sx={monospaceInputSx}
+                                    />
+                                    <TextField
+                                        label={t('satellite_database.orbit_first_seen')}
+                                        value={formValues.orbit_first_seen_at || ''}
+                                        fullWidth
+                                        size="small"
+                                        InputProps={{ readOnly: true }}
+                                        sx={monospaceInputSx}
+                                    />
+                                    <TextField
+                                        label={t('satellite_database.orbit_changed')}
+                                        value={formValues.orbit_changed_at || ''}
+                                        fullWidth
+                                        size="small"
+                                        InputProps={{ readOnly: true }}
+                                        sx={monospaceInputSx}
+                                    />
+                                </>
+                            )}
                             {requiresOmmPayload && (
                                 <TextField
                                     label={t('satellite_database.omm_payload', { defaultValue: 'OMM Payload (JSON object)' })}

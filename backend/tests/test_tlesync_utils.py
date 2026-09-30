@@ -29,6 +29,7 @@ from tlesync.utils import (
     create_initial_sync_state,
     create_progress_tracker,
     create_satellite_from_tle_data,
+    create_satellite_orbit_from_source_data,
     detect_duplicate_satellites,
     get_norad_id_from_tle,
     get_norad_ids,
@@ -118,6 +119,58 @@ class TestCreateSatelliteFromTleData:
 
         assert satellite.norad_id == 25544
         assert satellite.source == "tlesync"
+
+
+class TestCreateSatelliteOrbitFromSourceData:
+    """Orbit lifecycle timestamps distinguish fetching from changed data."""
+
+    @staticmethod
+    def _record(fetched_at, epoch="2026-09-30T01:00:00+00:00"):
+        return {
+            "model_kind": "omm",
+            "central_body": "earth",
+            "orbit_epoch": epoch,
+            "orbit_payload": {"NORAD_CAT_ID": "25544", "EPOCH": epoch},
+            "source_object_id": "1998-067A",
+            "fetched_at": fetched_at,
+        }
+
+    def test_fetch_updates_fetched_time_without_changing_content_time(self):
+        first_fetch = datetime(2026, 9, 30, 1, 5, tzinfo=timezone.utc)
+        second_fetch = datetime(2026, 9, 30, 2, 5, tzinfo=timezone.utc)
+        orbit = create_satellite_orbit_from_source_data(
+            self._record(first_fetch),
+            25544,
+        )
+
+        create_satellite_orbit_from_source_data(
+            self._record(second_fetch),
+            25544,
+            existing_orbit=orbit,
+        )
+
+        assert orbit.epoch == datetime(2026, 9, 30, 1, 0, tzinfo=timezone.utc)
+        assert orbit.first_seen_at == first_fetch
+        assert orbit.fetched_at == second_fetch
+        assert orbit.changed_at == first_fetch
+
+    def test_new_orbit_content_advances_changed_time(self):
+        first_fetch = datetime(2026, 9, 30, 1, 5, tzinfo=timezone.utc)
+        second_fetch = datetime(2026, 9, 30, 2, 5, tzinfo=timezone.utc)
+        orbit = create_satellite_orbit_from_source_data(
+            self._record(first_fetch),
+            25544,
+        )
+
+        create_satellite_orbit_from_source_data(
+            self._record(second_fetch, epoch="2026-09-30T02:00:00+00:00"),
+            25544,
+            existing_orbit=orbit,
+        )
+
+        assert orbit.first_seen_at == first_fetch
+        assert orbit.fetched_at == second_fetch
+        assert orbit.changed_at == second_fetch
 
 
 class TestSimpleParse3le:

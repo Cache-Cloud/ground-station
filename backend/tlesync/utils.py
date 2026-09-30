@@ -423,7 +423,11 @@ def create_satellite_from_tle_data(sat, norad_id):
     )
 
 
-def create_satellite_orbit_from_source_data(sat: Dict[str, Any], norad_id: int) -> SatelliteOrbits:
+def create_satellite_orbit_from_source_data(
+    sat: Dict[str, Any],
+    norad_id: int,
+    existing_orbit: Optional[SatelliteOrbits] = None,
+) -> SatelliteOrbits:
     """
     Create or update canonical orbit row from normalized source record.
 
@@ -465,20 +469,55 @@ def create_satellite_orbit_from_source_data(sat: Dict[str, Any], norad_id: int) 
     if model_kind != "omm":
         omm_payload = None
 
+    fetched_at = sat.get("fetched_at")
+    if isinstance(fetched_at, str):
+        fetched_at = parse_date(fetched_at)
+    elif not isinstance(fetched_at, datetime):
+        fetched_at = datetime.now(timezone.utc)
+
     tle1 = sat.get("line1")
     tle2 = sat.get("line2")
-    return SatelliteOrbits(
-        satellite_norad_id=norad_id,
-        central_body=central_body,
-        model_kind=model_kind,
-        epoch=orbit_epoch,
-        tle1=tle1,
-        tle2=tle2,
-        omm_payload=omm_payload,
-        source_id=source_uuid,
-        source_object_id=sat.get("source_object_id") or str(norad_id),
-        source_updated_at=source_updated_at,
+    new_content = (model_kind, orbit_epoch, tle1, tle2, omm_payload)
+
+    if existing_orbit is None:
+        return SatelliteOrbits(
+            satellite_norad_id=norad_id,
+            central_body=central_body,
+            model_kind=model_kind,
+            epoch=orbit_epoch,
+            tle1=tle1,
+            tle2=tle2,
+            omm_payload=omm_payload,
+            source_id=source_uuid,
+            source_object_id=sat.get("source_object_id") or str(norad_id),
+            source_updated_at=source_updated_at,
+            fetched_at=fetched_at,
+            first_seen_at=fetched_at,
+            changed_at=fetched_at,
+            added=fetched_at,
+            updated=fetched_at,
+        )
+
+    old_content = (
+        existing_orbit.model_kind,
+        existing_orbit.epoch,
+        existing_orbit.tle1,
+        existing_orbit.tle2,
+        existing_orbit.omm_payload,
     )
+    existing_orbit.model_kind = model_kind
+    existing_orbit.epoch = orbit_epoch
+    existing_orbit.tle1 = tle1
+    existing_orbit.tle2 = tle2
+    existing_orbit.omm_payload = omm_payload
+    existing_orbit.source_id = source_uuid
+    existing_orbit.source_object_id = sat.get("source_object_id") or str(norad_id)
+    existing_orbit.source_updated_at = source_updated_at
+    existing_orbit.fetched_at = fetched_at
+    existing_orbit.updated = fetched_at
+    if old_content != new_content:
+        existing_orbit.changed_at = fetched_at
+    return existing_orbit
 
 
 def update_satellite_with_satnogs_data(satellite, satnogs_sat_info):

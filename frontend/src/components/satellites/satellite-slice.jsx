@@ -43,6 +43,10 @@ const defaultSatellite = {
     launched: null,
     deployed: null,
     updated: null,
+    orbit_epoch: null,
+    orbit_fetched_at: null,
+    orbit_first_seen_at: null,
+    orbit_changed_at: null,
 };
 
 export const deleteSatellite = createAsyncThunk(

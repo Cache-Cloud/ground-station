@@ -208,12 +208,28 @@ async def _upsert_satellite_orbit(
                 source_id=orbit_payload["source_id"],
                 source_object_id=orbit_payload["source_object_id"],
                 source_updated_at=orbit_payload["source_updated_at"],
+                first_seen_at=now_value,
+                changed_at=now_value,
                 added=now_value,
                 updated=now_value,
             )
         )
         return
 
+    previous_content = (
+        orbit_row.model_kind,
+        orbit_row.epoch,
+        orbit_row.tle1,
+        orbit_row.tle2,
+        orbit_row.omm_payload,
+    )
+    next_content = (
+        orbit_payload["model_kind"],
+        orbit_payload["epoch"],
+        orbit_payload["tle1"],
+        orbit_payload["tle2"],
+        orbit_payload["omm_payload"],
+    )
     orbit_row.model_kind = orbit_payload["model_kind"]
     orbit_row.epoch = orbit_payload["epoch"]
     orbit_row.tle1 = orbit_payload["tle1"]
@@ -222,6 +238,8 @@ async def _upsert_satellite_orbit(
     orbit_row.source_id = orbit_payload["source_id"]
     orbit_row.source_object_id = orbit_payload["source_object_id"]
     orbit_row.source_updated_at = orbit_payload["source_updated_at"]
+    if previous_content != next_content:
+        orbit_row.changed_at = now_value
     orbit_row.updated = now_value
 
 
@@ -264,6 +282,9 @@ async def _attach_primary_earth_orbits(
             satellite.setdefault("orbit_central_body", "earth")
             satellite.setdefault("orbit_epoch", None)
             satellite.setdefault("orbit_payload", None)
+            satellite.setdefault("orbit_fetched_at", None)
+            satellite.setdefault("orbit_first_seen_at", None)
+            satellite.setdefault("orbit_changed_at", None)
             continue
 
         model_kind = str(orbit.get("model_kind") or "tle").strip().lower() or "tle"
@@ -275,6 +296,9 @@ async def _attach_primary_earth_orbits(
         satellite["orbit_source_id"] = orbit.get("source_id")
         satellite["orbit_source_object_id"] = orbit.get("source_object_id")
         satellite["orbit_source_updated_at"] = orbit.get("source_updated_at")
+        satellite["orbit_fetched_at"] = orbit.get("fetched_at")
+        satellite["orbit_first_seen_at"] = orbit.get("first_seen_at")
+        satellite["orbit_changed_at"] = orbit.get("changed_at")
         if orbit.get("tle1"):
             satellite["tle1"] = orbit["tle1"]
         if orbit.get("tle2"):
@@ -758,8 +782,51 @@ async def search_satellites(
                 .correlate(Satellites)
                 .scalar_subquery()
             )
+            earth_orbit_epoch = (
+                select(SatelliteOrbits.epoch)
+                .where(
+                    SatelliteOrbits.satellite_norad_id == Satellites.norad_id,
+                    SatelliteOrbits.central_body == "earth",
+                )
+                .correlate(Satellites)
+                .scalar_subquery()
+            )
+            earth_orbit_fetched_at = (
+                select(SatelliteOrbits.fetched_at)
+                .where(
+                    SatelliteOrbits.satellite_norad_id == Satellites.norad_id,
+                    SatelliteOrbits.central_body == "earth",
+                )
+                .correlate(Satellites)
+                .scalar_subquery()
+            )
+            earth_orbit_first_seen_at = (
+                select(SatelliteOrbits.first_seen_at)
+                .where(
+                    SatelliteOrbits.satellite_norad_id == Satellites.norad_id,
+                    SatelliteOrbits.central_body == "earth",
+                )
+                .correlate(Satellites)
+                .scalar_subquery()
+            )
+            earth_orbit_changed_at = (
+                select(SatelliteOrbits.changed_at)
+                .where(
+                    SatelliteOrbits.satellite_norad_id == Satellites.norad_id,
+                    SatelliteOrbits.central_body == "earth",
+                )
+                .correlate(Satellites)
+                .scalar_subquery()
+            )
             sort_columns = {
                 "name": func.lower(Satellites.name),
+                "alternative_names": func.lower(
+                    func.coalesce(
+                        func.nullif(func.trim(Satellites.alternative_name), ""),
+                        func.nullif(func.trim(Satellites.name_other), ""),
+                        "",
+                    )
+                ),
                 "norad_id": Satellites.norad_id,
                 "status": func.lower(Satellites.status),
                 "countries": func.lower(Satellites.countries),
@@ -769,6 +836,10 @@ async def search_satellites(
                 "launched": Satellites.launched,
                 "deployed": Satellites.deployed,
                 "updated": Satellites.updated,
+                "orbit_epoch": earth_orbit_epoch,
+                "orbit_fetched_at": earth_orbit_fetched_at,
+                "orbit_first_seen_at": earth_orbit_first_seen_at,
+                "orbit_changed_at": earth_orbit_changed_at,
             }
             sort_column = sort_columns.get(sort_field, sort_columns["name"])
             ordering = sort_column.desc() if sort_direction == "desc" else sort_column.asc()

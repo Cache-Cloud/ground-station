@@ -66,6 +66,7 @@ import {
     getFrequencyBand
 } from '../common/common.jsx';
 import PassTransmitterLinksCell from '../common/pass-transmitter-links-cell.jsx';
+import {formatAlternativeSatelliteNames} from '../common/satellite-names.js';
 import {
     fetchSatellite,
     fetchSatelliteCatalogStats,
@@ -115,6 +116,12 @@ const MODE_OPTIONS = [
 ];
 
 const TRANSMITTER_TYPE_OPTIONS = ['Transmitter', 'Transceiver', 'Transponder'];
+export const DEFAULT_CATALOG_COLUMN_VISIBILITY = {
+    alternative_names: false,
+    deployed: false,
+    orbit_first_seen_at: false,
+    orbit_changed_at: false,
+};
 const TRANSMITTER_DEPENDENT_FILTERS = new Set([
     'bands', 'frequencyMin', 'frequencyMax', 'modes', 'transmitterTypes', 'services',
     'baudMin', 'baudMax', 'unconfirmed',
@@ -510,8 +517,8 @@ const SatelliteTable = React.memo(function SatelliteTable() {
         {
             field: 'name',
             headerName: t('satellite_database.name'),
-            flex: 1,
-            minWidth: 280,
+            width: 220,
+            minWidth: 180,
             renderCell: (params) => {
                 const hasExplicitTransmitterCriteria = Boolean(
                     catalogFilters.bands.length
@@ -551,6 +558,15 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                     </Box>
                 );
             },
+        },
+        {
+            field: 'alternative_names',
+            headerName: t('satellite_database.alternative_names'),
+            minWidth: 180,
+            flex: 0.6,
+            valueGetter: (_value, row) => (
+                formatAlternativeSatelliteNames(row.alternative_name, row.name_other) || '-'
+            ),
         },
         {
             field: 'norad_id',
@@ -637,12 +653,28 @@ const SatelliteTable = React.memo(function SatelliteTable() {
             },
         },
         {
-            field: 'updated',
-            headerName: t('satellite_database.updated'),
-            width: 125,
-            renderCell: (params) => {
-                return betterDateTimes(params.value, timezone);
-            },
+            field: 'orbit_epoch',
+            headerName: t('satellite_database.orbit_epoch_short'),
+            width: 135,
+            renderCell: (params) => betterDateTimes(params.value, timezone),
+        },
+        {
+            field: 'orbit_fetched_at',
+            headerName: t('satellite_database.orbit_fetched'),
+            width: 135,
+            renderCell: (params) => betterDateTimes(params.value, timezone),
+        },
+        {
+            field: 'orbit_first_seen_at',
+            headerName: t('satellite_database.orbit_first_seen'),
+            width: 135,
+            renderCell: (params) => betterDateTimes(params.value, timezone),
+        },
+        {
+            field: 'orbit_changed_at',
+            headerName: t('satellite_database.orbit_changed'),
+            width: 135,
+            renderCell: (params) => betterDateTimes(params.value, timezone),
         },
         {
             field: 'actions',
@@ -1145,6 +1177,11 @@ const SatelliteTable = React.memo(function SatelliteTable() {
                     paginationModel={paginationModel}
                     onPaginationModelChange={handlePaginationModelChange}
                     sortModel={sortModel}
+                    initialState={{
+                        columns: {
+                            columnVisibilityModel: DEFAULT_CATALOG_COLUMN_VISIBILITY,
+                        },
+                    }}
                     onSortModelChange={(model) => {
                         immediateSearchRef.current = true;
                         dispatch(setCatalogSortModel(model));

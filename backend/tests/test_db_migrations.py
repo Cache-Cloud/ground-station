@@ -60,6 +60,59 @@ def test_run_migrations_creates_backup_only_when_pending(monkeypatch, tmp_path):
     assert calls["upgrade"] == 2
 
 
+def test_orbit_timestamp_migration_backfills_existing_rows(monkeypatch, tmp_path):
+    db_path = tmp_path / "legacy-orbit-times.db"
+    monkeypatch.setenv("GS_DB", str(db_path))
+    monkeypatch.setenv("ALEMBIC_CONTEXT", "1")
+    alembic_config = migrations.get_alembic_config()
+    command.upgrade(alembic_config, "c7a1e9d4b2f6")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO satellites
+                (norad_id, name, source, tle1, tle2, added, updated)
+            VALUES
+                (25544, 'ISS', 'tlesync', 'line 1', 'line 2',
+                 '2026-09-01 10:00:00', '2026-09-29 19:00:00')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO satellite_orbits
+                (satellite_norad_id, central_body, model_kind, tle1, tle2,
+                 added, updated)
+            VALUES
+                (25544, 'earth', 'tle', 'line 1', 'line 2',
+                 '2026-09-01 10:00:00', '2026-09-29 19:00:00')
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    command.upgrade(alembic_config, "head")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        timestamps = connection.execute(
+            """
+            SELECT fetched_at, first_seen_at, changed_at
+            FROM satellite_orbits
+            WHERE satellite_norad_id = 25544 AND central_body = 'earth'
+            """
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert timestamps == (
+        "2026-09-29 19:00:00",
+        "2026-09-01 10:00:00",
+        "2026-09-29 19:00:00",
+    )
+
+
 def _insert_legacy_orbital_source(connection, name: str, url: str) -> str:
     """Insert a pre-remediation source row at the migration's parent revision."""
     source_id = uuid.uuid4().hex

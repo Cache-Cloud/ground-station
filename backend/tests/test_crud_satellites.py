@@ -18,6 +18,7 @@ Unit tests for satellite CRUD operations.
 """
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
@@ -394,6 +395,38 @@ class TestSatellitesCRUD:
         assert [len(satellite["transmitters"]) for satellite in first_page["data"]] == [2, 1]
         assert second_page["total"] == 3
         assert [satellite["norad_id"] for satellite in second_page["data"]] == [44001]
+
+    async def test_catalog_sorts_and_projects_orbit_lifecycle_times(self, db_session):
+        for norad_id in (44001, 44002):
+            await add_satellite(
+                db_session,
+                {
+                    "name": f"Orbit timestamp satellite {norad_id}",
+                    "norad_id": norad_id,
+                    "tle1": TLE1_TEMPLATE.format(norad=norad_id),
+                    "tle2": TLE2_TEMPLATE.format(norad=norad_id),
+                },
+            )
+
+        older = await db_session.get(SatelliteOrbits, (44001, "earth"))
+        newer = await db_session.get(SatelliteOrbits, (44002, "earth"))
+        older.changed_at = datetime(2026, 9, 29, 10, 0, tzinfo=timezone.utc)
+        newer.changed_at = datetime(2026, 9, 30, 10, 0, tzinfo=timezone.utc)
+        await db_session.commit()
+
+        result = await search_satellites(
+            db_session,
+            keyword=None,
+            filters={
+                "page": 0,
+                "page_size": 10,
+                "sort_field": "orbit_changed_at",
+                "sort_direction": "desc",
+            },
+        )
+
+        assert [satellite["norad_id"] for satellite in result["data"]] == [44002, 44001]
+        assert result["data"][0]["orbit_changed_at"] == "2026-09-30T10:00:00+00:00"
 
     async def test_catalog_search_matches_transmitter_description(self, db_session):
         """Global catalog search includes transmitter descriptions and returns the match data."""
