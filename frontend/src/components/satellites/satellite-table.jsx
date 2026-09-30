@@ -611,6 +611,7 @@ const SatelliteTable = React.memo(function SatelliteTable() {
         {
             field: 'transmitters',
             minWidth: 280,
+            flex: 1,
             align: 'center',
             headerAlign: 'center',
             headerName: t('satellite_database.bands'),
