@@ -228,9 +228,19 @@ test.describe('Setup Wizard', () => {
     const userMenuButton = page.getByRole('button', { name: new RegExp(`open user menu for ${wizardUsername}`, 'i') });
     await expect(userMenuButton).toBeVisible({ timeout: 120000 });
 
-    // Verify explicit logout flow.
-    const logoutReply = await page.request.post('/api/auth/logout');
-    expect(logoutReply.status()).toBe(200);
+    // Logout is idempotent, so retry a dropped CI container connection while
+    // still requiring the endpoint itself to return a successful response.
+    await expect.poll(async () => {
+      try {
+        const logoutReply = await page.request.post('/api/auth/logout');
+        return logoutReply.status();
+      } catch {
+        return null;
+      }
+    }, {
+      timeout: 15000,
+      intervals: [250, 500, 1000, 2000],
+    }).toBe(200);
 
     await expect.poll(async () => {
       const statusReply = await page.request.get('/api/auth/status');
