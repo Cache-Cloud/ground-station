@@ -74,6 +74,38 @@ const LIVE_DRAWER_REFRESH_MS = 200;
 const LIVE_DRAWER_ROW_LIMIT = 50;
 const DEFAULT_DRAWER_ROW_LIMIT = 100;
 
+const encodeAssetPath = (path) => path
+    .split('/')
+    .filter(Boolean)
+    .map(segment => encodeURIComponent(segment))
+    .join('/');
+
+export const resolveDecodedAssetUrl = (filepath, fallbackFilename) => {
+    const normalizedPath = typeof filepath === 'string'
+        ? `/${filepath.replace(/\\/g, '/').replace(/^\/+/, '')}`
+        : '';
+
+    // Scheduled decoders write inside their observation bundle, which is
+    // exposed by a different static route than manually decoded files.
+    const observationMarker = '/data/observations/';
+    const observationIndex = normalizedPath.lastIndexOf(observationMarker);
+    if (observationIndex !== -1) {
+        const relativePath = normalizedPath.slice(observationIndex + observationMarker.length);
+        return `/observations/${encodeAssetPath(relativePath)}`;
+    }
+
+    const decodedMarker = '/data/decoded/';
+    const decodedIndex = normalizedPath.lastIndexOf(decodedMarker);
+    if (decodedIndex !== -1) {
+        const relativePath = normalizedPath.slice(decodedIndex + decodedMarker.length);
+        return `/decoded/${encodeAssetPath(relativePath)}`;
+    }
+
+    return fallbackFilename
+        ? `/decoded/${encodeAssetPath(fallbackFilename)}`
+        : null;
+};
+
 // Decoder output is stored newest-first. Keep that ordering when selecting the
 // bounded live window so new packets are never displaced by older history.
 export const mapOutputsToRows = (outputs, rowLimit = DEFAULT_DRAWER_ROW_LIMIT) => {
@@ -124,6 +156,7 @@ export const mapOutputsToRows = (outputs, rowLimit = DEFAULT_DRAWER_ROW_LIMIT) =
                 height: output.output.height,
                 filename: output.output.filename,
                 filepath: output.output.filepath,
+                metadataFilename: output.output.metadata_filename,
                 metadataFilepath: output.output.metadata_filepath,
                 output: output.output,
             };
@@ -217,8 +250,8 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
                     metadataFilename = imageFilename.replace(/\.(png|jpe?g)$/i, '.json');
                 }
 
-                console.log('Fetching metadata from:', metadataFilename);
-                const metadataUrl = `/decoded/${metadataFilename}`;
+                const metadataUrl = resolveDecodedAssetUrl(row.metadataFilepath, metadataFilename);
+                console.log('Fetching metadata from:', metadataUrl);
 
                 const response = await fetch(metadataUrl);
 
@@ -245,9 +278,9 @@ const DecodedPacketsDrawer = ({ embedded = false }) => {
                     throw new Error('Filename not found or invalid');
                 }
 
-                const metadataFilename = filename.replace('.bin', '.json');
-                const fileUrl = `/decoded/${filename}`;
-                const metadataUrl = `/decoded/${metadataFilename}`;
+                const metadataFilename = row.metadataFilename || filename.replace(/\.bin$/i, '.json');
+                const fileUrl = resolveDecodedAssetUrl(row.filepath, filename);
+                const metadataUrl = resolveDecodedAssetUrl(row.metadataFilepath, metadataFilename);
 
                 // Fetch metadata from the metadata URL
                 const response = await fetch(metadataUrl);
