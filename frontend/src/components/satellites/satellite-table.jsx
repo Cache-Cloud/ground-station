@@ -517,8 +517,8 @@ const SatelliteTable = React.memo(function SatelliteTable() {
         {
             field: 'name',
             headerName: t('satellite_database.name'),
-            width: 220,
-            minWidth: 180,
+            width: 200,
+            minWidth: 160,
             renderCell: (params) => {
                 const hasExplicitTransmitterCriteria = Boolean(
                     catalogFilters.bands.length
@@ -562,8 +562,8 @@ const SatelliteTable = React.memo(function SatelliteTable() {
         {
             field: 'alternative_names',
             headerName: t('satellite_database.alternative_names'),
-            minWidth: 180,
-            flex: 0.6,
+            width: 170,
+            minWidth: 140,
             valueGetter: (_value, row) => (
                 formatAlternativeSatelliteNames(row.alternative_name, row.name_other) || '-'
             ),
@@ -639,7 +639,7 @@ const SatelliteTable = React.memo(function SatelliteTable() {
         {
             field: 'launched',
             headerName: t('satellite_database.launched'),
-            width: 150,
+            width: 130,
             renderCell: (params) => {
                 return betterDateTimes(params.value, timezone);
             },
@@ -655,13 +655,13 @@ const SatelliteTable = React.memo(function SatelliteTable() {
         {
             field: 'orbit_epoch',
             headerName: t('satellite_database.orbit_epoch_short'),
-            width: 135,
+            width: 120,
             renderCell: (params) => betterDateTimes(params.value, timezone),
         },
         {
             field: 'orbit_fetched_at',
             headerName: t('satellite_database.orbit_fetched'),
-            width: 135,
+            width: 120,
             renderCell: (params) => betterDateTimes(params.value, timezone),
         },
         {
