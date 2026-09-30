@@ -667,7 +667,7 @@ const SatelliteTable = React.memo(function SatelliteTable() {
         {
             field: 'orbit_first_seen_at',
             headerName: t('satellite_database.orbit_first_seen'),
-            width: 135,
+            width: 120,
             renderCell: (params) => betterDateTimes(params.value, timezone),
         },
         {
